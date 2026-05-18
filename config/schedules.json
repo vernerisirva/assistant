@@ -1,0 +1,39 @@
+{
+  "timezone": "Europe/Stockholm",
+  "daily": [
+    {
+      "id": "morning-brief",
+      "agent": "personal",
+      "time": "08:00",
+      "purpose": "Calendar summary, important Gmail, top priorities, meal plan, and workout anchor."
+    },
+    {
+      "id": "midday-check-in",
+      "agent": "health",
+      "time": "12:30",
+      "purpose": "Food, movement, energy, and schedule pressure check."
+    },
+    {
+      "id": "workout-window",
+      "agent": "health",
+      "window": {
+        "start": "16:00",
+        "end": "19:00"
+      },
+      "purpose": "Find a realistic workout or movement moment from calendar availability."
+    },
+    {
+      "id": "evening-review",
+      "agent": "personal",
+      "time": "21:00",
+      "purpose": "Tomorrow's calendar, open admin actions, meal prep needs, and health reflection."
+    }
+  ],
+  "weekly": {
+    "id": "weekly-review",
+    "agent": "personal",
+    "day": "Sunday",
+    "time": "19:00",
+    "purpose": "Review calendar, email, health friction, food planning, groceries, and one adjustment for the next week."
+  }
+}

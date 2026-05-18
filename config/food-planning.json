@@ -1,0 +1,36 @@
+{
+  "dailyMealPlan": {
+    "enabled": true,
+    "defaultMeals": ["breakfast", "lunch", "dinner", "snack"],
+    "style": "simple-repeatable-high-protein",
+    "includeBackupOptions": true,
+    "consider": [
+      "calendar-load",
+      "workout-timing",
+      "available-cooking-time",
+      "known-preferences",
+      "energy-level"
+    ]
+  },
+  "groceryPlanning": {
+    "enabled": true,
+    "cadence": "weekly-with-ad-hoc-updates",
+    "sections": [
+      "protein",
+      "vegetables",
+      "fruit",
+      "carbs",
+      "dairy-or-alternatives",
+      "snacks",
+      "breakfast",
+      "pantry",
+      "backup-meals"
+    ],
+    "principles": [
+      "healthy-convenience",
+      "simple-prep",
+      "realistic-portions",
+      "easy-default-meals"
+    ]
+  }
+}
