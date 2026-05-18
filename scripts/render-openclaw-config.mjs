@@ -17,6 +17,9 @@ export function buildOpenClawConfig(env, root = projectRoot) {
   );
 
   return {
+    gateway: {
+      mode: "local",
+    },
     agents: {
       defaults: {
         model: {

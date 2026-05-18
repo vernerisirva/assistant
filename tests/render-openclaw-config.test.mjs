@@ -71,6 +71,7 @@ describe("buildOpenClawConfig", () => {
   it("renders four agents with per-agent models", () => {
     const config = buildOpenClawConfig(env, projectRoot);
 
+    assert.equal(config.gateway.mode, "local");
     assert.deepEqual(
       config.agents.list.map((agent) => [agent.id, agent.model]),
       [
