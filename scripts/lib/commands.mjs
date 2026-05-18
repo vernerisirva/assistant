@@ -1,8 +1,9 @@
 import { existsSync, statSync } from "node:fs";
 import { delimiter, join } from "node:path";
-import { safeGeneratedPath } from "./config.mjs";
+import { safeGeneratedPath, safeOpenClawPath } from "./config.mjs";
 
 export const DEFAULT_OPENCLAW_CONFIG_PATH = ".openclaw/openclaw.json";
+export const DEFAULT_OPENCLAW_STATE_DIR = ".openclaw/state";
 
 export function commandExists(command) {
   if (typeof command !== "string" || command.length === 0) return false;
@@ -25,8 +26,8 @@ function isExecutableFile(path) {
   }
 }
 
-export function buildOpenClawGatewayArgs(configPath) {
-  return ["gateway", "--config", configPath, "--verbose"];
+export function buildOpenClawGatewayArgs() {
+  return ["gateway", "--verbose"];
 }
 
 export function requestedOpenClawConfigPath(env = {}) {
@@ -35,4 +36,12 @@ export function requestedOpenClawConfigPath(env = {}) {
 
 export function resolveOpenClawConfigPath(env = {}, projectRoot) {
   return safeGeneratedPath(projectRoot, requestedOpenClawConfigPath(env));
+}
+
+export function requestedOpenClawStateDir(env = {}) {
+  return env.OPENCLAW_STATE_DIR || DEFAULT_OPENCLAW_STATE_DIR;
+}
+
+export function resolveOpenClawStateDir(env = {}, projectRoot) {
+  return safeOpenClawPath(projectRoot, requestedOpenClawStateDir(env), "OPENCLAW_STATE_DIR");
 }

@@ -43,6 +43,11 @@ describe("parseEnvText", () => {
 });
 
 describe("requiredEnvReport", () => {
+  it("requires Google Pub/Sub setup values", () => {
+    assert.equal(REQUIRED_ENV_KEYS.includes("GOOGLE_PUBSUB_TOPIC"), true);
+    assert.equal(REQUIRED_ENV_KEYS.includes("GOOGLE_PUBSUB_SUBSCRIPTION"), true);
+  });
+
   it("separates present and missing keys", () => {
     const report = requiredEnvReport(
       { TELEGRAM_USER_ID: "123456789", GMAIL_ACCOUNT: "" },

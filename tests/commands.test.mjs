@@ -7,16 +7,32 @@ import {
   buildOpenClawGatewayArgs,
   commandExists,
   resolveOpenClawConfigPath,
+  resolveOpenClawStateDir,
 } from "../scripts/lib/commands.mjs";
 
 describe("buildOpenClawGatewayArgs", () => {
-  it("uses the rendered config path and verbose gateway mode", () => {
+  it("uses OPENCLAW_CONFIG_PATH from the environment and verbose gateway mode", () => {
     assert.deepEqual(buildOpenClawGatewayArgs(".openclaw/openclaw.json"), [
       "gateway",
-      "--config",
-      ".openclaw/openclaw.json",
       "--verbose",
     ]);
+  });
+});
+
+describe("resolveOpenClawStateDir", () => {
+  it("resolves the default state directory under the project root", () => {
+    const root = mkdtempSync(join(tmpdir(), "openclaw-state-test-"));
+
+    assert.equal(resolveOpenClawStateDir({}, root), join(root, ".openclaw/state"));
+  });
+
+  it("rejects state directories outside the generated OpenClaw directory", () => {
+    const root = mkdtempSync(join(tmpdir(), "openclaw-state-test-"));
+
+    assert.throws(
+      () => resolveOpenClawStateDir({ OPENCLAW_STATE_DIR: "../state" }, root),
+      /OPENCLAW_STATE_DIR must be a relative path under \.openclaw\//,
+    );
   });
 });
 

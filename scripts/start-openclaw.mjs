@@ -4,7 +4,11 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mergedEnv } from "./lib/env.mjs";
-import { buildOpenClawGatewayArgs, requestedOpenClawConfigPath } from "./lib/commands.mjs";
+import {
+  buildOpenClawGatewayArgs,
+  requestedOpenClawConfigPath,
+  resolveOpenClawStateDir,
+} from "./lib/commands.mjs";
 import { projectPath, safeGeneratedPath } from "./lib/config.mjs";
 
 const currentFile = fileURLToPath(import.meta.url);
@@ -13,8 +17,10 @@ const env = mergedEnv(projectPath(projectRoot, ".env"));
 const requestedConfigPath = requestedOpenClawConfigPath(env);
 
 let configPath;
+let stateDir;
 try {
   configPath = safeGeneratedPath(projectRoot, requestedConfigPath);
+  stateDir = resolveOpenClawStateDir(env, projectRoot);
 } catch (error) {
   console.error(error.message);
   process.exit(1);
@@ -25,9 +31,15 @@ if (!existsSync(configPath)) {
   process.exit(1);
 }
 
-const child = spawn("openclaw", buildOpenClawGatewayArgs(configPath), {
+const child = spawn("openclaw", buildOpenClawGatewayArgs(), {
+  cwd: projectRoot,
   stdio: "inherit",
-  env: { ...process.env, OPENCLAW_CONFIG_PATH: configPath },
+  env: {
+    ...process.env,
+    ...env,
+    OPENCLAW_CONFIG_PATH: configPath,
+    OPENCLAW_STATE_DIR: stateDir,
+  },
 });
 
 child.on("error", (error) => {

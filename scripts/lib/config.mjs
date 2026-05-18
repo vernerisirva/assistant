@@ -9,8 +9,8 @@ export function projectPath(projectRoot, relativePath) {
   return resolve(projectRoot, relativePath);
 }
 
-export function safeGeneratedPath(projectRoot, relativePath) {
-  const invalidPathError = new Error("OPENCLAW_CONFIG_PATH must be a relative path under .openclaw/");
+export function safeOpenClawPath(projectRoot, relativePath, envName) {
+  const invalidPathError = new Error(`${envName} must be a relative path under .openclaw/`);
 
   if (typeof relativePath !== "string" || relativePath.trim().length === 0) {
     throw invalidPathError;
@@ -30,4 +30,8 @@ export function safeGeneratedPath(projectRoot, relativePath) {
   }
 
   return outputPath;
+}
+
+export function safeGeneratedPath(projectRoot, relativePath) {
+  return safeOpenClawPath(projectRoot, relativePath, "OPENCLAW_CONFIG_PATH");
 }

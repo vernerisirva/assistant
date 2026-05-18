@@ -9,6 +9,6 @@
 7. Run OpenClaw diagnostics with `npm run doctor`.
 8. Start the gateway with `npm run start:openclaw`.
 
-Secret handling: `.env` and the rendered `.openclaw/openclaw.json` are local secrets. The rendered config includes `TELEGRAM_BOT_TOKEN`. Both files are gitignored; do not share them, commit them, force-add them, or paste their contents into tickets, issues, chats, or logs.
+Secret handling: `.env` is the local secret source for `TELEGRAM_BOT_TOKEN`. The rendered `.openclaw/openclaw.json` references that environment variable and `.openclaw/` also contains generated local workspaces. Both paths are gitignored; do not share them, commit them, force-add them, or paste their contents into tickets, issues, chats, or logs.
 
 The first version uses one Telegram bot. Specialist agents are hidden behind the personal agent.

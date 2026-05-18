@@ -6,7 +6,7 @@ Local OpenClaw multi-agent assistant accessed through one Telegram bot.
 
 This repository stores the configuration, agent standing orders, safety policy, and helper scripts for a personal assistant that runs on this Mac. OpenClaw provides the gateway, Telegram channel, agents, sessions, tools, and automation runtime.
 
-The first build creates a safe setup path. It does not commit real credentials and does not grant autonomous side-effect permissions. Your local `.env` file and rendered `.openclaw/openclaw.json` are local secrets, and the rendered config includes the Telegram bot token. Both files are gitignored; do not share them, commit them, force-add them, or paste their contents into tickets, issues, chats, or logs.
+The first build creates a safe setup path. It does not commit real credentials and does not grant autonomous side-effect permissions. Your local `.env` file is the secret source for Telegram, Google, and model credentials. The rendered `.openclaw/openclaw.json` references those env vars and `.openclaw/` also contains generated local workspaces. Both paths are gitignored; do not share them, commit them, force-add them, or paste their contents into tickets, issues, chats, or logs.
 
 ## Agents
 

@@ -10,6 +10,21 @@
 
 ---
 
+## Post-Review Implementation Notes
+
+The final implementation includes safety and OpenClaw-compatibility hardening discovered during review after this plan was written:
+
+- `npm run start:openclaw` starts `openclaw gateway --verbose` and selects the rendered config through `OPENCLAW_CONFIG_PATH`, matching current OpenClaw gateway docs.
+- The rendered config uses `agents.defaults.model`, `agents.defaults.models`, and per-agent `model` fields instead of the earlier draft `models.default` shape.
+- The rendered Telegram config references `${TELEGRAM_BOT_TOKEN}` rather than writing the real token into `.openclaw/openclaw.json`.
+- `npm run render:config` copies each repository prompt into the generated `.openclaw/workspace-*` directories so OpenClaw loads `AGENTS.md` and `SOUL.md` from the active agent workspaces.
+- Both `OPENCLAW_CONFIG_PATH` and `OPENCLAW_STATE_DIR` are constrained to relative paths under `.openclaw/`.
+- `GOOGLE_PUBSUB_TOPIC` and `GOOGLE_PUBSUB_SUBSCRIPTION` are required by env validation.
+
+These notes supersede older code snippets below where they differ.
+
+---
+
 ## Scope Check
 
 This plan implements the first-build skeleton described in the approved design spec. It intentionally does not automate purchases, modify Gmail or Calendar, integrate wearable data, or deploy to cloud infrastructure. Google setup is documented and environment-validated, while real OAuth and Pub/Sub credentials remain local.

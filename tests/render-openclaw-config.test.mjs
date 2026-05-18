@@ -23,6 +23,8 @@ const completeEnv = {
   OPENCLAW_CONFIG_PATH: ".openclaw/openclaw.json",
   GMAIL_ACCOUNT: "person@example.com",
   GOOGLE_CLOUD_PROJECT: "local-assistant",
+  GOOGLE_PUBSUB_TOPIC: "openclaw-gmail",
+  GOOGLE_PUBSUB_SUBSCRIPTION: "openclaw-gmail-subscription",
   ...env,
 };
 
@@ -42,6 +44,7 @@ function createTempProjectRoot() {
           default: true,
           workspace: ".openclaw/workspace-personal",
           agentDir: ".openclaw/agents/personal/agent",
+          promptDir: "agents/personal",
           modelEnv: "PRIMARY_MODEL",
         },
       ],
@@ -49,6 +52,9 @@ function createTempProjectRoot() {
       2,
     )}\n`,
   );
+  mkdirSync(join(root, "agents/personal"), { recursive: true });
+  writeFileSync(join(root, "agents/personal/AGENTS.md"), "# Personal\n\nConfirm-before-action.\n");
+  writeFileSync(join(root, "agents/personal/SOUL.md"), "# Soul\n");
   return root;
 }
 
@@ -74,6 +80,11 @@ describe("buildOpenClawConfig", () => {
         ["research", "provider/research-model"],
       ],
     );
+    assert.equal(config.stateDir, undefined);
+    assert.equal(config.models, undefined);
+    assert.equal(config.agents.defaults.model.primary, "provider/best-general-model");
+    assert.deepEqual(config.agents.defaults.model.fallbacks, ["provider/fast-routine-model"]);
+    assert.equal(config.agents.defaults.models["provider/reliable-admin-model"].alias, "provider/reliable-admin-model");
   });
 
   it("routes Telegram main account to the personal agent", () => {
@@ -82,8 +93,9 @@ describe("buildOpenClawConfig", () => {
     assert.deepEqual(config.bindings, [
       { agentId: "personal", match: { channel: "telegram", accountId: "main" } },
     ]);
+    assert.equal(config.channels.telegram.enabled, true);
     assert.deepEqual(config.channels.telegram.allowFrom, ["987654321"]);
-    assert.equal(config.channels.telegram.accounts.main.botToken, "123:token");
+    assert.equal(config.channels.telegram.accounts.main.botToken, "${TELEGRAM_BOT_TOKEN}");
   });
 
   it("keeps Telegram approvals pointed at the same allowlisted user", () => {
@@ -137,6 +149,15 @@ describe("buildOpenClawConfig", () => {
     );
   });
 
+  it("rejects state directories outside .openclaw", () => {
+    const root = createTempProjectRoot();
+
+    assert.throws(
+      () => writeOpenClawConfig({ ...completeEnv, OPENCLAW_STATE_DIR: "../leaky-state" }, root),
+      /OPENCLAW_STATE_DIR must be a relative path under \.openclaw\//,
+    );
+  });
+
   it("writes config output under .openclaw when env is complete", () => {
     const root = createTempProjectRoot();
     const outputPath = writeOpenClawConfig(
@@ -146,7 +167,19 @@ describe("buildOpenClawConfig", () => {
 
     assert.equal(outputPath, resolve(root, ".openclaw/openclaw.json"));
     const config = JSON.parse(readFileSync(outputPath, "utf8"));
-    assert.equal(config.channels.telegram.accounts.main.botToken, "123:token");
+    assert.equal(config.channels.telegram.accounts.main.botToken, "${TELEGRAM_BOT_TOKEN}");
+    assert.equal(JSON.stringify(config).includes("123:token"), false);
+  });
+
+  it("copies standing orders into generated agent workspaces", () => {
+    const root = createTempProjectRoot();
+    writeOpenClawConfig(completeEnv, root);
+
+    assert.equal(
+      readFileSync(join(root, ".openclaw/workspace-personal/AGENTS.md"), "utf8"),
+      "# Personal\n\nConfirm-before-action.\n",
+    );
+    assert.equal(readFileSync(join(root, ".openclaw/workspace-personal/SOUL.md"), "utf8"), "# Soul\n");
   });
 
   it("reads the default env file from the project root instead of cwd", () => {
