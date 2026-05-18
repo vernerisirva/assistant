@@ -88,6 +88,30 @@ describe("buildOpenClawConfig", () => {
     assert.equal(config.agents.defaults.models["provider/reliable-admin-model"].alias, "provider/reliable-admin-model");
   });
 
+  it("enables the runtime plugins used by the assistant", () => {
+    const config = buildOpenClawConfig(env, projectRoot);
+
+    assert.deepEqual(config.plugins.entries.codex, { enabled: true });
+    assert.deepEqual(config.plugins.entries.openai, { enabled: true });
+    assert.deepEqual(config.plugins.entries.telegram, { enabled: true });
+    assert.deepEqual(config.plugins.entries.duckduckgo, { enabled: true });
+    assert.equal(config.plugins.load, undefined);
+  });
+
+  it("loads a local Codex plugin path when configured", () => {
+    const config = buildOpenClawConfig(
+      {
+        ...env,
+        OPENCLAW_CODEX_PLUGIN_PATH: "/Users/example/.openclaw/npm/node_modules/@openclaw/codex",
+      },
+      projectRoot,
+    );
+
+    assert.deepEqual(config.plugins.load.paths, [
+      "/Users/example/.openclaw/npm/node_modules/@openclaw/codex",
+    ]);
+  });
+
   it("routes Telegram main account to the personal agent", () => {
     const config = buildOpenClawConfig(env, projectRoot);
 
@@ -106,15 +130,13 @@ describe("buildOpenClawConfig", () => {
     assert.deepEqual(config.channels.telegram.accounts.main.execApprovals.approvers, ["987654321"]);
   });
 
-  it("reports missing environment keys when run as a CLI without env", () => {
-    const result = spawnSync(process.execPath, ["scripts/render-openclaw-config.mjs"], {
-      cwd: projectRoot,
-      encoding: "utf8",
-      env: {},
-    });
+  it("reports missing environment keys when no env values are available", () => {
+    const root = createTempProjectRoot();
 
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /Missing environment keys:/);
+    assert.throws(
+      () => writeOpenClawConfig({}, root),
+      /Missing environment keys:/,
+    );
   });
 
   it("rejects config output paths outside .openclaw", () => {

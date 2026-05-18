@@ -11,6 +11,7 @@ const projectRoot = resolve(dirname(currentFile), "..");
 export function buildOpenClawConfig(env, root = projectRoot) {
   const agents = readJson(projectPath(root, "config/agents.json"));
   const telegramUserId = env.TELEGRAM_USER_ID;
+  const codexPluginPath = env.OPENCLAW_CODEX_PLUGIN_PATH?.trim();
   const modelRefs = [...new Set([env.PRIMARY_MODEL, env.ADMIN_MODEL, env.HEALTH_MODEL, env.RESEARCH_MODEL, env.ROUTINE_MODEL])];
   const modelCatalog = Object.fromEntries(
     modelRefs.filter(Boolean).map((modelRef) => [modelRef, { alias: modelRef }]),
@@ -19,6 +20,29 @@ export function buildOpenClawConfig(env, root = projectRoot) {
   return {
     gateway: {
       mode: "local",
+    },
+    plugins: {
+      ...(codexPluginPath
+        ? {
+            load: {
+              paths: [codexPluginPath],
+            },
+          }
+        : {}),
+      entries: {
+        codex: {
+          enabled: true,
+        },
+        openai: {
+          enabled: true,
+        },
+        telegram: {
+          enabled: true,
+        },
+        duckduckgo: {
+          enabled: true,
+        },
+      },
     },
     agents: {
       defaults: {
