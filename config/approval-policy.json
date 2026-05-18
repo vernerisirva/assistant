@@ -1,0 +1,75 @@
+{
+  "initialTrustMode": "confirm-before-action",
+  "approvalChannel": "telegram",
+  "allowedWithoutExtraApproval": [
+    "read-telegram-messages-sent-to-assistant",
+    "summarize-configured-gmail-and-calendar",
+    "draft-email-calendar-plan-grocery-and-health-recommendations",
+    "ask-clarifying-questions",
+    "send-check-ins",
+    "run-read-only-project-diagnostics"
+  ],
+  "approvalRequired": [
+    {
+      "domain": "email",
+      "actions": ["send", "delete", "archive", "label", "mark-read", "move"]
+    },
+    {
+      "domain": "calendar",
+      "actions": ["create-event", "edit-event", "delete-event", "respond-to-invite"]
+    },
+    {
+      "domain": "shell",
+      "actions": ["write-files", "change-settings", "launch-apps", "install-software", "run-state-changing-commands"]
+    },
+    {
+      "domain": "browser",
+      "actions": ["submit-forms", "purchase", "book", "post", "message", "change-account-state"]
+    },
+    {
+      "domain": "files",
+      "actions": ["edit-outside-requested-implementation", "delete", "move-sensitive-files"]
+    },
+    {
+      "domain": "sensitive-local-data",
+      "actions": ["read-private-directories", "extract-secrets", "inspect-unrelated-personal-data"]
+    },
+    {
+      "domain": "purchases-and-finance",
+      "actions": ["pay", "trade", "transfer", "subscribe", "order-delivery"]
+    }
+  ],
+  "approvalPromptRequiredFields": [
+    "agent",
+    "action",
+    "target",
+    "expectedEffect",
+    "risk",
+    "approvalOptions"
+  ],
+  "auditLogFields": [
+    "timestamp",
+    "agent",
+    "action",
+    "target",
+    "expectedEffect",
+    "risk",
+    "approvalOptions",
+    "decision",
+    "result"
+  ],
+  "trustLadder": [
+    {
+      "mode": "confirm-before-action",
+      "description": "All side effects require explicit approval."
+    },
+    {
+      "mode": "trusted-routine",
+      "description": "A named low-risk routine can run automatically after repeated successful approvals."
+    },
+    {
+      "mode": "permanent-approval-required",
+      "description": "High-risk actions stay approval-gated even when routine actions become trusted."
+    }
+  ]
+}
