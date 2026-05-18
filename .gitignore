@@ -1,1 +1,12 @@
+.DS_Store
 .worktrees/
+node_modules/
+npm-debug.log*
+.env
+.env.*
+!.env.example
+.openclaw/
+data/
+logs/
+*.log
+coverage/
