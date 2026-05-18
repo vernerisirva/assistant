@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mergedEnv, requiredEnvReport, REQUIRED_ENV_KEYS } from "./lib/env.mjs";
@@ -131,10 +131,31 @@ export function writeOpenClawConfig(env, root = projectRoot) {
   const outputPath = safeGeneratedPath(root, configEnv.OPENCLAW_CONFIG_PATH || ".openclaw/openclaw.json");
   safeOpenClawPath(root, configEnv.OPENCLAW_STATE_DIR || ".openclaw/state", "OPENCLAW_STATE_DIR");
   const config = buildOpenClawConfig(configEnv, root);
+  preserveGatewayCredentials(config, outputPath);
   prepareAgentWorkspaces(root);
   mkdirSync(dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, `${JSON.stringify(config, null, 2)}\n`);
   return outputPath;
+}
+
+function preserveGatewayCredentials(config, outputPath) {
+  if (!existsSync(outputPath)) return;
+
+  let existingConfig;
+  try {
+    existingConfig = JSON.parse(readFileSync(outputPath, "utf8"));
+  } catch {
+    return;
+  }
+
+  const existingGateway = existingConfig.gateway;
+  if (!existingGateway || typeof existingGateway !== "object") return;
+
+  config.gateway = {
+    ...config.gateway,
+    ...(existingGateway.auth ? { auth: existingGateway.auth } : {}),
+    ...(existingGateway.remote ? { remote: existingGateway.remote } : {}),
+  };
 }
 
 if (process.argv[1] && currentFile === resolve(process.argv[1])) {

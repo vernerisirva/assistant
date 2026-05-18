@@ -16,6 +16,7 @@ describe("approval policy", () => {
       "calendar",
       "shell",
       "browser",
+      "todoist",
       "files",
       "sensitive-local-data",
       "purchases-and-finance",
@@ -35,6 +36,7 @@ describe("approval policy", () => {
 
   it("keeps high-risk actions approval-gated", () => {
     assert.ok(actionsForDomain("calendar").includes("respond-to-invite"));
+    assert.ok(actionsForDomain("todoist").includes("delete-task"));
     assert.ok(actionsForDomain("sensitive-local-data").includes("extract-secrets"));
     assert.ok(actionsForDomain("purchases-and-finance").includes("trade"));
   });

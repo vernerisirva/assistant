@@ -194,6 +194,38 @@ describe("buildOpenClawConfig", () => {
     assert.equal(JSON.stringify(config).includes("123:token"), false);
   });
 
+  it("preserves existing gateway auth tokens when rerendering launchd config", () => {
+    const root = createTempProjectRoot();
+    const outputPath = resolve(root, ".openclaw/openclaw.json");
+    mkdirSync(join(root, ".openclaw"), { recursive: true });
+    writeFileSync(
+      outputPath,
+      `${JSON.stringify(
+        {
+          gateway: {
+            mode: "local",
+            auth: {
+              mode: "token",
+              token: "persisted-gateway-token",
+            },
+            remote: {
+              token: "persisted-gateway-token",
+            },
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    writeOpenClawConfig(completeEnv, root);
+
+    const config = JSON.parse(readFileSync(outputPath, "utf8"));
+    assert.equal(config.gateway.auth.mode, "token");
+    assert.equal(config.gateway.auth.token, "persisted-gateway-token");
+    assert.equal(config.gateway.remote.token, "persisted-gateway-token");
+  });
+
   it("copies standing orders into generated agent workspaces", () => {
     const root = createTempProjectRoot();
     writeOpenClawConfig(completeEnv, root);

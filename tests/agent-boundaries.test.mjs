@@ -64,4 +64,16 @@ describe("agent configuration", () => {
     assert.match(prompt, /Do not diagnose medical conditions/);
     assert.match(prompt, /Do not give extreme dieting advice/);
   });
+
+  it("teaches the admin agent to use Todoist for task management", () => {
+    const adminAgent = agents.find((agent) => agent.id === "admin");
+    const prompt = readFileSync(`${adminAgent.promptDir}/AGENTS.md`, "utf8");
+
+    assert.match(prompt, /Todoist/);
+    assert.match(prompt, /npm run todoist/);
+    assert.match(
+      prompt,
+      /creating, editing, completing, deleting, or rescheduling Todoist tasks requires Telegram approval/i,
+    );
+  });
 });

@@ -4,7 +4,9 @@
   "allowedWithoutExtraApproval": [
     "read-telegram-messages-sent-to-assistant",
     "summarize-configured-gmail-and-calendar",
+    "read-configured-todoist-tasks",
     "draft-email-calendar-plan-grocery-and-health-recommendations",
+    "draft-todoist-task-changes",
     "ask-clarifying-questions",
     "send-check-ins",
     "run-read-only-project-diagnostics"
@@ -25,6 +27,10 @@
     {
       "domain": "browser",
       "actions": ["submit-forms", "purchase", "book", "post", "message", "change-account-state"]
+    },
+    {
+      "domain": "todoist",
+      "actions": ["create-task", "edit-task", "complete-task", "reopen-task", "delete-task", "reschedule-task", "move-task", "comment"]
     },
     {
       "domain": "files",

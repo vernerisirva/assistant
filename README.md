@@ -11,7 +11,7 @@ The first build creates a safe setup path. It does not commit real credentials a
 ## Agents
 
 - `personal`: main Telegram-facing assistant and router.
-- `admin`: Gmail, Google Calendar, reminders, meeting prep, and logistics.
+- `admin`: Gmail, Google Calendar, Todoist, reminders, meeting prep, and logistics.
 - `health`: workouts, meal planning, groceries, sleep, routine, and healthy-choice support.
 - `research`: source-backed lookup, comparisons, and planning support.
 
@@ -35,7 +35,7 @@ Prerequisites:
    cp .env.example .env
    ```
 
-3. Fill `.env` with your Telegram bot token, Telegram numeric user ID, model names, Gmail account, and Google Cloud details.
+3. Fill `.env` with your Telegram bot token, Telegram numeric user ID, model names, Gmail account, Google Cloud details, and optional Todoist API token.
 
 4. Validate local configuration:
 
@@ -67,4 +67,12 @@ Prerequisites:
 
 The assistant starts in confirm-before-action mode. It may summarize, draft, plan, and recommend, but sending email, changing calendar events, making purchases, submitting browser forms, editing unrelated files, or running state-changing shell commands requires Telegram approval.
 
+Todoist task writes also require Telegram approval. Reading configured Todoist tasks and projects is allowed once `TODOIST_API_TOKEN` is set locally.
+
 See `docs/security/approval-model.md`.
+
+## Integrations
+
+- Telegram: `docs/setup/telegram.md`
+- Google: `docs/setup/google.md`
+- Todoist: `docs/setup/todoist.md`
