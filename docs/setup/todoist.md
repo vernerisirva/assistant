@@ -48,4 +48,4 @@ npm run todoist -- close --task-id TASK_ID
 
 Reading configured Todoist tasks and projects is allowed. Creating, editing, completing, reopening, deleting, moving, commenting on, or rescheduling Todoist tasks requires explicit Telegram approval.
 
-Todoist REST API docs: https://developer.todoist.com/rest/v2/
+Todoist API docs: https://developer.todoist.com/api/v1/

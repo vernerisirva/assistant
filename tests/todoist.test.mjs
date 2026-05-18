@@ -82,14 +82,14 @@ describe("createTodoistClient", () => {
       token: "todoist-secret",
       fetchImpl: async (url, options) => {
         calls.push({ url, options });
-        return jsonResponse([{ id: "1", content: "Walk" }]);
+        return jsonResponse({ results: [{ id: "1", content: "Walk" }], next_cursor: null });
       },
     });
 
     const tasks = await client.getTasks({ filter: "today" });
 
     assert.deepEqual(tasks, [{ id: "1", content: "Walk" }]);
-    assert.equal(calls[0].url, "https://api.todoist.com/rest/v2/tasks?filter=today");
+    assert.equal(calls[0].url, "https://api.todoist.com/api/v1/tasks/filter?query=today");
     assert.equal(calls[0].options.headers.Authorization, "Bearer todoist-secret");
   });
 
@@ -109,7 +109,7 @@ describe("createTodoistClient", () => {
     );
 
     assert.equal(task.id, "42");
-    assert.equal(calls[0].url, "https://api.todoist.com/rest/v2/tasks");
+    assert.equal(calls[0].url, "https://api.todoist.com/api/v1/tasks");
     assert.equal(calls[0].options.method, "POST");
     assert.equal(calls[0].options.headers["X-Request-Id"], "req-1");
     assert.deepEqual(JSON.parse(calls[0].options.body), {
@@ -129,7 +129,7 @@ describe("createTodoistClient", () => {
     });
 
     assert.equal(await client.closeTask("task-1"), true);
-    assert.equal(calls[0].url, "https://api.todoist.com/rest/v2/tasks/task-1/close");
+    assert.equal(calls[0].url, "https://api.todoist.com/api/v1/tasks/task-1/close");
     assert.equal(calls[0].options.method, "POST");
   });
 

@@ -1,4 +1,4 @@
-export const TODOIST_API_BASE_URL = "https://api.todoist.com/rest/v2";
+export const TODOIST_API_BASE_URL = "https://api.todoist.com/api/v1";
 
 const taskFieldMap = {
   dueString: "due_string",
@@ -73,18 +73,24 @@ export function createTodoistClient({
   }
 
   return {
-    getProjects() {
-      return request("/projects");
+    async getProjects() {
+      return normalizePaginatedResults(await request("/projects"));
     },
-    getTasks({ filter, projectId, sectionId, label } = {}) {
-      return request("/tasks", {
+    async getTasks({ filter, projectId, sectionId, label } = {}) {
+      const path = filter ? "/tasks/filter" : "/tasks";
+      const query = filter
+        ? { query: filter }
+        : {
+            project_id: projectId,
+            section_id: sectionId,
+            label,
+          };
+
+      return normalizePaginatedResults(await request(path, {
         query: {
-          filter,
-          project_id: projectId,
-          section_id: sectionId,
-          label,
+          ...query,
         },
-      });
+      }));
     },
     addTask(input, { requestId } = {}) {
       return request("/tasks", {
@@ -120,4 +126,10 @@ function requireTaskId(taskId) {
   if (!taskId?.trim()) {
     throw new Error("Todoist task id is required.");
   }
+}
+
+function normalizePaginatedResults(response) {
+  if (Array.isArray(response)) return response;
+  if (Array.isArray(response?.results)) return response.results;
+  return response;
 }
