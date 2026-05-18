@@ -51,6 +51,18 @@ Prerequisites:
    npm run start:openclaw
    ```
 
+6. After the Telegram flow works, install the same repo config as the macOS
+   launchd service:
+
+   ```bash
+   npm run install:launchd
+   openclaw gateway status
+   ```
+
+   Keep this repository outside macOS-protected folders such as `~/Documents`.
+   The launchd service runs in the background and may not be allowed to read
+   those folders without additional privacy permissions.
+
 ## Safety
 
 The assistant starts in confirm-before-action mode. It may summarize, draft, plan, and recommend, but sending email, changing calendar events, making purchases, submitting browser forms, editing unrelated files, or running state-changing shell commands requires Telegram approval.
