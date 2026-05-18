@@ -46,7 +46,7 @@ This plan implements the first-build skeleton described in the approved design s
 ### Task 1: Repository Baseline
 
 **Files:**
-- Create: `.gitignore`
+- Modify: `.gitignore`
 - Create: `package.json`
 - Create: `.env.example`
 
@@ -80,6 +80,7 @@ Use `apply_patch` to create `.gitignore`:
 
 ```gitignore
 .DS_Store
+.worktrees/
 node_modules/
 npm-debug.log*
 .env
