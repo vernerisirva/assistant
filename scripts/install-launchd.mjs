@@ -157,6 +157,11 @@ ${args.map((arg) => `    <string>${xmlEscape(arg)}</string>`).join("\n")}
   <true/>
   <key>ProcessType</key>
   <string>Interactive</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
   <key>StandardOutPath</key>
   <string>${xmlEscape(stdoutPath)}</string>
   <key>StandardErrorPath</key>
