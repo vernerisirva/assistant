@@ -1,11 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildOpenClawGatewayArgs,
   commandExists,
+  resolveOpenClawCommand,
   resolveOpenClawConfigPath,
   resolveOpenClawStateDir,
 } from "../scripts/lib/commands.mjs";
@@ -56,6 +57,19 @@ describe("commandExists", () => {
     chmodSync(commandPath, 0o755);
 
     assert.equal(commandExists(commandPath), true);
+  });
+});
+
+describe("resolveOpenClawCommand", () => {
+  it("finds an NVM-installed OpenClaw command when PATH does not include it", () => {
+    const home = mkdtempSync(join(tmpdir(), "openclaw-home-test-"));
+    const commandDir = join(home, ".nvm/versions/node/v22.22.2/bin");
+    const commandPath = join(commandDir, "openclaw");
+    mkdirSync(commandDir, { recursive: true });
+    writeFileSync(commandPath, "#!/bin/sh\nexit 0\n");
+    chmodSync(commandPath, 0o755);
+
+    assert.equal(resolveOpenClawCommand({ HOME: home, PATH: "" }), commandPath);
   });
 });
 

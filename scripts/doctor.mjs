@@ -6,6 +6,7 @@ import {
   commandExists,
   requestedOpenClawConfigPath,
   requestedOpenClawStateDir,
+  resolveOpenClawCommand,
   resolveOpenClawStateDir,
 } from "./lib/commands.mjs";
 import { projectPath, safeGeneratedPath } from "./lib/config.mjs";
@@ -18,7 +19,8 @@ const env = mergedEnv(envPath);
 const report = requiredEnvReport(env, REQUIRED_ENV_KEYS);
 const requestedConfigPath = requestedOpenClawConfigPath(env);
 const requestedStateDir = requestedOpenClawStateDir(env);
-const hasOpenClaw = commandExists("openclaw");
+const openClawCommand = resolveOpenClawCommand(env);
+const hasOpenClaw = Boolean(openClawCommand);
 
 let configCheck;
 try {
@@ -39,7 +41,7 @@ try {
 const checks = [
   ["node", commandExists("node")],
   ["npm", commandExists("npm") || commandExists("/opt/homebrew/bin/npm")],
-  ["openclaw", hasOpenClaw],
+  ["openclaw", hasOpenClaw, openClawCommand === "openclaw" ? undefined : openClawCommand],
   [".env", existsSync(envPath)],
   configCheck,
   stateCheck,
