@@ -5,6 +5,7 @@
     "read-telegram-messages-sent-to-assistant",
     "summarize-configured-gmail-and-calendar",
     "read-configured-todoist-tasks",
+    "search-min-golf-tee-time-availability",
     "draft-email-calendar-plan-grocery-and-health-recommendations",
     "draft-todoist-task-changes",
     "ask-clarifying-questions",
@@ -31,6 +32,10 @@
     {
       "domain": "todoist",
       "actions": ["create-task", "edit-task", "complete-task", "reopen-task", "delete-task", "reschedule-task", "move-task", "comment"]
+    },
+    {
+      "domain": "min-golf",
+      "actions": ["book-tee-time", "edit-booking", "cancel-tee-time", "add-player", "remove-player", "pay-greenfee", "book-cart", "check-in"]
     },
     {
       "domain": "files",

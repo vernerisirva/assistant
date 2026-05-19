@@ -69,6 +69,8 @@ The assistant starts in confirm-before-action mode. It may summarize, draft, pla
 
 Todoist task writes also require Telegram approval. Reading configured Todoist tasks and projects is allowed once `TODOIST_API_TOKEN` is set locally.
 
+Min Golf Phase 1 is read-only tee-time availability search. Booking, payment, cancellation, adding players, editing bookings, cart booking, and check-in require Telegram approval and are not automated by the Phase 1 helper.
+
 See `docs/security/approval-model.md`.
 
 ## Integrations
@@ -76,3 +78,4 @@ See `docs/security/approval-model.md`.
 - Telegram: `docs/setup/telegram.md`
 - Google: `docs/setup/google.md`
 - Todoist: `docs/setup/todoist.md`
+- Min Golf: `docs/setup/mingolf.md`

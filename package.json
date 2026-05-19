@@ -10,6 +10,7 @@
     "render:config": "node scripts/render-openclaw-config.mjs",
     "doctor": "node scripts/doctor.mjs",
     "todoist": "node scripts/todoist.mjs",
+    "mingolf": "node scripts/mingolf.mjs",
     "start:openclaw": "node scripts/start-openclaw.mjs",
     "install:launchd": "node scripts/install-launchd.mjs"
   },

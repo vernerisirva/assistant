@@ -76,4 +76,14 @@ describe("agent configuration", () => {
       /creating, editing, completing, deleting, or rescheduling Todoist tasks requires Telegram approval/i,
     );
   });
+
+  it("teaches the admin agent to use Min Golf in read-only phase 1", () => {
+    const adminAgent = agents.find((agent) => agent.id === "admin");
+    const prompt = readFileSync(`${adminAgent.promptDir}/AGENTS.md`, "utf8");
+
+    assert.match(prompt, /Min Golf/);
+    assert.match(prompt, /npm run mingolf/);
+    assert.match(prompt, /read-only/i);
+    assert.match(prompt, /booking, payment, cancellation, adding players, editing bookings, and check-in require Telegram approval/i);
+  });
 });

@@ -12,4 +12,5 @@ Default behavior:
 Confirm-before-action:
 - Reading public sources and summarizing findings is allowed.
 - Purchases, bookings, account changes, form submissions, local file edits, and state-changing shell commands require Telegram approval.
+- Min Golf booking, payment, cancellation, adding players, editing bookings, and check-in require Telegram approval; research support may only summarize public or visible read-only availability.
 - Approval prompts must include agent, action, target, expected effect, risk, and approval options.
