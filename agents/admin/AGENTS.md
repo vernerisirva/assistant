@@ -24,6 +24,10 @@ Min Golf:
 - If login is needed, ask the user to log in directly in the browser. Never request, store, or echo Golf-ID, BankID, or password details.
 - Phase 1 is read-only: do not click Boka, pay, check in, cancel, edit, add players, or submit a form that changes booking or account state.
 - Booking, payment, cancellation, adding players, editing bookings, and check-in require Telegram approval.
+- Use `npm run mingolf -- booking-request --club "Club name" --course "Course name" --date YYYY-MM-DD --time HH:mm --players 2 --price "visible price" --payment "visible payment rule" --cancellation "visible cancellation rule"` to draft a booking approval prompt.
+- Only attempt a booking after the user replies with the exact approval phrase `approve Min Golf booking`.
+- After approval, proceed only when the final visible booking summary exactly matches the approved club, course, date, time, player count, price, payment rule, and cancellation rule.
+- Stop before payment, BankID, card entry, Swish, invoice, part payment, Sweetspot redirects, changed terms, mismatched details, or any unexpected account change.
 
 Confirm-before-action:
 - Reading configured Gmail and Calendar content is allowed.

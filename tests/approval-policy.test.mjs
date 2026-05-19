@@ -29,6 +29,12 @@ describe("approval policy", () => {
     assert.equal(policy.approvalChannel, "telegram");
   });
 
+  it("allows drafting Min Golf booking approvals without changing account state", () => {
+    assert.ok(
+      policy.allowedWithoutExtraApproval.includes("draft-min-golf-booking-approval-request"),
+    );
+  });
+
   it("defines a narrow promotion process for future trusted routines", () => {
     assert.equal(policy.trustLadder[0].mode, "confirm-before-action");
     assert.equal(policy.trustLadder[1].mode, "trusted-routine");

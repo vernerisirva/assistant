@@ -86,4 +86,14 @@ describe("agent configuration", () => {
     assert.match(prompt, /read-only/i);
     assert.match(prompt, /booking, payment, cancellation, adding players, editing bookings, and check-in require Telegram approval/i);
   });
+
+  it("teaches the admin agent the approval-gated Min Golf booking assist flow", () => {
+    const adminAgent = agents.find((agent) => agent.id === "admin");
+    const prompt = readFileSync(`${adminAgent.promptDir}/AGENTS.md`, "utf8");
+
+    assert.match(prompt, /booking-request/);
+    assert.match(prompt, /approve Min Golf booking/);
+    assert.match(prompt, /stop before payment/i);
+    assert.match(prompt, /Sweetspot/i);
+  });
 });

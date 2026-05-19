@@ -51,6 +51,24 @@ export function parseMinGolfArgs(argv) {
       case "--holes":
         options.holes = positiveInteger(value, "--holes");
         break;
+      case "--course":
+        options.course = value;
+        break;
+      case "--time":
+        options.time = value;
+        break;
+      case "--price":
+        options.price = value;
+        break;
+      case "--payment":
+        options.payment = value;
+        break;
+      case "--cancellation":
+        options.cancellation = value;
+        break;
+      case "--notes":
+        options.notes = value;
+        break;
       default:
         throw new Error(`Unknown Min Golf option: ${arg}`);
     }
@@ -82,23 +100,83 @@ export function buildMinGolfSearchPlan(options = {}) {
   };
 }
 
+export function buildMinGolfBookingApproval(options = {}) {
+  const details = normalizeBookingDetails(options);
+  const target = [
+    details.club,
+    details.course,
+    `${details.date} ${details.time}`,
+    `${details.players} player${details.players === 1 ? "" : "s"}`,
+  ].filter(Boolean).join(" / ");
+
+  return {
+    phase: "min-golf-booking-assist",
+    requiresTelegramApproval: true,
+    approvalPhrase: "approve Min Golf booking",
+    sourceUrl,
+    bookingDetails: details,
+    approvalPrompt: {
+      agent: "admin",
+      action: "book-tee-time",
+      target,
+      expectedEffect:
+        "Book the selected Min Golf tee time if the final booking summary exactly matches these details and no payment or strong authentication is required.",
+      risk:
+        "Wrong club, time, player count, price, cancellation rule, no-show rule, or payment requirement could create a booking you did not intend.",
+      approvalOptions: [
+        'Reply "approve Min Golf booking" to allow this exact booking attempt.',
+        "Reply with changes to adjust the booking details.",
+        "Reply deny to stop.",
+      ],
+    },
+    browserStepsAfterApproval: [
+      "Confirm the latest Telegram message explicitly says approve Min Golf booking.",
+      `Open ${sourceUrl}.`,
+      "If no saved session is active, ask the user to log in directly in the browser. Do not request, store, or echo Golf-ID, BankID, or password details.",
+      "Return to Hitta starttid and locate the selected tee time.",
+      "Select the tee time only if the visible club, course, date, time, player count, price, and cancellation information exactly matches the approved details.",
+      "Review the final booking summary. If it exactly matches the approval and no hard stop is present, complete the non-payment booking.",
+      "After completion, summarize the booking confirmation details back to Telegram.",
+    ],
+    hardStops: [
+      "missing-telegram-approval",
+      "details-mismatch",
+      "tee-time-unavailable",
+      "payment-required",
+      "bankid-or-strong-auth",
+      "sweetspot-redirect",
+      "terms-or-cancellation-rules-changed",
+      "unexpected-account-change",
+    ],
+    paymentPolicy:
+      "Stop before payment, BankID, card entry, Swish, invoice, part payment, or any checkout page. Ask the user to take over or approve a separate future payment flow.",
+  };
+}
+
 export async function runMinGolfCli(argv) {
   const parsed = parseMinGolfArgs(argv);
 
   if (parsed.command === "help") {
     return {
-      commands: ["search"],
+      commands: ["search", "booking-request"],
       examples: [
         'npm run mingolf -- search --club "Stockholms Golfklubb" --date 2026-05-23 --from 08:00 --to 12:00 --players 2',
         'npm run mingolf -- search --area Stockholm --date 2026-05-23 --players 1 --holes 18',
+        'npm run mingolf -- booking-request --club "Stockholms Golfklubb" --course "Gamla banan" --date 2026-05-23 --time 09:40 --players 2 --price "650 SEK/player" --payment pay-later --cancellation "Cancel by 18:00 the day before"',
       ],
       phase1Boundary:
-        "This helper only prepares a read-only browser plan. Booking, payment, cancellation, adding players, editing bookings, cart booking, and check-in require explicit Telegram approval and are not performed by this command.",
+        "Search only prepares a read-only browser plan. Booking, payment, cancellation, adding players, editing bookings, cart booking, and check-in require explicit Telegram approval.",
+      phase2Boundary:
+        "Booking-request only drafts an approval prompt and post-approval browser checklist. It stops before payment, BankID, Sweetspot redirects, changed terms, or mismatched details.",
     };
   }
 
   if (parsed.command === "search") {
     return buildMinGolfSearchPlan(parsed.options);
+  }
+
+  if (parsed.command === "booking-request") {
+    return buildMinGolfBookingApproval(parsed.options);
   }
 
   throw new Error(`Unknown Min Golf command: ${parsed.command}`);
@@ -137,6 +215,49 @@ function normalizeSearchCriteria(options) {
     to,
     players,
     holes,
+  };
+}
+
+function normalizeBookingDetails(options) {
+  const club = textOrNull(options.club);
+  const course = textOrNull(options.course);
+  const date = textOrNull(options.date);
+  const time = textOrNull(options.time);
+  const price = textOrNull(options.price);
+  const payment = textOrNull(options.payment);
+  const cancellation = textOrNull(options.cancellation);
+  const notes = textOrNull(options.notes);
+  const players = options.players === undefined ? null : positiveInteger(options.players, "--players");
+
+  if (!club) {
+    throw new Error("--club is required for Min Golf booking approval.");
+  }
+  if (!date) {
+    throw new Error("--date is required for Min Golf booking approval.");
+  }
+  if (!time) {
+    throw new Error("--time is required for Min Golf booking approval.");
+  }
+  if (!players) {
+    throw new Error("--players is required for Min Golf booking approval.");
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new Error("--date must use YYYY-MM-DD.");
+  }
+  if (!/^\d{2}:\d{2}$/.test(time)) {
+    throw new Error("--time must use HH:mm.");
+  }
+
+  return {
+    club,
+    course,
+    date,
+    time,
+    players,
+    price,
+    payment,
+    cancellation,
+    notes,
   };
 }
 

@@ -12,6 +12,7 @@ Confirm-before-action:
 - Side effects require Telegram approval before execution.
 - Approval prompts must include agent, action, target, expected effect, risk, and approval options.
 - Never send email, change Calendar, change Todoist tasks, book or change Min Golf tee times, pay, check in, submit browser forms, make purchases, edit unrelated files, or run state-changing shell commands without explicit approval.
+- For Min Golf bookings, require the exact approval phrase `approve Min Golf booking` after the admin agent has shown the final target, expected effect, risk, and approval options.
 
 Tone:
 - Be concise enough for Telegram.
