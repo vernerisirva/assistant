@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { approvalLanguagePolicy } from "./lib/approval-language.mjs";
 
 const currentFile = fileURLToPath(import.meta.url);
 const sourceUrl = "https://mingolf.golf.se/";
@@ -112,7 +113,12 @@ export function buildMinGolfBookingApproval(options = {}) {
   return {
     phase: "min-golf-booking-assist",
     requiresTelegramApproval: true,
-    approvalPhrase: "approve Min Golf booking",
+    approvalLanguage: {
+      acceptsNaturalLanguage: true,
+      requiresPendingApprovalPrompt: approvalLanguagePolicy.requiresPendingApprovalPrompt,
+      acceptedExamples: approvalLanguagePolicy.acceptedExamples,
+      rejectedExamples: approvalLanguagePolicy.rejectedExamples,
+    },
     sourceUrl,
     bookingDetails: details,
     approvalPrompt: {
@@ -124,13 +130,13 @@ export function buildMinGolfBookingApproval(options = {}) {
       risk:
         "Wrong club, time, player count, price, cancellation rule, no-show rule, or payment requirement could create a booking you did not intend.",
       approvalOptions: [
-        'Reply "approve Min Golf booking" to allow this exact booking attempt.',
+        'Reply with a clear approval such as "approve", "ok", "that is ok", "yes do it", or "go ahead" to allow this exact booking attempt.',
         "Reply with changes to adjust the booking details.",
         "Reply deny to stop.",
       ],
     },
     browserStepsAfterApproval: [
-      "Confirm the latest Telegram message explicitly says approve Min Golf booking.",
+      "Confirm the latest Telegram message is a clear natural approval such as approve, ok, that's ok, yes do it, or go ahead.",
       `Open ${sourceUrl}.`,
       "If no saved session is active, ask the user to log in directly in the browser. Do not request, store, or echo Golf-ID, BankID, or password details.",
       "Return to Hitta starttid and locate the selected tee time.",
@@ -167,7 +173,7 @@ export async function runMinGolfCli(argv) {
       phase1Boundary:
         "Search only prepares a read-only browser plan. Booking, payment, cancellation, adding players, editing bookings, cart booking, and check-in require explicit Telegram approval.",
       phase2Boundary:
-        "Booking-request only drafts an approval prompt and post-approval browser checklist. It stops before payment, BankID, Sweetspot redirects, changed terms, or mismatched details.",
+        "Booking-request only drafts an approval prompt and post-approval browser checklist. Clear natural approvals such as approve, ok, that's ok, yes do it, or go ahead are accepted. It stops before payment, BankID, Sweetspot redirects, changed terms, or mismatched details.",
     };
   }
 

@@ -34,7 +34,9 @@ Draft a booking approval request from an exact visible tee time:
 npm run mingolf -- booking-request --club "Stockholms Golfklubb" --course "Gamla banan" --date 2026-05-23 --time 09:40 --players 2 --price "650 SEK/player" --payment pay-later --cancellation "Cancel by 18:00 the day before"
 ```
 
-The booking request returns an approval prompt with the required fields: agent, action, target, expected effect, risk, and approval options. The user must reply with `approve Min Golf booking` before the assistant attempts the exact booking.
+The booking request returns an approval prompt with the required fields: agent, action, target, expected effect, risk, and approval options. Before the assistant attempts the exact booking, the user must reply with a clear natural approval such as `approve`, `ok`, `that's ok`, `yes do it`, `go ahead`, `proceed`, `sounds good`, or `looks good`.
+
+Questions, hedges, and denials do not count as approval. Examples that must stop the flow: `maybe ok`, `probably`, `is that ok?`, `can you approve this?`, `no`, `stop`, and `cancel`.
 
 ## Phase 2 Stop Rules
 

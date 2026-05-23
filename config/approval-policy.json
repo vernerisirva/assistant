@@ -59,6 +59,12 @@
     "risk",
     "approvalOptions"
   ],
+  "approvalLanguage": {
+    "mode": "flexible-explicit",
+    "requiresPendingApprovalPrompt": true,
+    "acceptedExamples": ["approve", "ok", "okay", "that's ok", "yes do it", "go ahead", "proceed", "sounds good", "looks good", "sure"],
+    "rejectedExamples": ["no", "do not approve", "stop", "cancel", "is that ok?", "maybe ok"]
+  },
   "auditLogFields": [
     "timestamp",
     "agent",

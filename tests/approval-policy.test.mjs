@@ -35,6 +35,13 @@ describe("approval policy", () => {
     );
   });
 
+  it("uses flexible but explicit approval language", () => {
+    assert.equal(policy.approvalLanguage.mode, "flexible-explicit");
+    assert.ok(policy.approvalLanguage.acceptedExamples.includes("approve"));
+    assert.ok(policy.approvalLanguage.acceptedExamples.includes("that's ok"));
+    assert.ok(policy.approvalLanguage.rejectedExamples.includes("maybe ok"));
+  });
+
   it("defines a narrow promotion process for future trusted routines", () => {
     assert.equal(policy.trustLadder[0].mode, "confirm-before-action");
     assert.equal(policy.trustLadder[1].mode, "trusted-routine");

@@ -92,7 +92,8 @@ describe("agent configuration", () => {
     const prompt = readFileSync(`${adminAgent.promptDir}/AGENTS.md`, "utf8");
 
     assert.match(prompt, /booking-request/);
-    assert.match(prompt, /approve Min Golf booking/);
+    assert.match(prompt, /natural approval replies/i);
+    assert.match(prompt, /approve, ok, that's ok, yes do it, go ahead/i);
     assert.match(prompt, /stop before payment/i);
     assert.match(prompt, /Sweetspot/i);
   });

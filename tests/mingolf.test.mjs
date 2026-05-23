@@ -124,7 +124,9 @@ describe("Min Golf search helper", () => {
 
     assert.equal(request.phase, "min-golf-booking-assist");
     assert.equal(request.requiresTelegramApproval, true);
-    assert.equal(request.approvalPhrase, "approve Min Golf booking");
+    assert.equal(request.approvalLanguage.acceptsNaturalLanguage, true);
+    assert.ok(request.approvalLanguage.acceptedExamples.includes("approve"));
+    assert.ok(request.approvalLanguage.acceptedExamples.includes("that's ok"));
     assert.equal(request.approvalPrompt.agent, "admin");
     assert.equal(request.approvalPrompt.action, "book-tee-time");
     assert.match(request.approvalPrompt.target, /Stockholms Golfklubb/);
@@ -133,7 +135,7 @@ describe("Min Golf search helper", () => {
     assert.match(request.approvalPrompt.risk, /payment/i);
     assert.match(request.approvalPrompt.risk, /no-show/i);
     assert.ok(request.approvalPrompt.approvalOptions.some((option) =>
-      option.includes("approve Min Golf booking"),
+      option.includes("approve"),
     ));
     assert.ok(request.browserStepsAfterApproval.some((step) => /exactly matches/i.test(step)));
     assert.ok(request.hardStops.includes("payment-required"));

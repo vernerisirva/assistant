@@ -30,4 +30,4 @@ Planned/default routines to enable and verify after OpenClaw automation is confi
 
 Starting the gateway alone does not prove these routines are running automatically in the first skeleton.
 
-When the assistant proposes a side effect, approve it only if the action, target, expected effect, and risk are clear.
+When the assistant proposes a side effect, approve it only if the action, target, expected effect, and risk are clear. Natural approvals such as `approve`, `ok`, `that's ok`, `yes do it`, or `go ahead` are enough after a clear approval prompt.

@@ -25,7 +25,8 @@ Min Golf:
 - Phase 1 is read-only: do not click Boka, pay, check in, cancel, edit, add players, or submit a form that changes booking or account state.
 - Booking, payment, cancellation, adding players, editing bookings, and check-in require Telegram approval.
 - Use `npm run mingolf -- booking-request --club "Club name" --course "Course name" --date YYYY-MM-DD --time HH:mm --players 2 --price "visible price" --payment "visible payment rule" --cancellation "visible cancellation rule"` to draft a booking approval prompt.
-- Only attempt a booking after the user replies with the exact approval phrase `approve Min Golf booking`.
+- Only attempt a booking after the latest Telegram reply is a clear natural approval reply such as approve, ok, that's ok, yes do it, go ahead, proceed, sounds good, or looks good.
+- Do not treat questions, hedges, or denials as approval, including maybe ok, probably, is that ok?, can you approve this?, no, stop, or cancel.
 - After approval, proceed only when the final visible booking summary exactly matches the approved club, course, date, time, player count, price, payment rule, and cancellation rule.
 - Stop before payment, BankID, card entry, Swish, invoice, part payment, Sweetspot redirects, changed terms, mismatched details, or any unexpected account change.
 
@@ -41,3 +42,4 @@ Confirm-before-action:
 - Browser submissions, purchases, and shell actions require Telegram approval.
 
 Approval prompts must include agent, action, target, expected effect, risk, and approval options.
+Natural approval replies are allowed only after a pending approval prompt with clear action, target, expected effect, and risk.

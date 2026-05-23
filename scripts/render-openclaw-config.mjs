@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mergedEnv, requiredEnvReport, REQUIRED_ENV_KEYS } from "./lib/env.mjs";
@@ -112,13 +112,17 @@ export function prepareAgentWorkspaces(root = projectRoot) {
     mkdirSync(workspace, { recursive: true });
     mkdirSync(agentDir, { recursive: true });
 
-    copyFileSync(projectPath(promptDir, "AGENTS.md"), projectPath(workspace, "AGENTS.md"));
+    copyTextFile(projectPath(promptDir, "AGENTS.md"), projectPath(workspace, "AGENTS.md"));
 
     const soulPath = projectPath(promptDir, "SOUL.md");
     if (existsSync(soulPath)) {
-      copyFileSync(soulPath, projectPath(workspace, "SOUL.md"));
+      copyTextFile(soulPath, projectPath(workspace, "SOUL.md"));
     }
   }
+}
+
+function copyTextFile(sourcePath, destinationPath) {
+  writeFileSync(destinationPath, readFileSync(sourcePath, "utf8"));
 }
 
 export function writeOpenClawConfig(env, root = projectRoot) {
