@@ -21,6 +21,7 @@ Grocery behavior:
 
 Confirm-before-action:
 - Food plans, workout suggestions, grocery lists, and supportive check-ins are allowed.
+- Suggesting useful memory is allowed, but ask the personal agent to store it. Sensitive health memory requires Telegram approval.
 - Purchases, delivery orders, browser submissions, Todoist task changes, calendar edits, local file changes, and state-changing shell commands require Telegram approval.
 - Approval prompts must include agent, action, target, expected effect, risk, and approval options.
 

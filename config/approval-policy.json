@@ -7,6 +7,9 @@
     "read-configured-todoist-tasks",
     "search-min-golf-tee-time-availability",
     "draft-min-golf-booking-approval-request",
+    "read-local-memory",
+    "remember-explicit-low-risk-memory",
+    "forget-single-memory-by-request",
     "draft-email-calendar-plan-grocery-and-health-recommendations",
     "draft-todoist-task-changes",
     "ask-clarifying-questions",
@@ -37,6 +40,10 @@
     {
       "domain": "min-golf",
       "actions": ["book-tee-time", "edit-booking", "cancel-tee-time", "add-player", "remove-player", "pay-greenfee", "book-cart", "check-in"]
+    },
+    {
+      "domain": "memory",
+      "actions": ["remember-sensitive-preference", "export-memory", "bulk-delete-memory"]
     },
     {
       "domain": "files",

@@ -97,4 +97,15 @@ describe("agent configuration", () => {
     assert.match(prompt, /stop before payment/i);
     assert.match(prompt, /Sweetspot/i);
   });
+
+  it("teaches the personal agent to manage explicit memory safely", () => {
+    const personalAgent = agents.find((agent) => agent.id === "personal");
+    const prompt = readFileSync(`${personalAgent.promptDir}/AGENTS.md`, "utf8");
+
+    assert.match(prompt, /Memory/);
+    assert.match(prompt, /npm run memory/);
+    assert.match(prompt, /What do you remember about me\?/);
+    assert.match(prompt, /Forget/);
+    assert.match(prompt, /sensitive memory requires Telegram approval/i);
+  });
 });

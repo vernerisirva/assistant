@@ -11,6 +11,7 @@
     "doctor": "node scripts/doctor.mjs",
     "todoist": "node scripts/todoist.mjs",
     "mingolf": "node scripts/mingolf.mjs",
+    "memory": "node scripts/memory.mjs",
     "start:openclaw": "node scripts/start-openclaw.mjs",
     "install:launchd": "node scripts/install-launchd.mjs"
   },

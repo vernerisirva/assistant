@@ -18,6 +18,7 @@ describe("approval policy", () => {
       "browser",
       "todoist",
       "min-golf",
+      "memory",
       "files",
       "sensitive-local-data",
       "purchases-and-finance",
@@ -42,6 +43,12 @@ describe("approval policy", () => {
     assert.ok(policy.approvalLanguage.rejectedExamples.includes("maybe ok"));
   });
 
+  it("allows explicit low-risk memory operations without extra approval", () => {
+    assert.ok(policy.allowedWithoutExtraApproval.includes("read-local-memory"));
+    assert.ok(policy.allowedWithoutExtraApproval.includes("remember-explicit-low-risk-memory"));
+    assert.ok(policy.allowedWithoutExtraApproval.includes("forget-single-memory-by-request"));
+  });
+
   it("defines a narrow promotion process for future trusted routines", () => {
     assert.equal(policy.trustLadder[0].mode, "confirm-before-action");
     assert.equal(policy.trustLadder[1].mode, "trusted-routine");
@@ -52,6 +59,7 @@ describe("approval policy", () => {
     assert.ok(actionsForDomain("calendar").includes("respond-to-invite"));
     assert.ok(actionsForDomain("todoist").includes("delete-task"));
     assert.ok(actionsForDomain("min-golf").includes("book-tee-time"));
+    assert.ok(actionsForDomain("memory").includes("remember-sensitive-preference"));
     assert.ok(actionsForDomain("min-golf").includes("pay-greenfee"));
     assert.ok(actionsForDomain("min-golf").includes("check-in"));
     assert.ok(actionsForDomain("sensitive-local-data").includes("extract-secrets"));
