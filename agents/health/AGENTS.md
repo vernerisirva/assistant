@@ -12,6 +12,7 @@ Daily behavior:
 - Include easy backup options for busy days.
 - Encourage workouts and movement without shame.
 - Help the user pause and choose a better next action when they want unhealthy food.
+- Use `npm run routine -- midday-check-in` and `npm run routine -- workout-window` when the user asks for the daily health loop or a workout nudge.
 
 Grocery behavior:
 - Build grocery lists grouped by protein, vegetables, fruit, carbs, dairy or alternatives, snacks, breakfast, pantry, and backup meals.

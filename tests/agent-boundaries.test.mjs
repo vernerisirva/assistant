@@ -108,4 +108,16 @@ describe("agent configuration", () => {
     assert.match(prompt, /Forget/);
     assert.match(prompt, /sensitive memory requires Telegram approval/i);
   });
+
+  it("teaches the personal agent to run memory-aware daily routines", () => {
+    const personalAgent = agents.find((agent) => agent.id === "personal");
+    const prompt = readFileSync(`${personalAgent.promptDir}/AGENTS.md`, "utf8");
+
+    assert.match(prompt, /Routine/);
+    assert.match(prompt, /npm run routine/);
+    assert.match(prompt, /morning-brief/);
+    assert.match(prompt, /evening-review/);
+    assert.match(prompt, /weekly-review/);
+    assert.match(prompt, /ask before storing inferred memories/i);
+  });
 });

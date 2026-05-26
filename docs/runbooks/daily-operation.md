@@ -12,7 +12,7 @@ Render config after changing `.env` or `config/agents.json`:
 npm run render:config
 ```
 
-`config/schedules.json`, `config/approval-policy.json`, and `config/food-planning.json` are repository defaults for prompts, docs, and tests in this first skeleton. They are not wired into OpenClaw automation until a later implementation step.
+`config/schedules.json`, `config/approval-policy.json`, and `config/food-planning.json` are repository defaults for prompts, docs, and tests. Routines are available as helper commands through `npm run routine`, but they are not yet scheduled as OpenClaw automations.
 
 Start the local OpenClaw gateway:
 
@@ -31,3 +31,13 @@ Planned/default routines to enable and verify after OpenClaw automation is confi
 Starting the gateway alone does not prove these routines are running automatically in the first skeleton.
 
 When the assistant proposes a side effect, approve it only if the action, target, expected effect, and risk are clear. Natural approvals such as `approve`, `ok`, `that's ok`, `yes do it`, or `go ahead` are enough after a clear approval prompt.
+
+Run a routine manually:
+
+```bash
+npm run routine -- morning-brief
+npm run routine -- midday-check-in
+npm run routine -- workout-window
+npm run routine -- evening-review
+npm run routine -- weekly-review
+```

@@ -73,6 +73,8 @@ Min Golf Phase 1 is read-only tee-time availability search. Phase 2 can draft ex
 
 Memory Phase 1 stores explicit local preferences in `.openclaw/state/memory/preferences.json`. Low-risk preferences can be remembered when you explicitly ask; sensitive memories require Telegram approval. You can ask what the assistant remembers and ask it to forget entries.
 
+Routine Phase 1 adds memory-aware briefing templates through `npm run routine`. These generate structured Telegram prompts for morning brief, midday check-in, workout window, evening review, and weekly review. They do not perform side effects directly.
+
 See `docs/security/approval-model.md`.
 
 ## Integrations
@@ -82,3 +84,4 @@ See `docs/security/approval-model.md`.
 - Todoist: `docs/setup/todoist.md`
 - Min Golf: `docs/setup/mingolf.md`
 - Memory: `docs/setup/memory.md`
+- Routines: `docs/setup/routines.md`

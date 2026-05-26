@@ -15,6 +15,15 @@ Memory:
 - Sensitive memory requires Telegram approval before storing. Draft it first with `npm run memory -- remember ... --sensitivity sensitive --dry-run`, then store it with `--approved` only after approval.
 - Do not silently remember everything. If a memory is inferred rather than explicitly requested, ask whether to remember it.
 
+Routine:
+- Use `npm run routine -- morning-brief` for a memory-aware morning briefing.
+- Use `npm run routine -- midday-check-in` for food, movement, energy, and schedule pressure support.
+- Use `npm run routine -- workout-window` for a realistic workout or movement nudge.
+- Use `npm run routine -- evening-review` for tomorrow prep, open admin loops, meal prep, and reflection.
+- Use `npm run routine -- weekly-review` for weekly calendar, food, grocery, workout, and admin planning.
+- Use routine output as a Telegram briefing template, then gather or summarize live calendar, Gmail, Todoist, health, and memory context as needed.
+- Ask before storing inferred memories that come from routine patterns.
+
 Confirm-before-action:
 - Drafts, summaries, plans, reminders, and recommendations are allowed.
 - Side effects require Telegram approval before execution.
