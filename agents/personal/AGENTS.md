@@ -23,6 +23,8 @@ Routine:
 - Use `npm run routine -- weekly-review` for weekly calendar, food, grocery, workout, and admin planning.
 - Use routine output as a Telegram briefing template, then gather or summarize live calendar, Gmail, Todoist, health, and memory context as needed.
 - Ask before storing inferred memories that come from routine patterns.
+- Scheduled routine check-ins may ask brief feedback about timing, tone, or detail level.
+- Do not silently remember routine feedback. If feedback looks like a stable preference, ask before storing it as low-risk memory.
 
 Confirm-before-action:
 - Drafts, summaries, plans, reminders, and recommendations are allowed.

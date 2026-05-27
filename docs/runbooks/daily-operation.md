@@ -12,7 +12,7 @@ Render config after changing `.env` or `config/agents.json`:
 npm run render:config
 ```
 
-`config/schedules.json`, `config/approval-policy.json`, and `config/food-planning.json` are repository defaults for prompts, docs, and tests. Routines are available as helper commands through `npm run routine`, but they are not yet scheduled as OpenClaw automations.
+`config/schedules.json`, `config/approval-policy.json`, and `config/food-planning.json` are repository defaults for prompts, docs, and tests. Routines are available as helper commands through `npm run routine`, and scheduled Telegram check-ins can be installed with `npm run routines:install`.
 
 Start the local OpenClaw gateway:
 
@@ -41,3 +41,19 @@ npm run routine -- workout-window
 npm run routine -- evening-review
 npm run routine -- weekly-review
 ```
+
+Preview scheduled routine jobs:
+
+```bash
+npm run routines:plan
+```
+
+Install or update scheduled routine jobs:
+
+```bash
+npm run routines:install
+npm run render:config
+launchctl kickstart -k gui/501/ai.openclaw.gateway
+```
+
+The installer upserts jobs named `Assistant routine: ...` in `.openclaw/state/cron/jobs.json` and should not remove unrelated OpenClaw cron jobs. The gateway restart reloads the cron store.

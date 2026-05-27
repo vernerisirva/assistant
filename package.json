@@ -13,6 +13,8 @@
     "mingolf": "node scripts/mingolf.mjs",
     "memory": "node scripts/memory.mjs",
     "routine": "node scripts/routine.mjs",
+    "routines:plan": "node scripts/routines-cron.mjs plan",
+    "routines:install": "node scripts/routines-cron.mjs install",
     "start:openclaw": "node scripts/start-openclaw.mjs",
     "install:launchd": "node scripts/install-launchd.mjs"
   },

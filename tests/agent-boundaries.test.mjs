@@ -120,4 +120,13 @@ describe("agent configuration", () => {
     assert.match(prompt, /weekly-review/);
     assert.match(prompt, /ask before storing inferred memories/i);
   });
+
+  it("teaches the personal agent scheduled routine feedback boundaries", () => {
+    const personalAgent = agents.find((agent) => agent.id === "personal");
+    const prompt = readFileSync(`${personalAgent.promptDir}/AGENTS.md`, "utf8");
+
+    assert.match(prompt, /scheduled routine/i);
+    assert.match(prompt, /timing, tone, or detail/i);
+    assert.match(prompt, /do not silently remember/i);
+  });
 });

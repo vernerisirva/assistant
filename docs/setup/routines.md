@@ -8,6 +8,8 @@ Routine Phase 1 generates memory-aware Telegram briefing templates. The helper r
 
 It does not send messages, create tasks, edit calendars, or perform side effects by itself.
 
+Scheduled Routine Phase 1 installs OpenClaw cron jobs that send the routine check-ins through Telegram. The jobs use the same helper output and still keep every side effect behind approval.
+
 ## Commands
 
 Morning brief:
@@ -40,11 +42,27 @@ Weekly review:
 npm run routine -- weekly-review
 ```
 
+Preview scheduled routine jobs without changing OpenClaw:
+
+```bash
+npm run routines:plan
+```
+
+Install or update the scheduled Telegram check-ins:
+
+```bash
+npm run routines:install
+```
+
+The installer upserts jobs named `Assistant routine: ...` in `.openclaw/state/cron/jobs.json` and leaves unrelated OpenClaw cron jobs alone. Restart the OpenClaw gateway after installing so the scheduler reloads the store.
+
 ## Telegram Use
 
 The personal agent should use the routine output as a briefing template, then gather live context from configured tools where appropriate: Calendar, Gmail, Todoist, memory, food planning, and health context.
 
 The assistant may summarize, draft, recommend, and check in. Side effects still require Telegram approval.
+
+Scheduled check-ins should include a small feedback invitation about timing, tone, or detail level. If that feedback suggests a stable preference, the assistant must ask before storing it as memory.
 
 ## Memory Boundary
 
