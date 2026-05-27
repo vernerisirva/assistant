@@ -109,6 +109,63 @@ export function upsertRoutineCronJobs(
   };
 }
 
+export function routineCronStatus(existingStore, existingState = {}) {
+  const jobs = Array.isArray(existingStore?.jobs) ? existingStore.jobs : [];
+  return jobs
+    .filter((job) => isRoutineJob(job))
+    .map((job) => {
+      const state = existingState.jobs?.[job.id]?.state ?? {};
+      return {
+        routineId: routineIdFromJobName(job.name),
+        name: job.name,
+        enabled: job.enabled !== false,
+        cron: job.schedule?.expr,
+        timezone: job.schedule?.tz,
+        nextRunAt: state.nextRunAtMs ? new Date(state.nextRunAtMs).toISOString() : null,
+        lastStatus: state.lastStatus ?? null,
+      };
+    });
+}
+
+export function updateRoutineCronEnabled(existingStore, routineId, enabled) {
+  const jobName = routineJobName(routineId);
+  const { store, job } = updateRoutineCronJob(existingStore, jobName, (candidate) => ({
+    ...candidate,
+    enabled,
+  }));
+
+  return {
+    store,
+    result: {
+      action: enabled ? "enable" : "disable",
+      routineId,
+      jobName: job.name,
+    },
+  };
+}
+
+export function updateRoutineCronTime(existingStore, routineId, time) {
+  const parsedTime = parseTime(time);
+  const jobName = routineJobName(routineId);
+  const { store, job } = updateRoutineCronJob(existingStore, jobName, (candidate) => ({
+    ...candidate,
+    schedule: {
+      ...candidate.schedule,
+      expr: cronExpressionWithTime(candidate.schedule?.expr, parsedTime),
+    },
+  }));
+
+  return {
+    store,
+    result: {
+      action: "set-time",
+      routineId,
+      jobName: job.name,
+      cron: job.schedule.expr,
+    },
+  };
+}
+
 function buildRoutineCronJob(routine, { telegramUserId, schedule }) {
   return {
     routineId: routine.id,
@@ -128,6 +185,40 @@ function buildRoutineCronJob(routine, { telegramUserId, schedule }) {
       to: `telegram:${telegramUserId}`,
       bestEffort: true,
     },
+  };
+}
+
+function routineJobName(routineId) {
+  return `Assistant routine: ${routineId}`;
+}
+
+function routineIdFromJobName(name) {
+  return name.slice("Assistant routine: ".length);
+}
+
+function isRoutineJob(job) {
+  return typeof job?.name === "string" && job.name.startsWith("Assistant routine:");
+}
+
+function updateRoutineCronJob(existingStore, jobName, updater) {
+  const jobs = Array.isArray(existingStore?.jobs) ? existingStore.jobs : [];
+  let updatedJob;
+  const updatedJobs = jobs.map((job) => {
+    if (job.name !== jobName) return job;
+    updatedJob = updater(job);
+    return updatedJob;
+  });
+
+  if (!updatedJob) {
+    throw new Error(`Routine cron job not installed: ${jobName}`);
+  }
+
+  return {
+    store: {
+      version: existingStore?.version ?? 1,
+      jobs: updatedJobs,
+    },
+    job: updatedJob,
   };
 }
 
@@ -250,6 +341,15 @@ function weeklyCronExpression(routine) {
     throw new Error(`Unsupported weekly routine day: ${routine.day}`);
   }
   return `${minute} ${hour} * * ${day}`;
+}
+
+function cronExpressionWithTime(expr, { hour, minute }) {
+  const parts = (expr ?? "").trim().split(/\s+/);
+  if (parts.length !== 5) {
+    throw new Error(`Unsupported routine cron expression: ${expr}`);
+  }
+
+  return [String(minute), String(hour), ...parts.slice(2)].join(" ");
 }
 
 function midpointTime(window) {

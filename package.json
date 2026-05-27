@@ -15,6 +15,10 @@
     "routine": "node scripts/routine.mjs",
     "routines:plan": "node scripts/routines-cron.mjs plan",
     "routines:install": "node scripts/routines-cron.mjs install",
+    "routines:status": "node scripts/routines-cron.mjs status",
+    "routines:enable": "node scripts/routines-cron.mjs enable",
+    "routines:disable": "node scripts/routines-cron.mjs disable",
+    "routines:set-time": "node scripts/routines-cron.mjs set-time",
     "start:openclaw": "node scripts/start-openclaw.mjs",
     "install:launchd": "node scripts/install-launchd.mjs"
   },

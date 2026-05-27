@@ -128,5 +128,8 @@ describe("agent configuration", () => {
     assert.match(prompt, /scheduled routine/i);
     assert.match(prompt, /timing, tone, or detail/i);
     assert.match(prompt, /do not silently remember/i);
+    assert.match(prompt, /routines:status/);
+    assert.match(prompt, /routines:disable/);
+    assert.match(prompt, /routines:set-time/);
   });
 });

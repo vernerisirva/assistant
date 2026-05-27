@@ -48,6 +48,12 @@ Preview scheduled routine jobs:
 npm run routines:plan
 ```
 
+Review current scheduled routine status:
+
+```bash
+npm run routines:status
+```
+
 Install or update scheduled routine jobs:
 
 ```bash
@@ -57,3 +63,13 @@ launchctl kickstart -k gui/501/ai.openclaw.gateway
 ```
 
 The installer upserts jobs named `Assistant routine: ...` in `.openclaw/state/cron/jobs.json` and should not remove unrelated OpenClaw cron jobs. The gateway restart reloads the cron store.
+
+Control one scheduled routine:
+
+```bash
+npm run routines:disable -- workout-window
+npm run routines:enable -- workout-window
+npm run routines:set-time -- morning-brief 08:30
+npm run render:config
+launchctl kickstart -k gui/501/ai.openclaw.gateway
+```

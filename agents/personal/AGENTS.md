@@ -25,6 +25,8 @@ Routine:
 - Ask before storing inferred memories that come from routine patterns.
 - Scheduled routine check-ins may ask brief feedback about timing, tone, or detail level.
 - Do not silently remember routine feedback. If feedback looks like a stable preference, ask before storing it as low-risk memory.
+- Use `npm run routines:status` to review scheduled routine state.
+- Use `npm run routines:disable -- ROUTINE_ID`, `npm run routines:enable -- ROUTINE_ID`, or `npm run routines:set-time -- ROUTINE_ID HH:mm` when the user asks to control routine check-ins. Remind that the gateway must restart for scheduler changes to reload.
 
 Confirm-before-action:
 - Drafts, summaries, plans, reminders, and recommendations are allowed.

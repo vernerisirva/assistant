@@ -73,7 +73,7 @@ Min Golf Phase 1 is read-only tee-time availability search. Phase 2 can draft ex
 
 Memory Phase 1 stores explicit local preferences in `.openclaw/state/memory/preferences.json`. Low-risk preferences can be remembered when you explicitly ask; sensitive memories require Telegram approval. You can ask what the assistant remembers and ask it to forget entries.
 
-Routine Phase 1 adds memory-aware briefing templates through `npm run routine`. These generate structured Telegram prompts for morning brief, midday check-in, workout window, evening review, and weekly review. Routine scheduling can be installed with `npm run routines:install`; scheduled check-ins ask light feedback about timing, tone, and detail level, but they do not perform side effects directly.
+Routine Phase 1 adds memory-aware briefing templates through `npm run routine`. These generate structured Telegram prompts for morning brief, midday check-in, workout window, evening review, and weekly review. Routine scheduling can be installed with `npm run routines:install` and controlled with `npm run routines:status`, `npm run routines:disable -- ROUTINE_ID`, `npm run routines:enable -- ROUTINE_ID`, and `npm run routines:set-time -- ROUTINE_ID HH:mm`. Scheduled check-ins ask light feedback about timing, tone, and detail level, but they do not perform side effects directly.
 
 See `docs/security/approval-model.md`.
 

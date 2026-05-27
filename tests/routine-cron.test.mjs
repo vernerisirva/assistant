@@ -5,6 +5,9 @@ import {
   buildRoutineCronCommands,
   buildRoutineCronJobs,
   maskCronCommandForDisplay,
+  routineCronStatus,
+  updateRoutineCronEnabled,
+  updateRoutineCronTime,
   upsertRoutineCronJobs,
 } from "../scripts/lib/routine-cron.mjs";
 import { parseRoutineCronArgs, runRoutineCronCli } from "../scripts/routines-cron.mjs";
@@ -135,6 +138,84 @@ describe("routine cron jobs", () => {
     assert.match(morning.payload.message, /morning-brief/);
     assert.equal(morning.delivery.mode, "announce");
   });
+
+  it("reports routine status with next run information", () => {
+    const jobs = buildRoutineCronJobs(schedules, { telegramUserId: "1029709001" });
+    const upserted = upsertRoutineCronJobs({ version: 1, jobs: [] }, jobs, {
+      nowMs: 1779900000000,
+      idGenerator: () => "routine-id",
+    }).store;
+    const morning = upserted.jobs.find((job) => job.name === "Assistant routine: morning-brief");
+
+    const status = routineCronStatus(upserted, {
+      jobs: {
+        [morning.id]: {
+          state: {
+            nextRunAtMs: 1779948000000,
+            lastStatus: "ok",
+          },
+        },
+      },
+    });
+
+    assert.equal(status.length, 5);
+    assert.deepEqual(status[0], {
+      routineId: "morning-brief",
+      name: "Assistant routine: morning-brief",
+      enabled: true,
+      cron: "0 8 * * *",
+      timezone: "Europe/Stockholm",
+      nextRunAt: "2026-05-28T06:00:00.000Z",
+      lastStatus: "ok",
+    });
+  });
+
+  it("enables and disables only the selected routine job", () => {
+    const jobs = buildRoutineCronJobs(schedules, { telegramUserId: "1029709001" });
+    const upserted = upsertRoutineCronJobs({ version: 1, jobs: [] }, jobs, {
+      nowMs: 1779900000000,
+      idGenerator: () => "routine-id",
+    }).store;
+
+    const disabled = updateRoutineCronEnabled(upserted, "workout-window", false);
+    assert.equal(
+      disabled.store.jobs.find((job) => job.name === "Assistant routine: workout-window").enabled,
+      false,
+    );
+    assert.equal(
+      disabled.store.jobs.find((job) => job.name === "Assistant routine: morning-brief").enabled,
+      true,
+    );
+    assert.equal(disabled.result.action, "disable");
+
+    const enabled = updateRoutineCronEnabled(disabled.store, "workout-window", true);
+    assert.equal(
+      enabled.store.jobs.find((job) => job.name === "Assistant routine: workout-window").enabled,
+      true,
+    );
+    assert.equal(enabled.result.action, "enable");
+  });
+
+  it("updates daily and weekly routine times", () => {
+    const jobs = buildRoutineCronJobs(schedules, { telegramUserId: "1029709001" });
+    const upserted = upsertRoutineCronJobs({ version: 1, jobs: [] }, jobs, {
+      nowMs: 1779900000000,
+      idGenerator: () => "routine-id",
+    }).store;
+
+    const daily = updateRoutineCronTime(upserted, "morning-brief", "08:30");
+    assert.equal(
+      daily.store.jobs.find((job) => job.name === "Assistant routine: morning-brief").schedule.expr,
+      "30 8 * * *",
+    );
+
+    const weekly = updateRoutineCronTime(daily.store, "weekly-review", "18:45");
+    assert.equal(
+      weekly.store.jobs.find((job) => job.name === "Assistant routine: weekly-review").schedule.expr,
+      "45 18 * * 0",
+    );
+    assert.equal(weekly.result.action, "set-time");
+  });
 });
 
 describe("routine cron CLI", () => {
@@ -143,6 +224,15 @@ describe("routine cron CLI", () => {
     assert.deepEqual(parseRoutineCronArgs(["install", "--dry-run"]), {
       command: "install",
       options: { dryRun: true },
+    });
+    assert.deepEqual(parseRoutineCronArgs(["status"]), { command: "status", options: {} });
+    assert.deepEqual(parseRoutineCronArgs(["disable", "workout-window"]), {
+      command: "disable",
+      options: { routineId: "workout-window" },
+    });
+    assert.deepEqual(parseRoutineCronArgs(["set-time", "morning-brief", "08:30"]), {
+      command: "set-time",
+      options: { routineId: "morning-brief", time: "08:30" },
     });
   });
 
@@ -181,5 +271,50 @@ describe("routine cron CLI", () => {
     assert.equal(result.results.length, 5);
     assert.equal(writtenStore.jobs.length, 5);
     assert.equal(writtenStore.jobs[0].name, "Assistant routine: morning-brief");
+  });
+
+  it("runs status and control commands against the cron store", async () => {
+    const jobs = buildRoutineCronJobs(schedules, { telegramUserId: "1029709001" });
+    const existingCronStore = upsertRoutineCronJobs({ version: 1, jobs: [] }, jobs, {
+      nowMs: 1779900000000,
+      idGenerator: () => "routine-id",
+    }).store;
+    let writtenStore;
+
+    const status = await runRoutineCronCli(["status"], {
+      schedules,
+      env: { TELEGRAM_USER_ID: "1029709001" },
+      existingCronStore,
+      existingCronState: { jobs: {} },
+    });
+    assert.equal(status.routines.length, 5);
+
+    const disabled = await runRoutineCronCli(["disable", "midday-check-in"], {
+      schedules,
+      env: { TELEGRAM_USER_ID: "1029709001" },
+      existingCronStore,
+      writeCronStore: (store) => {
+        writtenStore = store;
+      },
+    });
+    assert.equal(disabled.result.action, "disable");
+    assert.equal(
+      writtenStore.jobs.find((job) => job.name === "Assistant routine: midday-check-in").enabled,
+      false,
+    );
+
+    const changed = await runRoutineCronCli(["set-time", "midday-check-in", "13:15"], {
+      schedules,
+      env: { TELEGRAM_USER_ID: "1029709001" },
+      existingCronStore: writtenStore,
+      writeCronStore: (store) => {
+        writtenStore = store;
+      },
+    });
+    assert.equal(changed.result.action, "set-time");
+    assert.equal(
+      writtenStore.jobs.find((job) => job.name === "Assistant routine: midday-check-in").schedule.expr,
+      "15 13 * * *",
+    );
   });
 });

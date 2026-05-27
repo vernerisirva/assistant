@@ -56,6 +56,27 @@ npm run routines:install
 
 The installer upserts jobs named `Assistant routine: ...` in `.openclaw/state/cron/jobs.json` and leaves unrelated OpenClaw cron jobs alone. Restart the OpenClaw gateway after installing so the scheduler reloads the store.
 
+Review scheduled routine status:
+
+```bash
+npm run routines:status
+```
+
+Temporarily disable or re-enable one routine:
+
+```bash
+npm run routines:disable -- workout-window
+npm run routines:enable -- workout-window
+```
+
+Change one routine time:
+
+```bash
+npm run routines:set-time -- morning-brief 08:30
+```
+
+Restart the gateway after enable, disable, or set-time so the scheduler reloads the cron store.
+
 ## Telegram Use
 
 The personal agent should use the routine output as a briefing template, then gather live context from configured tools where appropriate: Calendar, Gmail, Todoist, memory, food planning, and health context.
