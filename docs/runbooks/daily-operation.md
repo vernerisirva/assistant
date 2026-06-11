@@ -54,6 +54,21 @@ Review current scheduled routine status:
 npm run routines:status
 ```
 
+Inspect temporary routine-only skips:
+
+```bash
+npm run routines:skips
+```
+
+Skip or unskip one assistant routine for one Europe/Stockholm date:
+
+```bash
+npm run routines:skip -- workout-window 2026-06-11
+npm run routines:unskip -- workout-window 2026-06-11
+```
+
+Routine skips do not disable future runs and do not affect one-shot reminders. The cron prompts must be rendered once with skip awareness; after that, changing `skips.json` does not require a gateway restart.
+
 Install or update scheduled routine jobs:
 
 ```bash
