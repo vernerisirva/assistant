@@ -141,8 +141,12 @@ describe("agent configuration", () => {
     assert.match(prompt, /npm run routines:skips/);
     assert.match(prompt, /npm run routines:skip -- ROUTINE_ID YYYY-MM-DD/);
     assert.match(prompt, /npm run routines:unskip -- ROUTINE_ID YYYY-MM-DD/);
+    assert.match(prompt, /Read-only skip inspection is allowed without extra approval/i);
     assert.match(prompt, /requires Telegram approval/i);
+    assert.match(prompt, /agent, action, target routine id and date, expected effect, risk, and approval options/i);
     assert.match(prompt, /temporary and routine-only/i);
     assert.match(prompt, /does not skip one-shot reminders/i);
+    assert.match(prompt, /arbitrary cron jobs/i);
+    assert.match(prompt, /disable\/enable controls for recurring changes/i);
   });
 });

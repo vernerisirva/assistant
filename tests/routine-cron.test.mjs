@@ -40,9 +40,12 @@ describe("routine cron jobs", () => {
       assert.equal(job.delivery.to, "telegram:1029709001");
       assert.equal(job.delivery.bestEffort, true);
       assert.match(job.name, /^Assistant routine:/);
-      assert.match(job.message, new RegExp(`npm run routine -- ${job.routineId}`));
-      assert.match(job.message, /npm run --silent routines:skips -- --json/);
-      assert.match(job.message, /NO_REPLY/);
+      assert.deepEqual(job.message.split("\n").slice(0, 4), [
+        `Scheduled assistant routine: ${job.routineId}.`,
+        `First run npm run --silent routines:skips -- --json from the assistant repo and inspect ${job.routineId} for today's Europe/Stockholm date.`,
+        `If ${job.routineId} is skippedToday, return exactly NO_REPLY as your final answer and do no routine work.`,
+        `If ${job.routineId} is not skippedToday, run npm run routine -- ${job.routineId} from the assistant repo and use the returned telegramPrompt as the briefing template.`,
+      ]);
       assert.match(job.message, /skip store/i);
       assert.match(job.message, /No side effects without approval/i);
       assert.match(job.message, /feedback/i);
