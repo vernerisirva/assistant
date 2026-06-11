@@ -1,6 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   buildRoutineCronCommands,
   buildRoutineCronJobs,
@@ -412,5 +414,76 @@ describe("routine cron CLI", () => {
       skippedToday: true,
     });
     assert.equal(result.find((entry) => entry.routineId === "morning-brief").skippedToday, false);
+  });
+
+  it("does not rewrite the skip store when skip is already present", async () => {
+    const result = await runRoutineCronCli(["skip", "workout-window", "2026-06-11"], {
+      schedules,
+      readSkipStoreForMutation: () => ({
+        version: 1,
+        skips: [
+          {
+            routineId: "workout-window",
+            date: "2026-06-11",
+            timezone: "Europe/Stockholm",
+            source: "telegram",
+            createdAt: "2026-06-10T20:15:00.000Z",
+          },
+        ],
+      }),
+      writeSkipStore: () => {
+        throw new Error("writeSkipStore should not run for an existing skip");
+      },
+    });
+
+    assert.equal(result.result.action, "skip");
+    assert.equal(result.result.added, false);
+  });
+
+  it("does not rewrite the skip store when unskip has nothing to remove", async () => {
+    const result = await runRoutineCronCli(["unskip", "workout-window", "2026-06-11"], {
+      schedules,
+      readSkipStoreForMutation: () => ({ version: 1, skips: [] }),
+      writeSkipStore: () => {
+        throw new Error("writeSkipStore should not run for a missing skip");
+      },
+    });
+
+    assert.equal(result.result.action, "unskip");
+    assert.equal(result.result.removed, false);
+  });
+
+  it("does not write the skip store during skip dry runs", async () => {
+    const result = await runRoutineCronCli(["skip", "workout-window", "2026-06-11", "--dry-run"], {
+      schedules,
+      readSkipStoreForMutation: () => ({ version: 1, skips: [] }),
+      writeSkipStore: () => {
+        throw new Error("writeSkipStore should not run during dry-run");
+      },
+    });
+
+    assert.equal(result.dryRun, true);
+    assert.equal(result.result.action, "skip");
+    assert.equal(result.result.added, true);
+  });
+
+  it("does not load cron state for skip status commands", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "routine-cron-lazy-"));
+
+    try {
+      mkdirSync(join(directory, "cron"), { recursive: true });
+      writeFileSync(join(directory, "cron/jobs.json"), "{ nope");
+
+      const result = await runRoutineCronCli(["skips", "--json"], {
+        schedules,
+        stateDir: directory,
+        readSkipStoreForStatus: () => ({ version: 1, skips: [] }),
+      });
+
+      assert.equal(result.length, 5);
+      assert.equal(result.find((entry) => entry.routineId === "workout-window").skippedToday, false);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

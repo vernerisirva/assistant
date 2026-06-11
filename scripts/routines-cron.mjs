@@ -92,17 +92,17 @@ export async function runRoutineCronCli(
     root = projectRoot,
     env = mergedEnv(projectPath(root, ".env")),
     schedules = readJson(projectPath(root, "config/schedules.json")),
-    config = readJsonIfExists(resolveOpenClawConfigPath(env, root)),
+    config,
     stateDir = resolveOpenClawStateDir(env, root),
     cronStorePath = resolveCronStorePath(stateDir),
-    existingCronStore = readExistingCronStore(cronStorePath),
-    existingCronState = readExistingCronState(stateDir),
-    existingJobs = Array.isArray(existingCronStore.jobs) ? existingCronStore.jobs : [],
+    existingCronStore,
+    existingCronState,
+    existingJobs,
     skipStorePath = resolveRoutineSkipStorePath(stateDir),
     readSkipStoreForStatus = () => readRoutineSkipStore(skipStorePath, { strict: false }),
     readSkipStoreForMutation = () => readRoutineSkipStore(skipStorePath, { strict: true }),
     writeSkipStore = (store) => writeRoutineSkipStoreFile(skipStorePath, store),
-    openclawCommand = resolveOpenClawCommand(env) ?? "openclaw",
+    openclawCommand,
     writeCronStore = (store) => writeCronStoreFile(cronStorePath, store),
     now = new Date(),
     nowMs = now.getTime(),
@@ -111,6 +111,23 @@ export async function runRoutineCronCli(
 ) {
   const parsed = parseRoutineCronArgs(argv);
   const configuredRoutineIds = routineIds(schedules);
+  let configCache;
+  let cronStoreCache;
+  let cronStateCache;
+  const getConfig = () => {
+    configCache ??= config ?? readJsonIfExists(resolveOpenClawConfigPath(env, root));
+    return configCache;
+  };
+  const getCronStore = () => {
+    cronStoreCache ??= existingCronStore ?? readExistingCronStore(cronStorePath);
+    return cronStoreCache;
+  };
+  const getCronState = () => {
+    cronStateCache ??= existingCronState ?? readExistingCronState(stateDir);
+    return cronStateCache;
+  };
+  const getExistingJobs = () => existingJobs ?? (Array.isArray(getCronStore().jobs) ? getCronStore().jobs : []);
+  const getOpenClawCommand = () => openclawCommand ?? resolveOpenClawCommand(env) ?? "openclaw";
 
   if (parsed.command === "skips") {
     return routineSkipStatus(readSkipStoreForStatus(), {
@@ -130,7 +147,7 @@ export async function runRoutineCronCli(
       now,
     });
     const result = { ...update.result, action: "skip" };
-    if (!parsed.options.dryRun) writeSkipStore(update.store);
+    if (!parsed.options.dryRun && update.result.added) writeSkipStore(update.store);
     return { dryRun: parsed.options.dryRun === true, restartRequired: false, result };
   }
 
@@ -142,17 +159,17 @@ export async function runRoutineCronCli(
       timezone: schedules.timezone,
     });
     const result = { ...update.result, action: "unskip" };
-    if (!parsed.options.dryRun) writeSkipStore(update.store);
+    if (!parsed.options.dryRun && update.result.removed) writeSkipStore(update.store);
     return { dryRun: parsed.options.dryRun === true, restartRequired: false, result };
   }
 
   if (parsed.command === "status") {
-    return { routines: routineCronStatus(existingCronStore, existingCronState) };
+    return { routines: routineCronStatus(getCronStore(), getCronState()) };
   }
 
   if (parsed.command === "enable" || parsed.command === "disable") {
     const update = updateRoutineCronEnabled(
-      existingCronStore,
+      getCronStore(),
       parsed.options.routineId,
       parsed.command === "enable",
     );
@@ -162,7 +179,7 @@ export async function runRoutineCronCli(
 
   if (parsed.command === "set-time") {
     const update = updateRoutineCronTime(
-      existingCronStore,
+      getCronStore(),
       parsed.options.routineId,
       parsed.options.time,
     );
@@ -172,9 +189,9 @@ export async function runRoutineCronCli(
 
   const jobs = buildRoutineCronJobs(schedules, { telegramUserId: env.TELEGRAM_USER_ID });
   const commands = buildRoutineCronCommands(jobs, {
-    existingJobs,
-    gatewayToken: gatewayTokenFrom(config),
-    openclawCommand,
+    existingJobs: getExistingJobs(),
+    gatewayToken: gatewayTokenFrom(getConfig()),
+    openclawCommand: getOpenClawCommand(),
   });
 
   if (parsed.command === "plan" || parsed.options.dryRun) {
@@ -190,7 +207,7 @@ export async function runRoutineCronCli(
     };
   }
 
-  const upsert = upsertRoutineCronJobs(existingCronStore, jobs, { nowMs, idGenerator });
+  const upsert = upsertRoutineCronJobs(getCronStore(), jobs, { nowMs, idGenerator });
   writeCronStore(upsert.store);
 
   return { dryRun: false, restartRequired: true, jobs, results: upsert.results };
