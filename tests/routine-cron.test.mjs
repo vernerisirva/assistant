@@ -12,7 +12,11 @@ import {
   updateRoutineCronTime,
   upsertRoutineCronJobs,
 } from "../scripts/lib/routine-cron.mjs";
-import { parseRoutineCronArgs, runRoutineCronCli } from "../scripts/routines-cron.mjs";
+import {
+  formatRoutineCronCliResult,
+  parseRoutineCronArgs,
+  runRoutineCronCli,
+} from "../scripts/routines-cron.mjs";
 
 const schedules = {
   timezone: "Europe/Stockholm",
@@ -519,6 +523,33 @@ describe("routine cron CLI", () => {
     assert.equal(result.result.action, "unskip");
     assert.equal(result.result.removed, true);
     assert.deepEqual(writtenStore, { version: 1, skips: [] });
+  });
+
+  it("formats skip and unskip confirmations with no-restart guidance", () => {
+    assert.match(
+      formatRoutineCronCliResult("skip", {
+        result: {
+          action: "skip",
+          added: true,
+          routineId: "workout-window",
+          date: "2026-06-12",
+          timezone: "Europe/Stockholm",
+        },
+      }),
+      /No gateway restart is required/i,
+    );
+    assert.match(
+      formatRoutineCronCliResult("unskip", {
+        result: {
+          action: "unskip",
+          removed: true,
+          routineId: "workout-window",
+          date: "2026-06-12",
+          timezone: "Europe/Stockholm",
+        },
+      }),
+      /No gateway restart is required/i,
+    );
   });
 
   it("reports routine skip status for today", async () => {

@@ -35,6 +35,7 @@ Routine skips:
 - Skip/unskip requires Telegram approval. Approval prompts for skip/unskip must include agent, action, target routine id and date, expected effect, risk, and approval options.
 - A routine skip is temporary and routine-only; it does not skip one-shot reminders, AGM reminders, golf reminders, gym card reminders, or arbitrary cron jobs.
 - Skip/unskip takes effect at run time and does not require a gateway restart.
+- After running skip/unskip, the confirmation must say `No gateway restart is required.` and must not say the gateway may need a restart.
 - Use disable/enable controls for recurring changes, not skip.
 
 Confirm-before-action:

@@ -279,14 +279,15 @@ function formatRoutineSkipStatus(status) {
 function formatRoutineSkipMutation({ dryRun = false, result }) {
   const skipped = result.action === "skip";
   const changed = skipped ? result.added : result.removed;
+  const restartGuidance = "No gateway restart is required.";
 
   if (skipped) {
     const action = dryRun && changed ? "Would skip" : changed ? "Skipped" : "Already skipped";
-    return `${action} ${result.routineId} on ${result.date} (${result.timezone}).`;
+    return `${action} ${result.routineId} on ${result.date} (${result.timezone}). ${restartGuidance}`;
   }
 
   const action = dryRun && changed ? "Would unskip" : changed ? "Unskipped" : "No skip existed for";
-  return `${action} ${result.routineId} on ${result.date} (${result.timezone}).`;
+  return `${action} ${result.routineId} on ${result.date} (${result.timezone}). ${restartGuidance}`;
 }
 
 if (process.argv[1] && currentFile === resolve(process.argv[1])) {
