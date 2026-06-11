@@ -11,9 +11,18 @@ import {
   updateRoutineCronTime,
   upsertRoutineCronJobs,
 } from "./lib/routine-cron.mjs";
+import {
+  addRoutineSkip,
+  readRoutineSkipStore,
+  removeRoutineSkip,
+  resolveRoutineSkipStorePath,
+  routineSkipStatus,
+  writeRoutineSkipStoreFile,
+} from "./lib/routine-skips.mjs";
 import { resolveOpenClawCommand, resolveOpenClawConfigPath, resolveOpenClawStateDir } from "./lib/commands.mjs";
 import { projectPath, readJson } from "./lib/config.mjs";
 import { mergedEnv } from "./lib/env.mjs";
+import { routineIds } from "./lib/routine.mjs";
 
 const currentFile = fileURLToPath(import.meta.url);
 const projectRoot = resolve(dirname(currentFile), "..");
@@ -21,6 +30,7 @@ const projectRoot = resolve(dirname(currentFile), "..");
 export function parseRoutineCronArgs(argv) {
   const [command = "plan", ...rest] = argv;
   const options = {};
+  const operands = [];
 
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
@@ -28,39 +38,49 @@ export function parseRoutineCronArgs(argv) {
       case "--dry-run":
         options.dryRun = true;
         break;
+      case "--json":
+        options.json = true;
+        break;
       default:
-        if (command === "enable" || command === "disable") {
-          if (options.routineId) throw new Error(`${command} accepts exactly one routine id.`);
-          options.routineId = arg;
-          break;
-        }
-        if (command === "set-time") {
-          if (!options.routineId) {
-            options.routineId = arg;
-            break;
-          }
-          if (!options.time) {
-            options.time = arg;
-            break;
-          }
-          throw new Error("set-time accepts exactly a routine id and HH:mm time.");
-        }
-        throw new Error(`Unknown routines cron option: ${arg}`);
+        if (arg.startsWith("--")) throw new Error(`Unknown routines cron option: ${arg}`);
+        operands.push(arg);
+        break;
     }
   }
 
-  if (!["plan", "install", "status", "enable", "disable", "set-time"].includes(command)) {
+  if (!["plan", "install", "status", "enable", "disable", "set-time", "skips", "skip", "unskip"].includes(command)) {
     throw new Error(`Unknown routines cron command: ${command}`);
   }
 
-  if ((command === "enable" || command === "disable") && !options.routineId) {
-    throw new Error(`${command} requires a routine id.`);
-  }
-
-  if (command === "set-time") {
-    if (!options.routineId || !options.time) {
-      throw new Error("set-time requires a routine id and HH:mm time.");
-    }
+  switch (command) {
+    case "plan":
+    case "install":
+    case "status":
+    case "skips":
+      if (operands.length > 0) {
+        throw new Error(`${command} accepts no operands.`);
+      }
+      break;
+    case "enable":
+    case "disable":
+      if (operands.length !== 1) throw new Error(`${command} accepts exactly one routine id.`);
+      options.routineId = operands[0];
+      break;
+    case "set-time":
+      if (operands.length !== 2) {
+        throw new Error("set-time accepts exactly a routine id and HH:mm time.");
+      }
+      options.routineId = operands[0];
+      options.time = operands[1];
+      break;
+    case "skip":
+    case "unskip":
+      if (operands.length !== 2) {
+        throw new Error(`${command} accepts exactly a routine id and YYYY-MM-DD date.`);
+      }
+      options.routineId = operands[0];
+      options.date = operands[1];
+      break;
   }
 
   return { command, options };
@@ -73,17 +93,58 @@ export async function runRoutineCronCli(
     env = mergedEnv(projectPath(root, ".env")),
     schedules = readJson(projectPath(root, "config/schedules.json")),
     config = readJsonIfExists(resolveOpenClawConfigPath(env, root)),
-    cronStorePath = resolveCronStorePath(resolveOpenClawStateDir(env, root)),
+    stateDir = resolveOpenClawStateDir(env, root),
+    cronStorePath = resolveCronStorePath(stateDir),
     existingCronStore = readExistingCronStore(cronStorePath),
-    existingCronState = readExistingCronState(resolveOpenClawStateDir(env, root)),
+    existingCronState = readExistingCronState(stateDir),
     existingJobs = Array.isArray(existingCronStore.jobs) ? existingCronStore.jobs : [],
+    skipStorePath = resolveRoutineSkipStorePath(stateDir),
+    readSkipStoreForStatus = () => readRoutineSkipStore(skipStorePath, { strict: false }),
+    readSkipStoreForMutation = () => readRoutineSkipStore(skipStorePath, { strict: true }),
+    writeSkipStore = (store) => writeRoutineSkipStoreFile(skipStorePath, store),
     openclawCommand = resolveOpenClawCommand(env) ?? "openclaw",
     writeCronStore = (store) => writeCronStoreFile(cronStorePath, store),
-    nowMs = Date.now(),
+    now = new Date(),
+    nowMs = now.getTime(),
     idGenerator = randomUUID,
   } = {},
 ) {
   const parsed = parseRoutineCronArgs(argv);
+  const configuredRoutineIds = routineIds(schedules);
+
+  if (parsed.command === "skips") {
+    return routineSkipStatus(readSkipStoreForStatus(), {
+      routineIds: configuredRoutineIds,
+      now,
+      timezone: schedules.timezone,
+    });
+  }
+
+  if (parsed.command === "skip") {
+    const update = addRoutineSkip(readSkipStoreForMutation(), {
+      routineIds: configuredRoutineIds,
+      routineId: parsed.options.routineId,
+      date: parsed.options.date,
+      timezone: schedules.timezone,
+      source: "telegram",
+      now,
+    });
+    const result = { ...update.result, action: "skip" };
+    if (!parsed.options.dryRun) writeSkipStore(update.store);
+    return { dryRun: parsed.options.dryRun === true, restartRequired: false, result };
+  }
+
+  if (parsed.command === "unskip") {
+    const update = removeRoutineSkip(readSkipStoreForMutation(), {
+      routineIds: configuredRoutineIds,
+      routineId: parsed.options.routineId,
+      date: parsed.options.date,
+      timezone: schedules.timezone,
+    });
+    const result = { ...update.result, action: "unskip" };
+    if (!parsed.options.dryRun) writeSkipStore(update.store);
+    return { dryRun: parsed.options.dryRun === true, restartRequired: false, result };
+  }
 
   if (parsed.command === "status") {
     return { routines: routineCronStatus(existingCronStore, existingCronState) };
@@ -175,10 +236,44 @@ function gatewayTokenFrom(config) {
   return config.gateway?.remote?.token ?? config.gateway?.auth?.token;
 }
 
+export function formatRoutineCronCliResult(command, result) {
+  if (command === "skips") return formatRoutineSkipStatus(result);
+  if (command === "skip" || command === "unskip") return formatRoutineSkipMutation(result);
+  return JSON.stringify(result, null, 2);
+}
+
+function formatRoutineSkipStatus(status) {
+  if (!Array.isArray(status) || status.length === 0) return "No routine skip status available.";
+
+  const [{ date, timezone }] = status;
+  const lines = [`Routine skips for ${date} (${timezone}):`];
+  for (const entry of status) {
+    lines.push(`- ${entry.routineId}: ${entry.skippedToday ? "skipped" : "scheduled"}`);
+  }
+  return lines.join("\n");
+}
+
+function formatRoutineSkipMutation({ dryRun = false, result }) {
+  const skipped = result.action === "skip";
+  const changed = skipped ? result.added : result.removed;
+
+  if (skipped) {
+    const action = dryRun && changed ? "Would skip" : changed ? "Skipped" : "Already skipped";
+    return `${action} ${result.routineId} on ${result.date} (${result.timezone}).`;
+  }
+
+  const action = dryRun && changed ? "Would unskip" : changed ? "Unskipped" : "No skip existed for";
+  return `${action} ${result.routineId} on ${result.date} (${result.timezone}).`;
+}
+
 if (process.argv[1] && currentFile === resolve(process.argv[1])) {
   try {
-    const result = await runRoutineCronCli(process.argv.slice(2));
-    console.log(JSON.stringify(result, null, 2));
+    const argv = process.argv.slice(2);
+    const parsed = parseRoutineCronArgs(argv);
+    const result = await runRoutineCronCli(argv);
+    console.log(
+      parsed.options.json ? JSON.stringify(result, null, 2) : formatRoutineCronCliResult(parsed.command, result),
+    );
   } catch (error) {
     console.error(error.message);
     process.exit(1);

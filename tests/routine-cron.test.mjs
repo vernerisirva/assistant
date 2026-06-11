@@ -234,6 +234,18 @@ describe("routine cron CLI", () => {
       command: "set-time",
       options: { routineId: "morning-brief", time: "08:30" },
     });
+    assert.deepEqual(parseRoutineCronArgs(["skips", "--json"]), {
+      command: "skips",
+      options: { json: true },
+    });
+    assert.deepEqual(parseRoutineCronArgs(["skip", "workout-window", "2026-06-11", "--dry-run"]), {
+      command: "skip",
+      options: { routineId: "workout-window", date: "2026-06-11", dryRun: true },
+    });
+    assert.deepEqual(parseRoutineCronArgs(["unskip", "workout-window", "2026-06-11"]), {
+      command: "unskip",
+      options: { routineId: "workout-window", date: "2026-06-11" },
+    });
   });
 
   it("runs a dry-run install without spawning OpenClaw", async () => {
@@ -316,5 +328,89 @@ describe("routine cron CLI", () => {
       writtenStore.jobs.find((job) => job.name === "Assistant routine: midday-check-in").schedule.expr,
       "15 13 * * *",
     );
+  });
+
+  it("writes a routine skip without requiring an OpenClaw restart", async () => {
+    let writtenStore;
+
+    const result = await runRoutineCronCli(["skip", "workout-window", "2026-06-11"], {
+      schedules,
+      now: new Date("2026-06-10T20:15:00.000Z"),
+      readSkipStoreForMutation: () => ({ version: 1, skips: [] }),
+      writeSkipStore: (store) => {
+        writtenStore = store;
+      },
+    });
+
+    assert.equal(result.restartRequired, false);
+    assert.equal(result.result.action, "skip");
+    assert.deepEqual(writtenStore, {
+      version: 1,
+      skips: [
+        {
+          routineId: "workout-window",
+          date: "2026-06-11",
+          timezone: "Europe/Stockholm",
+          source: "telegram",
+          createdAt: "2026-06-10T20:15:00.000Z",
+        },
+      ],
+    });
+  });
+
+  it("removes a routine skip without requiring an OpenClaw restart", async () => {
+    let writtenStore;
+
+    const result = await runRoutineCronCli(["unskip", "workout-window", "2026-06-11"], {
+      schedules,
+      readSkipStoreForMutation: () => ({
+        version: 1,
+        skips: [
+          {
+            routineId: "workout-window",
+            date: "2026-06-11",
+            timezone: "Europe/Stockholm",
+            source: "telegram",
+            createdAt: "2026-06-10T20:15:00.000Z",
+          },
+        ],
+      }),
+      writeSkipStore: (store) => {
+        writtenStore = store;
+      },
+    });
+
+    assert.equal(result.restartRequired, false);
+    assert.equal(result.result.action, "unskip");
+    assert.equal(result.result.removed, true);
+    assert.deepEqual(writtenStore, { version: 1, skips: [] });
+  });
+
+  it("reports routine skip status for today", async () => {
+    const result = await runRoutineCronCli(["skips", "--json"], {
+      schedules,
+      now: new Date("2026-06-10T22:30:00.000Z"),
+      readSkipStoreForStatus: () => ({
+        version: 1,
+        skips: [
+          {
+            routineId: "workout-window",
+            date: "2026-06-11",
+            timezone: "Europe/Stockholm",
+            source: "telegram",
+            createdAt: "2026-06-10T20:15:00.000Z",
+          },
+        ],
+      }),
+    });
+
+    assert.equal(result.length, 5);
+    assert.deepEqual(result.find((entry) => entry.routineId === "workout-window"), {
+      routineId: "workout-window",
+      date: "2026-06-11",
+      timezone: "Europe/Stockholm",
+      skippedToday: true,
+    });
+    assert.equal(result.find((entry) => entry.routineId === "morning-brief").skippedToday, false);
   });
 });
