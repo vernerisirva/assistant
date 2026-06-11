@@ -200,7 +200,42 @@ describe("assistant status aggregation", () => {
     assert.equal(status.telegram.botTokenConfigured, false);
   });
 
-  it("does not treat rendered env placeholders or hourly cron as configured daily status", () => {
+  it("reports degraded status when warning checks need attention", () => {
+    const status = buildAssistantStatus({
+      env: {
+        TELEGRAM_BOT_TOKEN: "891055:SECRET",
+        TELEGRAM_USER_ID: "1029709001",
+      },
+      config: sampleConfig(),
+      cronStore: { version: 1, jobs: [] },
+      cronState: { version: 1, jobs: {} },
+      gatewayLogText: "",
+      gatewayErrLogText: "",
+      paths: {
+        configPath: ".openclaw/openclaw.json",
+        stateDir: ".openclaw/state",
+        telegramDir: ".openclaw/state/telegram",
+      },
+      exists: (path) => path !== ".openclaw/state/telegram",
+      now: new Date("2026-06-11T07:00:00.000Z"),
+    });
+
+    assert.equal(status.overall, "degraded");
+    assert.equal(status.checks.find((check) => check.id === "telegram-dir").status, "warn");
+    assert.equal(status.checks.find((check) => check.id === "gateway-ready-log").status, "warn");
+    assert.deepEqual(
+      status.recentIssues
+        .filter((issue) => issue.type === "check-warning")
+        .map((issue) => [issue.severity, issue.checkId])
+        .sort(),
+      [
+        ["warn", "gateway-ready-log"],
+        ["warn", "telegram-dir"],
+      ],
+    );
+  });
+
+  it("does not treat rendered env placeholders, hourly cron, or disabled daily cron as configured daily status", () => {
     const config = sampleConfig();
     const status = buildAssistantStatus({
       env: { TELEGRAM_USER_ID: "1029709001" },
@@ -213,6 +248,12 @@ describe("assistant status aggregation", () => {
             name: "Hourly check",
             enabled: true,
             schedule: { kind: "cron", expr: "0 * * * *", tz: "Europe/Stockholm" },
+          },
+          {
+            id: "disabled-daily-check",
+            name: "Disabled daily check",
+            enabled: false,
+            schedule: { kind: "cron", expr: "0 8 * * *", tz: "Europe/Stockholm" },
           },
           {
             id: "daily-check",

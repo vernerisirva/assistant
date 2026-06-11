@@ -32,10 +32,10 @@ export function buildAssistantStatus({
   const telegram = buildTelegramStatus({ env, config, parsedLogs });
   const checks = buildChecks({ env, config, paths, exists, parsedLogs, telegram });
   const checkIssues = checks
-    .filter((check) => check.status === "fail")
+    .filter((check) => ["fail", "warn"].includes(check.status))
     .map((check) => ({
-      severity: "error",
-      type: "check-failed",
+      severity: check.status === "fail" ? "error" : "warn",
+      type: check.status === "fail" ? "check-failed" : "check-warning",
       checkId: check.id,
       message: check.message,
     }));
@@ -245,7 +245,7 @@ function buildAutomationSummary(cronStore) {
     disabledJobs: jobs.length - enabledJobs,
     cronJobs,
     oneTimeJobs,
-    dailyRecurringJobs: jobs.filter((job) => isDailyCron(job.schedule)).length,
+    dailyRecurringJobs: jobs.filter((job) => job.enabled !== false && isDailyCron(job.schedule)).length,
   };
 }
 
