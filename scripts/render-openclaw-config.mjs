@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { mergedEnv, requiredEnvReport, REQUIRED_ENV_KEYS } from "./lib/env.mjs";
 import { readJson, projectPath, safeGeneratedPath, safeOpenClawPath } from "./lib/config.mjs";
@@ -122,7 +124,7 @@ export function prepareAgentWorkspaces(root = projectRoot) {
 }
 
 function copyTextFile(sourcePath, destinationPath) {
-  writeFileSync(destinationPath, readFileSync(sourcePath, "utf8"));
+  writeTextFile(destinationPath, readFileSync(sourcePath, "utf8"));
 }
 
 export function writeOpenClawConfig(env, root = projectRoot) {
@@ -138,8 +140,26 @@ export function writeOpenClawConfig(env, root = projectRoot) {
   preserveGatewayCredentials(config, outputPath);
   prepareAgentWorkspaces(root);
   mkdirSync(dirname(outputPath), { recursive: true });
-  writeFileSync(outputPath, `${JSON.stringify(config, null, 2)}\n`);
+  writeTextFile(outputPath, `${JSON.stringify(config, null, 2)}\n`);
   return outputPath;
+}
+
+function writeTextFile(destinationPath, text) {
+  try {
+    writeFileSync(destinationPath, text);
+    return;
+  } catch (error) {
+    if (error.code !== "EPERM") throw error;
+  }
+
+  const temporaryDirectory = mkdtempSync(join(tmpdir(), "openclaw-render-"));
+  const temporaryPath = join(temporaryDirectory, "payload");
+  try {
+    writeFileSync(temporaryPath, text);
+    execFileSync("/bin/cp", [temporaryPath, destinationPath]);
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
 }
 
 function preserveGatewayCredentials(config, outputPath) {
