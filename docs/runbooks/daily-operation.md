@@ -60,14 +60,14 @@ Inspect temporary routine-only skips:
 npm run routines:skips
 ```
 
-Skip or unskip one assistant routine for one Europe/Stockholm date:
+Skip or unskip one assistant routine for one Europe/Stockholm date. Replace `YYYY-MM-DD` with the intended local date:
 
 ```bash
-npm run routines:skip -- workout-window 2026-06-11
-npm run routines:unskip -- workout-window 2026-06-11
+npm run routines:skip -- workout-window YYYY-MM-DD
+npm run routines:unskip -- workout-window YYYY-MM-DD
 ```
 
-Routine skips do not disable future runs and do not affect one-shot reminders. The cron prompts must be rendered once with skip awareness; after that, changing `skips.json` does not require a gateway restart.
+Routine skips do not disable future runs and do not affect one-shot reminders. Run `npm run routines:install` once to upsert skip-aware cron prompts; after that, changing `skips.json` does not require a gateway restart.
 
 Install or update scheduled routine jobs:
 
