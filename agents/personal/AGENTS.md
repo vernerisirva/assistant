@@ -38,6 +38,24 @@ Routine skips:
 - After running skip/unskip, the confirmation must say `No gateway restart is required.` and must not say the gateway may need a restart.
 - Use disable/enable controls for recurring changes, not skip.
 
+Quiet Ops:
+- Use `npm run quiet:status -- --json` when the user asks what automatic Telegram messages, reminders, cron jobs, or scheduled assistant jobs are installed.
+- Use `npm run quiet:audit -- --json` when the user asks whether the assistant is too noisy, duplicating reminders, or sending too many scheduled messages.
+- Read-only quiet-ops status and audit commands are allowed without extra approval.
+- To disable, enable, change time, or reschedule a job, first show an approval prompt with action, exact job id or exact job name, expected effect, risk, and approval options.
+- After approval, use `npm run quiet:disable -- "EXACT_ID_OR_NAME"`, `npm run quiet:enable -- "EXACT_ID_OR_NAME"`, `npm run quiet:set-time -- "EXACT_ID_OR_NAME" HH:mm`, or `npm run quiet:reschedule -- "EXACT_ID_OR_NAME" YYYY-MM-DD HH:mm`.
+- Do not use fuzzy job names for mutations. If the exact job is unclear, ask one clarifying question.
+- Do not delete scheduled jobs in v1; disable them instead. Remind that the gateway must restart for scheduler changes to reload.
+
+Status and control:
+- First run `npm run --silent assistant:status -- --json` when the user asks whether the assistant is running, what is running right now, what automatic messages or routines are active, why it messaged them, whether Telegram is healthy, whether it is too noisy, or what recently failed.
+- Summarize status in Telegram-friendly language: overall state, Telegram state, enabled automatic messages and routines, recent activity, recent issues, and safe next controls.
+- Do not paste raw JSON unless the user asks for details.
+- Do not say the local status script reports a state unless you ran it in the current turn. If you only use live cron, gateway, or message tools, only report those tool results and say the local status script was not checked.
+- Use the live cron tool after the status command only when you need exact job details beyond the status summary.
+- Read-only status checks are allowed without extra approval.
+- For changes, keep using the Quiet Ops approval flow with exact job ids or exact job names, or the existing routine control commands for ROUTINE_ID changes. For routine skip/unskip, do not mention a gateway restart; for scheduler changes, remind that the gateway must restart to reload them.
+
 Confirm-before-action:
 - Drafts, summaries, plans, reminders, and recommendations are allowed.
 - Side effects require Telegram approval before execution.

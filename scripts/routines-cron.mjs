@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import {
@@ -11,6 +10,13 @@ import {
   updateRoutineCronTime,
   upsertRoutineCronJobs,
 } from "./lib/routine-cron.mjs";
+import {
+  readExistingCronState,
+  readExistingCronStore,
+  readJsonIfExists,
+  resolveCronStorePath,
+  writeCronStoreFile,
+} from "./lib/cron-store.mjs";
 import {
   addRoutineSkip,
   readRoutineSkipStore,
@@ -217,42 +223,6 @@ export async function runRoutineCronCli(
   writeCronStore(upsert.store);
 
   return { dryRun: false, restartRequired: true, jobs, results: upsert.results };
-}
-
-function readJsonIfExists(path) {
-  if (!existsSync(path)) return {};
-  return JSON.parse(readFileSync(path, "utf8"));
-}
-
-function resolveCronStorePath(stateDir) {
-  return join(stateDir, "cron/jobs.json");
-}
-
-function readExistingCronStore(jobsPath) {
-  if (!existsSync(jobsPath)) return { version: 1, jobs: [] };
-
-  const parsed = JSON.parse(readFileSync(jobsPath, "utf8"));
-  if (Array.isArray(parsed.jobs)) return parsed;
-  return { version: parsed.version ?? 1, jobs: [] };
-}
-
-function readExistingCronState(stateDir) {
-  const statePath = join(stateDir, "cron/jobs-state.json");
-  if (!existsSync(statePath)) return { version: 1, jobs: {} };
-
-  const parsed = JSON.parse(readFileSync(statePath, "utf8"));
-  if (parsed && typeof parsed === "object" && parsed.jobs && typeof parsed.jobs === "object") {
-    return parsed;
-  }
-  return { version: parsed.version ?? 1, jobs: {} };
-}
-
-function writeCronStoreFile(jobsPath, store) {
-  mkdirSync(dirname(jobsPath), { recursive: true });
-  if (existsSync(jobsPath)) {
-    copyFileSync(jobsPath, `${jobsPath}.bak`);
-  }
-  writeFileSync(jobsPath, `${JSON.stringify(store, null, 2)}\n`);
 }
 
 function gatewayTokenFrom(config) {

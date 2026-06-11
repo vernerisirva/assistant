@@ -6,6 +6,15 @@ Run diagnostics:
 npm run doctor
 ```
 
+Check assistant runtime and Telegram automation status:
+
+```bash
+npm run assistant:status
+npm run --silent assistant:status -- --json
+```
+
+Use this before changing schedules or restarting the gateway. The command is read-only and redacts local secrets.
+
 Render config after changing `.env` or `config/agents.json`:
 
 ```bash
@@ -20,12 +29,12 @@ Start the local OpenClaw gateway:
 npm run start:openclaw
 ```
 
-Planned/default routines to enable and verify after OpenClaw automation is configured:
+Planned/default routines to verify after OpenClaw automation is configured:
 
-- Morning brief at 08:00.
+- Morning brief at 08:00, installed disabled by default.
 - Midday check-in at 12:30.
 - Adaptive workout-window nudge between 16:00 and 19:00.
-- Evening review at 21:00.
+- Evening review at 21:00, installed disabled by default.
 - Weekly review on Sunday at 19:00.
 
 Starting the gateway alone does not prove these routines are running automatically in the first skeleton.
@@ -69,6 +78,13 @@ npm run routines:unskip -- workout-window YYYY-MM-DD
 
 Routine skips do not disable future runs and do not affect one-shot reminders. Run `npm run routines:install` once to upsert skip-aware cron prompts; after that, changing `skips.json` does not require a gateway restart.
 
+Review all automatic assistant messages and reminders:
+
+```bash
+npm run quiet:status -- --json
+npm run quiet:audit
+```
+
 Install or update scheduled routine jobs:
 
 ```bash
@@ -88,3 +104,15 @@ npm run routines:set-time -- morning-brief 08:30
 npm run render:config
 launchctl kickstart -k gui/501/ai.openclaw.gateway
 ```
+
+Control any project-local OpenClaw cron or reminder job with an exact job id or exact job name:
+
+```bash
+npm run quiet:disable -- "Assistant routine: workout-window"
+npm run quiet:enable -- "Assistant routine: workout-window"
+npm run quiet:set-time -- "Assistant routine: midday-check-in" 13:15
+npm run quiet:reschedule -- "Reminder: Renew gym card" 2026-06-19 09:00
+launchctl kickstart -k gui/501/ai.openclaw.gateway
+```
+
+Use `--dry-run` before quiet-ops mutations when the target is not obvious. Quiet-ops mutations create timestamped backups beside `.openclaw/state/cron/jobs.json` and preserve unrelated job fields.

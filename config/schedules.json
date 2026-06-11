@@ -5,6 +5,7 @@
       "id": "morning-brief",
       "agent": "personal",
       "time": "08:00",
+      "enabled": false,
       "purpose": "Calendar summary, important Gmail, top priorities, meal plan, and workout anchor."
     },
     {
@@ -26,6 +27,7 @@
       "id": "evening-review",
       "agent": "personal",
       "time": "21:00",
+      "enabled": false,
       "purpose": "Tomorrow's calendar, open admin actions, meal prep needs, and health reflection."
     }
   ],

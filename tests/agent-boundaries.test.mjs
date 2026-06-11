@@ -152,4 +152,32 @@ describe("agent configuration", () => {
     assert.match(prompt, /must not say.*may need a restart/i);
     assert.match(prompt, /disable\/enable controls for recurring changes/i);
   });
+
+  it("teaches the personal agent to use read-only assistant status checks", () => {
+    const personalAgent = agents.find((agent) => agent.id === "personal");
+    const prompt = readFileSync(`${personalAgent.promptDir}/AGENTS.md`, "utf8");
+
+    assert.match(prompt, /Status and control/);
+    assert.match(prompt, /npm run --silent assistant:status -- --json/);
+    assert.match(prompt, /first run `npm run --silent assistant:status -- --json`/i);
+    assert.match(prompt, /what is running right now/i);
+    assert.match(prompt, /Telegram-friendly/);
+    assert.match(prompt, /Read-only status checks are allowed without extra approval/i);
+    assert.match(prompt, /Do not paste raw JSON unless the user asks/i);
+    assert.match(prompt, /Do not say the local status script reports/i);
+  });
+
+  it("teaches the personal agent to approval-gate quiet ops mutations", () => {
+    const personalAgent = agents.find((agent) => agent.id === "personal");
+    const prompt = readFileSync(`${personalAgent.promptDir}/AGENTS.md`, "utf8");
+
+    assert.match(prompt, /Quiet Ops/);
+    assert.match(prompt, /npm run quiet:status -- --json/);
+    assert.match(prompt, /npm run quiet:audit -- --json/);
+    assert.match(prompt, /Read-only quiet-ops status and audit commands are allowed without extra approval/i);
+    assert.match(prompt, /first show an approval prompt/i);
+    assert.match(prompt, /exact job id or exact job name/i);
+    assert.match(prompt, /Do not use fuzzy job names for mutations/i);
+    assert.match(prompt, /Do not delete scheduled jobs in v1/i);
+  });
 });
