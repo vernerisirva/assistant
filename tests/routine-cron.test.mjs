@@ -432,6 +432,39 @@ describe("routine cron CLI", () => {
     );
   });
 
+  it("reports skipped routines in routine status", async () => {
+    const jobs = buildRoutineCronJobs(schedules, { telegramUserId: "1029709001" });
+    const existingCronStore = upsertRoutineCronJobs({ version: 1, jobs: [] }, jobs, {
+      nowMs: 1779900000000,
+      idGenerator: () => "routine-id",
+    }).store;
+
+    const status = await runRoutineCronCli(["status"], {
+      schedules,
+      env: { TELEGRAM_USER_ID: "1029709001" },
+      existingCronStore,
+      existingCronState: { jobs: {} },
+      now: new Date("2026-06-11T10:00:00.000Z"),
+      readSkipStoreForStatus: () => ({
+        version: 1,
+        skips: [
+          {
+            routineId: "workout-window",
+            date: "2026-06-11",
+            timezone: "Europe/Stockholm",
+            source: "telegram",
+            createdAt: "2026-06-10T20:15:00.000Z",
+          },
+        ],
+      }),
+    });
+
+    const workout = status.routines.find((routine) => routine.routineId === "workout-window");
+    assert.equal(workout.enabled, true);
+    assert.equal(workout.skippedToday, true);
+    assert.equal(workout.skipDate, "2026-06-11");
+  });
+
   it("writes a routine skip without requiring an OpenClaw restart", async () => {
     let writtenStore;
 

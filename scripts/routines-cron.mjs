@@ -164,7 +164,13 @@ export async function runRoutineCronCli(
   }
 
   if (parsed.command === "status") {
-    return { routines: routineCronStatus(getCronStore(), getCronState()) };
+    return {
+      routines: routineCronStatus(getCronStore(), getCronState(), {
+        skipStore: readSkipStoreForStatus(),
+        now,
+        timezone: schedules.timezone,
+      }),
+    };
   }
 
   if (parsed.command === "enable" || parsed.command === "disable") {

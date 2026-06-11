@@ -261,6 +261,63 @@ describe("routine skip store", () => {
     }
   });
 
+  it("returns an empty store for malformed skip entries in non-strict reads and blocks strict reads", () => {
+    const directory = mkdtempSync(join(tmpdir(), "routine-skips-"));
+    const storePath = join(directory, "skips.json");
+    writeFileSync(
+      storePath,
+      `${JSON.stringify({
+        version: 1,
+        skips: [
+          {
+            routineId: "workout-window",
+            date: "not-a-date",
+            timezone: "Europe/Stockholm",
+          },
+        ],
+      })}\n`,
+    );
+
+    try {
+      const issues = [];
+
+      assert.deepEqual(readRoutineSkipStore(storePath, { issues }), { version: 1, skips: [] });
+      assert.equal(issues.length, 1);
+      assert.equal(issues[0].severity, "warn");
+      assert.equal(issues[0].type, "malformed-store");
+      assert.match(issues[0].message, /invalid date/i);
+      assert.throws(
+        () => readRoutineSkipStore(storePath, { strict: true }),
+        /Malformed routine skip state.*Invalid date: not-a-date/,
+      );
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("blocks mutations when existing skip entries reference unknown routines", () => {
+    const store = {
+      version: 1,
+      skips: [
+        {
+          routineId: "sleep-window",
+          date: "2026-06-11",
+          timezone: "Europe/Stockholm",
+        },
+      ],
+    };
+
+    assert.throws(
+      () =>
+        addRoutineSkip(store, {
+          routineIds,
+          routineId: "workout-window",
+          date: "2026-06-11",
+        }),
+      /Unknown routine id: sleep-window/,
+    );
+  });
+
   it("writes JSON and creates timestamped backups when a file exists", () => {
     const directory = mkdtempSync(join(tmpdir(), "routine-skips-"));
     const storePath = resolveRoutineSkipStorePath(directory);

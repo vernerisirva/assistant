@@ -25,9 +25,10 @@ export function readRoutineSkipStore(path, { issues = [], strict = false } = {})
   if (!existsSync(path)) return emptyRoutineSkipStore();
 
   const text = readFileSync(path, "utf8");
+  let parsed;
 
   try {
-    return normalizeRoutineSkipStore(JSON.parse(text));
+    parsed = JSON.parse(text);
   } catch (error) {
     const message = `Malformed routine skip state at ${path}: ${error.message}`;
     if (strict) {
@@ -37,6 +38,24 @@ export function readRoutineSkipStore(path, { issues = [], strict = false } = {})
     issues.push({
       severity: "warn",
       type: "malformed-json",
+      path,
+      message,
+    });
+    return emptyRoutineSkipStore();
+  }
+
+  try {
+    assertValidRoutineSkipStoreShape(parsed);
+    return normalizeRoutineSkipStore(parsed);
+  } catch (error) {
+    const message = `Malformed routine skip state at ${path}: ${error.message}`;
+    if (strict) {
+      throw new Error(message, { cause: error });
+    }
+
+    issues.push({
+      severity: "warn",
+      type: "malformed-store",
       path,
       message,
     });
@@ -72,6 +91,7 @@ export function addRoutineSkip(
   assertValidDate(date);
 
   const normalized = normalizeRoutineSkipStore(store);
+  assertValidRoutineSkipStoreForMutation(normalized, routineIds);
   const existing = normalized.skips.find((skip) => skipMatches(skip, routineId, date, timezone));
   if (existing) {
     return {
@@ -124,6 +144,7 @@ export function removeRoutineSkip(
   assertValidDate(date);
 
   const normalized = normalizeRoutineSkipStore(store);
+  assertValidRoutineSkipStoreForMutation(normalized, routineIds);
   const skips = normalized.skips.filter((skip) => !skipMatches(skip, routineId, date, timezone));
   const removed = skips.length !== normalized.skips.length;
 
@@ -194,6 +215,59 @@ export function assertValidDate(date) {
   const timestamp = Date.parse(`${date}T00:00:00.000Z`);
   if (!Number.isFinite(timestamp) || new Date(timestamp).toISOString().slice(0, 10) !== date) {
     throw new Error(`Invalid date: ${date}`);
+  }
+}
+
+function assertValidRoutineSkipStoreShape(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Routine skip state must be an object.");
+  }
+  if (value.version !== undefined && value.version !== 1) {
+    throw new Error(`Unsupported routine skip state version: ${value.version}`);
+  }
+  if (value.skips !== undefined && !Array.isArray(value.skips)) {
+    throw new Error("Routine skip state skips must be an array.");
+  }
+
+  for (const [index, skip] of (value.skips ?? []).entries()) {
+    assertValidRoutineSkipEntryShape(skip, index);
+  }
+}
+
+function assertValidRoutineSkipStoreForMutation(store, routineIds) {
+  for (const skip of store.skips) {
+    assertValidRoutineId(skip.routineId, routineIds);
+    assertValidDate(skip.date);
+    assertValidTimezone(skip.timezone);
+    if (skip.createdAt !== undefined && typeof skip.createdAt !== "string") {
+      throw new Error(`Invalid routine skip createdAt: ${skip.createdAt}`);
+    }
+    if (skip.source !== undefined && typeof skip.source !== "string") {
+      throw new Error(`Invalid routine skip source: ${skip.source}`);
+    }
+  }
+}
+
+function assertValidRoutineSkipEntryShape(skip, index) {
+  if (!skip || typeof skip !== "object" || Array.isArray(skip)) {
+    throw new Error(`Routine skip entry ${index} must be an object.`);
+  }
+  if (typeof skip.routineId !== "string" || !skip.routineId.trim()) {
+    throw new Error(`Invalid routine id: ${skip.routineId}`);
+  }
+  assertValidDate(skip.date);
+  assertValidTimezone(skip.timezone);
+  if (skip.createdAt !== undefined && typeof skip.createdAt !== "string") {
+    throw new Error(`Invalid routine skip createdAt: ${skip.createdAt}`);
+  }
+  if (skip.source !== undefined && typeof skip.source !== "string") {
+    throw new Error(`Invalid routine skip source: ${skip.source}`);
+  }
+}
+
+function assertValidTimezone(timezone) {
+  if (typeof timezone !== "string" || !timezone.trim()) {
+    throw new Error(`Invalid timezone: ${timezone}`);
   }
 }
 
