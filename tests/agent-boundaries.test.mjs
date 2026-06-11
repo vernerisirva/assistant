@@ -147,6 +147,7 @@ describe("agent configuration", () => {
     assert.match(prompt, /temporary and routine-only/i);
     assert.match(prompt, /does not skip one-shot reminders/i);
     assert.match(prompt, /arbitrary cron jobs/i);
+    assert.match(prompt, /skip\/unskip.*does not require a gateway restart/i);
     assert.match(prompt, /disable\/enable controls for recurring changes/i);
   });
 });
