@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { delimiter, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { safeGeneratedPath, safeOpenClawPath } from "./config.mjs";
 
 export const DEFAULT_OPENCLAW_CONFIG_PATH = ".openclaw/openclaw.json";
@@ -65,7 +65,7 @@ export function requestedOpenClawConfigPath(env = {}) {
 }
 
 export function resolveOpenClawConfigPath(env = {}, projectRoot) {
-  return safeGeneratedPath(projectRoot, requestedOpenClawConfigPath(env));
+  return safeRuntimeOpenClawPath(projectRoot, requestedOpenClawConfigPath(env), "OPENCLAW_CONFIG_PATH");
 }
 
 export function requestedOpenClawStateDir(env = {}) {
@@ -73,5 +73,28 @@ export function requestedOpenClawStateDir(env = {}) {
 }
 
 export function resolveOpenClawStateDir(env = {}, projectRoot) {
-  return safeOpenClawPath(projectRoot, requestedOpenClawStateDir(env), "OPENCLAW_STATE_DIR");
+  return safeRuntimeOpenClawPath(projectRoot, requestedOpenClawStateDir(env), "OPENCLAW_STATE_DIR");
+}
+
+function safeRuntimeOpenClawPath(projectRoot, requestedPath, envName) {
+  if (typeof requestedPath === "string" && isAbsolute(requestedPath)) {
+    const outputPath = resolve(requestedPath);
+    const generatedRoot = resolve(projectRoot, ".openclaw");
+    const relativeOutput = relative(generatedRoot, outputPath);
+
+    if (
+      relativeOutput !== "" &&
+      relativeOutput !== ".." &&
+      !relativeOutput.startsWith(`..${sep}`) &&
+      !isAbsolute(relativeOutput)
+    ) {
+      return outputPath;
+    }
+
+    throw new Error(`${envName} must be a relative path under .openclaw/`);
+  }
+
+  return envName === "OPENCLAW_CONFIG_PATH"
+    ? safeGeneratedPath(projectRoot, requestedPath)
+    : safeOpenClawPath(projectRoot, requestedPath, envName);
 }
