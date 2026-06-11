@@ -113,6 +113,26 @@ describe("routine briefs", () => {
     assert.match(brief.memoryRule, /ask before storing inferred memories/i);
   });
 
+  it("builds a workout-window prompt that adapts to training, golf, rest, and skip signals", () => {
+    const brief = buildRoutineBrief("workout-window", {
+      schedules,
+      food,
+      memoryEntries,
+      now: "2026-06-11T15:30:00.000Z",
+    });
+
+    assert.equal(brief.routineId, "workout-window");
+    assert.equal(brief.agent, "health");
+    assert.ok(brief.sections.some((section) => section.id === "day-type"));
+    assert.ok(brief.sections.some((section) => /training day/i.test(section.instruction)));
+    assert.ok(brief.sections.some((section) => /golf\/active day/i.test(section.instruction)));
+    assert.ok(brief.sections.some((section) => /rest\/no-workout day/i.test(section.instruction)));
+    assert.match(brief.telegramPrompt, /First classify today as training, golf\/active, rest\/no-workout, or unclear/i);
+    assert.match(brief.telegramPrompt, /If today is rest\/no-workout/i);
+    assert.match(brief.telegramPrompt, /offer to skip today's workout-window/i);
+    assert.match(brief.telegramPrompt, /If the day type is unclear, ask one concise question/i);
+  });
+
   it("does not expose sensitive memories in routine context", () => {
     const brief = buildRoutineBrief("morning-brief", {
       schedules,

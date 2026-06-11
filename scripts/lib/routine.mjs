@@ -97,8 +97,30 @@ function sectionsForRoutine(routineId) {
       ];
     case "workout-window":
       return [
-        section("availability", "Find a realistic workout or movement window."),
-        section("workout", "Suggest one primary workout and one lighter fallback."),
+        section(
+          "day-type",
+          "First classify today as training, golf/active, rest/no-workout, or unclear from calendar, memory, and recent user messages.",
+        ),
+        section(
+          "availability",
+          "For a training day, find a realistic workout or movement window from calendar pressure.",
+        ),
+        section(
+          "workout",
+          "For a training day, suggest one primary workout and one lighter fallback.",
+        ),
+        section(
+          "golf-active",
+          "For a golf/active day, avoid pushing a gym workout; suggest warm-up, mobility, recovery, fueling, or hydration support.",
+        ),
+        section(
+          "rest-day",
+          "If today is rest/no-workout day, send a soft recovery check-in or offer to skip today's workout-window routine instead of disabling future days.",
+        ),
+        section(
+          "unclear",
+          "If the day type is unclear, ask one concise question instead of assuming.",
+        ),
         section("friction", "Reduce setup friction with a concrete next action."),
       ];
     case "evening-review":
