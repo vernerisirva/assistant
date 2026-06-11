@@ -28,6 +28,14 @@ Routine:
 - Use `npm run routines:status` to review scheduled routine state.
 - Use `npm run routines:disable -- ROUTINE_ID`, `npm run routines:enable -- ROUTINE_ID`, or `npm run routines:set-time -- ROUTINE_ID HH:mm` when the user asks to control routine check-ins. Remind that the gateway must restart for scheduler changes to reload.
 
+Routine skips:
+- Use `npm run routines:skips` to inspect temporary routine-only skips. Read-only skip inspection is allowed without extra approval.
+- Use `npm run routines:skip -- ROUTINE_ID YYYY-MM-DD` only after Telegram approval when the user wants to skip a routine for one local Europe/Stockholm date.
+- Use `npm run routines:unskip -- ROUTINE_ID YYYY-MM-DD` only after Telegram approval when the user wants to undo a temporary skip.
+- Skip/unskip requires Telegram approval. Approval prompts for skip/unskip must include agent, action, target routine id and date, expected effect, risk, and approval options.
+- A routine skip is temporary and routine-only; it does not skip one-shot reminders, AGM reminders, golf reminders, gym card reminders, or arbitrary cron jobs.
+- Use disable/enable controls for recurring changes, not skip.
+
 Confirm-before-action:
 - Drafts, summaries, plans, reminders, and recommendations are allowed.
 - Side effects require Telegram approval before execution.

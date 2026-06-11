@@ -271,7 +271,9 @@ function toOpenClawCronJob(job, { existingJob, nowMs, id }) {
 function buildRoutineMessage(routine) {
   return [
     `Scheduled assistant routine: ${routine.id}.`,
-    `Run npm run routine -- ${routine.id} from the assistant repo and use the returned telegramPrompt as the briefing template.`,
+    `First run npm run --silent routines:skips -- --json from the assistant repo and inspect ${routine.id} in the skip store for today's Europe/Stockholm date.`,
+    `If ${routine.id} is skippedToday, return exactly NO_REPLY as your final answer and do no routine work.`,
+    `If ${routine.id} is not skippedToday, run npm run routine -- ${routine.id} from the assistant repo and use the returned telegramPrompt as the briefing template.`,
     "Gather or summarize live Calendar, Gmail, Todoist, health, food, and memory context where available.",
     "Return exactly one concise Telegram check-in for Verneri as your final answer. Do not call Telegram/message tools; cron delivery will send the final answer.",
     "No side effects without approval: do not send email, edit calendar events, change Todoist, book golf, buy anything, submit forms, or store sensitive memory without Telegram approval.",

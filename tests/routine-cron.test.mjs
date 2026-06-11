@@ -41,6 +41,9 @@ describe("routine cron jobs", () => {
       assert.equal(job.delivery.bestEffort, true);
       assert.match(job.name, /^Assistant routine:/);
       assert.match(job.message, new RegExp(`npm run routine -- ${job.routineId}`));
+      assert.match(job.message, /npm run --silent routines:skips -- --json/);
+      assert.match(job.message, /NO_REPLY/);
+      assert.match(job.message, /skip store/i);
       assert.match(job.message, /No side effects without approval/i);
       assert.match(job.message, /feedback/i);
       assert.match(job.message, /ask before storing/i);

@@ -132,4 +132,17 @@ describe("agent configuration", () => {
     assert.match(prompt, /routines:disable/);
     assert.match(prompt, /routines:set-time/);
   });
+
+  it("teaches the personal agent approval-gated routine-only skip controls", () => {
+    const personalAgent = agents.find((agent) => agent.id === "personal");
+    const prompt = readFileSync(`${personalAgent.promptDir}/AGENTS.md`, "utf8");
+
+    assert.match(prompt, /Routine skips/);
+    assert.match(prompt, /npm run routines:skips/);
+    assert.match(prompt, /npm run routines:skip -- ROUTINE_ID YYYY-MM-DD/);
+    assert.match(prompt, /npm run routines:unskip -- ROUTINE_ID YYYY-MM-DD/);
+    assert.match(prompt, /requires Telegram approval/i);
+    assert.match(prompt, /temporary and routine-only/i);
+    assert.match(prompt, /does not skip one-shot reminders/i);
+  });
 });
