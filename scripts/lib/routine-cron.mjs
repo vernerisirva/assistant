@@ -1,4 +1,9 @@
 import { randomUUID } from "node:crypto";
+import {
+  DEFAULT_ROUTINE_SKIP_TIMEZONE,
+  isRoutineSkipped,
+  localDateInTimeZone,
+} from "./routine-skips.mjs";
 
 const dayToCronNumber = {
   Sunday: 0,
@@ -109,20 +114,33 @@ export function upsertRoutineCronJobs(
   };
 }
 
-export function routineCronStatus(existingStore, existingState = {}) {
+export function routineCronStatus(
+  existingStore,
+  existingState = {},
+  {
+    skipStore,
+    now = new Date(),
+    timezone = DEFAULT_ROUTINE_SKIP_TIMEZONE,
+  } = {},
+) {
   const jobs = Array.isArray(existingStore?.jobs) ? existingStore.jobs : [];
+  const today = localDateInTimeZone(now, timezone);
   return jobs
     .filter((job) => isRoutineJob(job))
     .map((job) => {
       const state = existingState.jobs?.[job.id]?.state ?? {};
+      const routineId = routineIdFromJobName(job.name);
+      const skippedToday = skipStore ? isRoutineSkipped(skipStore, routineId, today, timezone) : false;
       return {
-        routineId: routineIdFromJobName(job.name),
+        routineId,
         name: job.name,
         enabled: job.enabled !== false,
         cron: job.schedule?.expr,
         timezone: job.schedule?.tz,
         nextRunAt: state.nextRunAtMs ? new Date(state.nextRunAtMs).toISOString() : null,
         lastStatus: state.lastStatus ?? null,
+        skippedToday,
+        skipDate: skippedToday ? today : null,
       };
     });
 }
@@ -172,7 +190,7 @@ function buildRoutineCronJob(routine, { telegramUserId, schedule }) {
     agentId: routine.agent,
     name: `Assistant routine: ${routine.id}`,
     description: routine.purpose,
-    enabled: true,
+    enabled: routine.enabled !== false,
     schedule,
     sessionTarget: "isolated",
     wakeMode: "now",
@@ -229,7 +247,7 @@ function toOpenClawCronJob(job, { existingJob, nowMs, id }) {
     sessionKey: job.sessionKey,
     name: job.name,
     description: job.description,
-    enabled: true,
+    enabled: job.enabled !== false,
     createdAtMs: existingJob?.createdAtMs ?? nowMs,
     schedule: job.schedule,
     sessionTarget: job.sessionTarget,
@@ -255,7 +273,7 @@ function buildRoutineMessage(routine) {
     `Scheduled assistant routine: ${routine.id}.`,
     `Run npm run routine -- ${routine.id} from the assistant repo and use the returned telegramPrompt as the briefing template.`,
     "Gather or summarize live Calendar, Gmail, Todoist, health, food, and memory context where available.",
-    "Send Verneri one concise Telegram check-in that is practical, warm, and non-shaming.",
+    "Return exactly one concise Telegram check-in for Verneri as your final answer. Do not call Telegram/message tools; cron delivery will send the final answer.",
     "No side effects without approval: do not send email, edit calendar events, change Todoist, book golf, buy anything, submit forms, or store sensitive memory without Telegram approval.",
     "Feedback loop: include one small line asking whether the timing, tone, or detail level should change. If feedback suggests a stable preference, ask before storing it as memory; do not silently remember inferred preferences.",
   ].join("\n");
@@ -274,6 +292,7 @@ function buildAddArgs(job, gatewayToken) {
     "--account",
     job.delivery.accountId,
     "--best-effort-deliver",
+    ...enabledArgs(job, { add: true }),
     "--json",
     ...tokenArgs(gatewayToken),
   ];
@@ -284,7 +303,7 @@ function buildEditArgs(jobId, job, gatewayToken) {
     "cron",
     "edit",
     jobId,
-    "--enable",
+    ...enabledArgs(job),
     ...sharedCronArgs(job),
     "--announce",
     "--channel",
@@ -322,6 +341,13 @@ function sharedCronArgs(job) {
     "--timeout-seconds",
     String(job.timeoutSeconds),
   ];
+}
+
+function enabledArgs(job, { add = false } = {}) {
+  if (job.enabled === false) {
+    return [add ? "--disabled" : "--disable"];
+  }
+  return add ? [] : ["--enable"];
 }
 
 function tokenArgs(gatewayToken) {

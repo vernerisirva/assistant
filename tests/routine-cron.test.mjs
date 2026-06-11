@@ -21,13 +21,13 @@ describe("routine cron jobs", () => {
     const jobs = buildRoutineCronJobs(schedules, { telegramUserId: "1029709001" });
 
     assert.deepEqual(
-      jobs.map((job) => [job.routineId, job.agentId, job.schedule.expr]),
+      jobs.map((job) => [job.routineId, job.agentId, job.schedule.expr, job.enabled]),
       [
-        ["morning-brief", "personal", "0 8 * * *"],
-        ["midday-check-in", "health", "30 12 * * *"],
-        ["workout-window", "health", "30 17 * * *"],
-        ["evening-review", "personal", "0 21 * * *"],
-        ["weekly-review", "personal", "0 19 * * 0"],
+        ["morning-brief", "personal", "0 8 * * *", false],
+        ["midday-check-in", "health", "30 12 * * *", true],
+        ["workout-window", "health", "30 17 * * *", true],
+        ["evening-review", "personal", "0 21 * * *", false],
+        ["weekly-review", "personal", "0 19 * * 0", true],
       ],
     );
 
@@ -44,6 +44,9 @@ describe("routine cron jobs", () => {
       assert.match(job.message, /No side effects without approval/i);
       assert.match(job.message, /feedback/i);
       assert.match(job.message, /ask before storing/i);
+      assert.match(job.message, /Do not call Telegram\/message tools/i);
+      assert.match(job.message, /cron delivery will send/i);
+      assert.doesNotMatch(job.message, /Send Verneri/i);
     }
   });
 
@@ -60,6 +63,7 @@ describe("routine cron jobs", () => {
     assert.deepEqual(command.args.slice(0, 2), ["cron", "add"]);
     assert.ok(command.args.includes("--announce"));
     assert.ok(command.args.includes("--best-effort-deliver"));
+    assert.ok(command.args.includes("--disabled"));
     assert.ok(command.args.includes("--exact"));
     assert.ok(command.args.includes("--json"));
     assert.ok(command.args.includes("--token"));
@@ -75,7 +79,7 @@ describe("routine cron jobs", () => {
 
     assert.equal(command.action, "edit");
     assert.deepEqual(command.args.slice(0, 3), ["cron", "edit", "existing-job-id"]);
-    assert.ok(command.args.includes("--enable"));
+    assert.ok(command.args.includes("--disable"));
     assert.ok(command.args.includes("--name"));
   });
 
@@ -136,6 +140,7 @@ describe("routine cron jobs", () => {
     assert.equal(morning.createdAtMs, 2);
     assert.deepEqual(morning.state, { note: "preserve" });
     assert.equal(morning.schedule.expr, "0 8 * * *");
+    assert.equal(morning.enabled, false);
     assert.equal(morning.payload.kind, "agentTurn");
     assert.match(morning.payload.message, /morning-brief/);
     assert.equal(morning.delivery.mode, "announce");
@@ -164,12 +169,44 @@ describe("routine cron jobs", () => {
     assert.deepEqual(status[0], {
       routineId: "morning-brief",
       name: "Assistant routine: morning-brief",
-      enabled: true,
+      enabled: false,
       cron: "0 8 * * *",
       timezone: "Europe/Stockholm",
       nextRunAt: "2026-05-28T06:00:00.000Z",
       lastStatus: "ok",
+      skippedToday: false,
+      skipDate: null,
     });
+  });
+
+  it("marks enabled routines skipped today without disabling them", () => {
+    const jobs = buildRoutineCronJobs(schedules, { telegramUserId: "1029709001" });
+    const upserted = upsertRoutineCronJobs({ version: 1, jobs: [] }, jobs, {
+      nowMs: 1779900000000,
+      idGenerator: () => "routine-id",
+    }).store;
+
+    const status = routineCronStatus(upserted, { jobs: {} }, {
+      skipStore: {
+        version: 1,
+        skips: [
+          {
+            routineId: "workout-window",
+            date: "2026-06-11",
+            timezone: "Europe/Stockholm",
+            source: "telegram",
+            createdAt: "2026-06-10T20:15:00.000Z",
+          },
+        ],
+      },
+      now: new Date("2026-06-11T10:00:00.000Z"),
+      timezone: "Europe/Stockholm",
+    });
+
+    const workout = status.find((routine) => routine.routineId === "workout-window");
+    assert.equal(workout.enabled, true);
+    assert.equal(workout.skippedToday, true);
+    assert.equal(workout.skipDate, "2026-06-11");
   });
 
   it("enables and disables only the selected routine job", () => {
@@ -186,7 +223,7 @@ describe("routine cron jobs", () => {
     );
     assert.equal(
       disabled.store.jobs.find((job) => job.name === "Assistant routine: morning-brief").enabled,
-      true,
+      false,
     );
     assert.equal(disabled.result.action, "disable");
 
