@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -14,7 +14,47 @@ import {
 } from "../scripts/lib/routine-cron.mjs";
 import { parseRoutineCronArgs, runRoutineCronCli } from "../scripts/routines-cron.mjs";
 
-const schedules = JSON.parse(readFileSync("config/schedules.json", "utf8"));
+const schedules = {
+  timezone: "Europe/Stockholm",
+  daily: [
+    {
+      id: "morning-brief",
+      agent: "personal",
+      time: "08:00",
+      enabled: false,
+      purpose: "Calendar summary, important Gmail, top priorities, meal plan, and workout anchor.",
+    },
+    {
+      id: "midday-check-in",
+      agent: "health",
+      time: "12:30",
+      purpose: "Food, movement, energy, and schedule pressure check.",
+    },
+    {
+      id: "workout-window",
+      agent: "health",
+      window: {
+        start: "16:00",
+        end: "19:00",
+      },
+      purpose: "Find a realistic workout or movement moment from calendar availability.",
+    },
+    {
+      id: "evening-review",
+      agent: "personal",
+      time: "21:00",
+      enabled: false,
+      purpose: "Tomorrow's calendar, open admin actions, meal prep needs, and health reflection.",
+    },
+  ],
+  weekly: {
+    id: "weekly-review",
+    agent: "personal",
+    day: "Sunday",
+    time: "19:00",
+    purpose: "Review calendar, email, health friction, food planning, groceries, and one adjustment for the next week.",
+  },
+};
 
 describe("routine cron jobs", () => {
   it("builds Telegram cron jobs from the routine schedule", () => {
@@ -40,12 +80,29 @@ describe("routine cron jobs", () => {
       assert.equal(job.delivery.to, "telegram:1029709001");
       assert.equal(job.delivery.bestEffort, true);
       assert.match(job.name, /^Assistant routine:/);
-      assert.deepEqual(job.message.split("\n").slice(0, 4), [
-        `Scheduled assistant routine: ${job.routineId}.`,
-        `First run npm run --silent routines:skips -- --json from the assistant repo and inspect ${job.routineId} for today's Europe/Stockholm date.`,
-        `If ${job.routineId} is skippedToday, return exactly NO_REPLY as your final answer and do no routine work.`,
-        `If ${job.routineId} is not skippedToday, run npm run routine -- ${job.routineId} from the assistant repo and use the returned telegramPrompt as the briefing template.`,
-      ]);
+      assert.match(job.message, new RegExp(`^Scheduled assistant routine: ${job.routineId}\\.`));
+
+      const skipCommandIndex = job.message.indexOf("npm run --silent routines:skips -- --json");
+      const routineCommandIndex = job.message.indexOf(`npm run routine -- ${job.routineId}`);
+      const noReplyIndex = job.message.indexOf(`If ${job.routineId} is skippedToday`);
+      const contextGatheringIndex = job.message.indexOf("Gather or summarize live Calendar");
+      const skipStoreIndex = job.message.search(/skip store/i);
+
+      assert.notEqual(skipCommandIndex, -1);
+      assert.notEqual(routineCommandIndex, -1);
+      assert.notEqual(noReplyIndex, -1);
+      assert.notEqual(contextGatheringIndex, -1);
+      assert.notEqual(skipStoreIndex, -1);
+      assert.match(job.message, /NO_REPLY/);
+      assert.match(
+        job.message,
+        new RegExp(`inspect ${job.routineId} for today's Europe/Stockholm date`),
+      );
+      assert.ok(skipCommandIndex < routineCommandIndex);
+      assert.ok(noReplyIndex < routineCommandIndex);
+      assert.ok(noReplyIndex < contextGatheringIndex);
+      assert.ok(skipStoreIndex < routineCommandIndex);
+      assert.ok(skipStoreIndex < contextGatheringIndex);
       assert.match(job.message, /skip store/i);
       assert.match(job.message, /No side effects without approval/i);
       assert.match(job.message, /feedback/i);
