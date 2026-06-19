@@ -19,4 +19,6 @@ The assistant may summarize Gmail and draft responses. Sending, archiving, delet
 
 ## Google Calendar
 
-Calendar access is still a setup path in this first skeleton, not an implemented runtime mutation. Configure it later through an OpenClaw-compatible tool, script, or skill. The assistant may read calendar context, flag conflicts, and draft changes once the integration exists. Creating, editing, deleting, or responding to events requires Telegram approval.
+Calendar access is still a setup path in this first skeleton, not an implemented runtime mutation. Configure it later through an OpenClaw-compatible tool, script, or skill. The assistant may read calendar context, flag conflicts, and draft changes once the integration exists.
+
+Creating a Calendar event is allowed without a second approval only when the user explicitly asks, all critical fields are typed or otherwise certain, the target calendar is clear, no guests are invited, and the event is easy to undo. Approval is still required when details come from image/OCR, when year/date/time/timezone/calendar is inferred or uncertain, or when editing, deleting, inviting guests to, or responding to Calendar events.

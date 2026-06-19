@@ -73,8 +73,27 @@ describe("agent configuration", () => {
     assert.match(prompt, /npm run todoist/);
     assert.match(
       prompt,
-      /creating, editing, completing, deleting, or rescheduling Todoist tasks requires Telegram approval/i,
+      /Creating a Todoist task is allowed without a second approval only when/i,
     );
+    assert.match(
+      prompt,
+      /Editing, completing, deleting, reopening, moving, commenting on, or rescheduling Todoist tasks requires Telegram approval/i,
+    );
+  });
+
+  it("teaches the admin agent the low-risk additive action exception", () => {
+    const adminAgent = agents.find((agent) => agent.id === "admin");
+    const prompt = readFileSync(`${adminAgent.promptDir}/AGENTS.md`, "utf8");
+
+    assert.match(prompt, /Low-risk additive actions/);
+    assert.match(prompt, /explicitly asks/i);
+    assert.match(prompt, /complete and unambiguous/i);
+    assert.match(prompt, /additive/i);
+    assert.match(prompt, /easy to undo/i);
+    assert.match(prompt, /create a Calendar event/i);
+    assert.match(prompt, /create a Todoist task/i);
+    assert.match(prompt, /OCR/i);
+    assert.match(prompt, /inferred/i);
   });
 
   it("teaches the admin agent to use Min Golf in read-only phase 1", () => {
@@ -179,5 +198,18 @@ describe("agent configuration", () => {
     assert.match(prompt, /exact job id or exact job name/i);
     assert.match(prompt, /Do not use fuzzy job names for mutations/i);
     assert.match(prompt, /Do not delete scheduled jobs in v1/i);
+  });
+
+  it("teaches the personal agent risk-tiered approvals", () => {
+    const personalAgent = agents.find((agent) => agent.id === "personal");
+    const prompt = readFileSync(`${personalAgent.promptDir}/AGENTS.md`, "utf8");
+
+    assert.match(prompt, /Risk-tiered approval/);
+    assert.match(prompt, /explicit user instruction counts as approval/i);
+    assert.match(prompt, /low-risk additive/i);
+    assert.match(prompt, /complete and unambiguous/i);
+    assert.match(prompt, /Ask for approval when/i);
+    assert.match(prompt, /image\/OCR/i);
+    assert.match(prompt, /inferred/i);
   });
 });

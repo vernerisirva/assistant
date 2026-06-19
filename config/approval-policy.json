@@ -10,12 +10,29 @@
     "read-local-memory",
     "remember-explicit-low-risk-memory",
     "forget-single-memory-by-request",
+    "create-explicit-complete-calendar-event",
+    "create-explicit-complete-todoist-task",
     "draft-email-calendar-plan-grocery-and-health-recommendations",
     "draft-todoist-task-changes",
     "ask-clarifying-questions",
     "send-check-ins",
     "run-read-only-project-diagnostics"
   ],
+  "lowRiskAdditiveActions": {
+    "requireExplicitUserInstruction": true,
+    "requireCompleteCriticalFields": true,
+    "requireAdditiveOnly": true,
+    "requireNoExternalRecipients": true,
+    "requireEasyUndo": true,
+    "approvalStillRequiredWhen": [
+      "critical-fields-inferred-from-image-or-ocr",
+      "date-year-time-timezone-or-calendar-is-uncertain",
+      "target-is-ambiguous",
+      "edits-deletes-moves-completes-or-sends",
+      "invites-messages-books-pays-purchases-or-submits-forms",
+      "sensitive-memory-or-private-health-finance-data-is-involved"
+    ]
+  },
   "approvalRequired": [
     {
       "domain": "email",

@@ -41,6 +41,8 @@ Starting the gateway alone does not prove these routines are running automatical
 
 When the assistant proposes a side effect, approve it only if the action, target, expected effect, and risk are clear. Natural approvals such as `approve`, `ok`, `that's ok`, `yes do it`, or `go ahead` are enough after a clear approval prompt.
 
+Low-risk additive actions do not need a second approval when the user explicitly asks and all critical fields are complete and unambiguous. Examples: create a Calendar event from typed details, create a Todoist task from clear text, or remember a low-risk preference explicitly requested by the user. Ask for approval when details are inferred from image/OCR, dates or targets are uncertain, another person is affected, or the action edits, deletes, sends, invites, books, pays, purchases, submits forms, or touches sensitive memory.
+
 Run a routine manually:
 
 ```bash

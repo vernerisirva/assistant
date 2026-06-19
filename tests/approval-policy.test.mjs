@@ -49,6 +49,21 @@ describe("approval policy", () => {
     assert.ok(policy.allowedWithoutExtraApproval.includes("forget-single-memory-by-request"));
   });
 
+  it("allows explicit complete low-risk additive actions without a second approval", () => {
+    assert.ok(policy.allowedWithoutExtraApproval.includes("create-explicit-complete-calendar-event"));
+    assert.ok(policy.allowedWithoutExtraApproval.includes("create-explicit-complete-todoist-task"));
+    assert.equal(policy.lowRiskAdditiveActions.requireExplicitUserInstruction, true);
+    assert.equal(policy.lowRiskAdditiveActions.requireCompleteCriticalFields, true);
+    assert.equal(policy.lowRiskAdditiveActions.requireAdditiveOnly, true);
+  });
+
+  it("keeps inferred, ambiguous, destructive, and external-impact actions approval-gated", () => {
+    assert.ok(policy.lowRiskAdditiveActions.approvalStillRequiredWhen.includes("critical-fields-inferred-from-image-or-ocr"));
+    assert.ok(policy.lowRiskAdditiveActions.approvalStillRequiredWhen.includes("date-year-time-timezone-or-calendar-is-uncertain"));
+    assert.ok(policy.lowRiskAdditiveActions.approvalStillRequiredWhen.includes("edits-deletes-moves-completes-or-sends"));
+    assert.ok(policy.lowRiskAdditiveActions.approvalStillRequiredWhen.includes("invites-messages-books-pays-purchases-or-submits-forms"));
+  });
+
   it("defines a narrow promotion process for future trusted routines", () => {
     assert.equal(policy.trustLadder[0].mode, "confirm-before-action");
     assert.equal(policy.trustLadder[1].mode, "trusted-routine");
