@@ -12,6 +12,11 @@
     "forget-single-memory-by-request",
     "create-explicit-complete-calendar-event",
     "create-explicit-complete-todoist-task",
+    "rename-explicit-todoist-task",
+    "update-explicit-todoist-task-description",
+    "append-explicit-todoist-task-comment",
+    "reschedule-explicit-todoist-task",
+    "label-explicit-todoist-task",
     "draft-email-calendar-plan-grocery-and-health-recommendations",
     "draft-todoist-task-changes",
     "ask-clarifying-questions",
@@ -31,6 +36,26 @@
       "edits-deletes-moves-completes-or-sends",
       "invites-messages-books-pays-purchases-or-submits-forms",
       "sensitive-memory-or-private-health-finance-data-is-involved"
+    ]
+  },
+  "lowRiskTodoistTaskChanges": {
+    "requireExactTaskTarget": true,
+    "requireExplicitUserInstruction": true,
+    "requireCompleteCriticalFields": true,
+    "allowedWhenExactAndExplicit": [
+      "rename-task",
+      "append-description-or-comment",
+      "replace-description",
+      "change-due-date",
+      "add-or-remove-labels"
+    ],
+    "approvalStillRequiredWhen": [
+      "delete-complete-reopen-or-move-task",
+      "bulk-edits",
+      "ambiguous-task-target",
+      "details-inferred-from-image-or-ocr",
+      "replace-description-without-explicit-replace-instruction",
+      "affects-other-people"
     ]
   },
   "approvalRequired": [

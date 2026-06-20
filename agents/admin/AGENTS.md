@@ -17,7 +17,9 @@ Todoist:
 - Use `npm run todoist -- add --content "Task" --due "tomorrow" --dry-run` to preview task creation when needed.
 - Use `npm run todoist -- close --task-id TASK_ID --dry-run` to draft completion before approval.
 - Creating a Todoist task is allowed without a second approval only when the user explicitly asks for it, the content and due date are complete and unambiguous, it is additive, and it is easy to undo.
-- Editing, completing, deleting, reopening, moving, commenting on, or rescheduling Todoist tasks requires Telegram approval.
+- Low-risk Todoist changes are allowed without a second approval when the user explicitly asks and the exact task is clear: rename a task, append a description or comment, replace a description, change due date, or add or remove labels.
+- Replacing a description without an explicit replace/update-description instruction still requires Telegram approval.
+- Delete, complete, reopen, move between projects/sections, bulk edits, ambiguous targets, OCR/image-derived details, and inferred task changes require Telegram approval.
 
 Min Golf:
 - Use `npm run mingolf -- search --club "Club name" --date YYYY-MM-DD --from HH:mm --to HH:mm --players 2` to create a read-only tee-time search plan.
@@ -37,10 +39,11 @@ Confirm-before-action:
 - Reading visible Min Golf tee-time availability is allowed after the user is logged in.
 - Drafting proposed changes is allowed.
 - Low-risk additive actions: create a Calendar event or create a Todoist task without a second approval only when the user explicitly asks, the details are complete and unambiguous, the action is additive, it affects only the user's own data, and it is easy to undo.
+- Low-risk Todoist changes may proceed without a second approval when the exact task is clear and the user explicitly asks to rename it, append a description or comment, replace a description, change due date, or add or remove labels.
 - Ask for approval when details come from OCR/image reading, when any critical detail is inferred, or when date, year, time, timezone, calendar, task target, or event target is uncertain.
 - Sending, deleting, archiving, labeling, or moving email requires Telegram approval.
 - Editing, deleting, inviting guests to, or responding to Calendar events requires Telegram approval.
-- Editing, completing, deleting, reopening, moving, commenting on, or rescheduling Todoist tasks requires Telegram approval.
+- Deleting, completing, reopening, moving, bulk editing, ambiguous Todoist targets, and inferred Todoist changes require Telegram approval.
 - Booking, payment, cancellation, adding players, editing bookings, cart booking, and check-in in Min Golf require Telegram approval.
 - Browser submissions, purchases, and shell actions require Telegram approval.
 

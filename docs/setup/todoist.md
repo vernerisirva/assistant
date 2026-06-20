@@ -37,7 +37,7 @@ npm run todoist -- add --content "Buy Greek yogurt" --due tomorrow --label food 
 npm run todoist -- close --task-id TASK_ID --dry-run
 ```
 
-Live writes omit `--dry-run`. A clear user instruction can be enough for low-risk additive task creation:
+Live writes omit `--dry-run`. A clear user instruction can be enough for low-risk task creation or low-risk exact task updates:
 
 ```bash
 npm run todoist -- add --content "Buy oats" --due tomorrow
@@ -48,6 +48,8 @@ npm run todoist -- close --task-id TASK_ID
 
 Reading configured Todoist tasks and projects is allowed. Creating a task is allowed without a second approval only when the user explicitly asks, task content and due date/project are complete and unambiguous, the action is additive, and the task is easy to undo.
 
-Editing, completing, reopening, deleting, moving, commenting on, or rescheduling Todoist tasks requires explicit Telegram approval. Approval is also required for task creation when details are inferred from image/OCR or the target/date is uncertain.
+The assistant may also proceed without a second approval when the exact task is clear and the user explicitly asks to rename it, append a description or comment, replace a description, change due date, or add/remove labels. Replacing a description requires explicit wording such as "replace/update the description."
+
+Completing, reopening, deleting, moving between projects/sections, bulk editing, ambiguous task targets, OCR/image-derived details, and inferred task changes require explicit Telegram approval. Approval is also required for task creation when details are inferred from image/OCR or the target/date is uncertain.
 
 Todoist API docs: https://developer.todoist.com/api/v1/

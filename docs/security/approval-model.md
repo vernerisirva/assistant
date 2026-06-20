@@ -8,6 +8,8 @@ Approval wording is flexible but must be explicit and tied to a pending approval
 
 Low-risk additive actions include creating a Calendar event from details the user typed directly, creating a Todoist task from clear text, and storing a low-risk memory when the user explicitly asks the assistant to remember it. Forgetting one memory by user request is allowed.
 
-Telegram approval is still required when critical fields are inferred from image/OCR, any date/year/time/timezone/calendar/target is uncertain, the action is ambiguous, the action edits/deletes/moves/completes/sends/invites, another person is affected, or sensitive memory/private health/finance data is involved.
+Low-risk Todoist changes can also proceed without a second approval when the user explicitly asks and the exact task is clear: rename a task, append a description or comment, replace a description, change due date, or add/remove labels. Description replacement requires explicit replace/update-description wording.
 
-Email sends, Calendar edits/deletes/invite responses, Todoist edits/completions/deletions/reschedules, Min Golf bookings or booking changes, payments, purchases, financial actions, browser submissions, destructive shell commands, and sensitive local data access remain approval-gated. Min Golf booking-assist must stop before payment, BankID, third-party redirects, changed terms, mismatched details, or unexpected account changes.
+Telegram approval is still required when critical fields are inferred from image/OCR, any date/year/time/timezone/calendar/target is uncertain, the action is ambiguous, another person is affected, or sensitive memory/private health/finance data is involved.
+
+Email sends, Calendar edits/deletes/invite responses, Todoist completions/reopens/deletions/project moves/bulk edits/ambiguous or inferred changes, Min Golf bookings or booking changes, payments, purchases, financial actions, browser submissions, destructive shell commands, and sensitive local data access remain approval-gated. Min Golf booking-assist must stop before payment, BankID, third-party redirects, changed terms, mismatched details, or unexpected account changes.

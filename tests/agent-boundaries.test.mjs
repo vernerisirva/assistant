@@ -77,8 +77,25 @@ describe("agent configuration", () => {
     );
     assert.match(
       prompt,
-      /Editing, completing, deleting, reopening, moving, commenting on, or rescheduling Todoist tasks requires Telegram approval/i,
+      /Delete, complete, reopen, move between projects\/sections, bulk edits, ambiguous targets, OCR\/image-derived details, and inferred task changes require Telegram approval/i,
     );
+  });
+
+  it("teaches the admin agent low-risk Todoist updates can proceed from explicit instructions", () => {
+    const adminAgent = agents.find((agent) => agent.id === "admin");
+    const prompt = readFileSync(`${adminAgent.promptDir}/AGENTS.md`, "utf8");
+
+    assert.match(prompt, /Low-risk Todoist changes/);
+    assert.match(prompt, /rename a task/i);
+    assert.match(prompt, /append a description or comment/i);
+    assert.match(prompt, /replace a description/i);
+    assert.match(prompt, /change due date/i);
+    assert.match(prompt, /add or remove labels/i);
+    assert.match(prompt, /exact task/i);
+    assert.match(prompt, /without a second approval/i);
+    assert.match(prompt, /Delete, complete, reopen, move/i);
+    assert.match(prompt, /bulk/i);
+    assert.match(prompt, /OCR/i);
   });
 
   it("teaches the admin agent the low-risk additive action exception", () => {
@@ -208,6 +225,8 @@ describe("agent configuration", () => {
     assert.match(prompt, /explicit user instruction counts as approval/i);
     assert.match(prompt, /low-risk additive/i);
     assert.match(prompt, /complete and unambiguous/i);
+    assert.match(prompt, /Low-risk Todoist changes also count as approved/i);
+    assert.match(prompt, /append or replace a description/i);
     assert.match(prompt, /Ask for approval when/i);
     assert.match(prompt, /image\/OCR/i);
     assert.match(prompt, /inferred/i);
