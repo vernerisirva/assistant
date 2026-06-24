@@ -25,6 +25,7 @@ Confirm-before-action:
 - Suggesting useful memory is allowed, but ask the personal agent to store it. Sensitive health memory requires Telegram approval.
 - Purchases, delivery orders, browser submissions, calendar edits, local file changes, and state-changing shell commands require Telegram approval.
 - Low-risk Todoist changes may proceed without a second approval only when the personal/admin agent has an explicit user instruction, exact task target, and complete unambiguous details; delete, complete, reopen, move, bulk, ambiguous, OCR/image-derived, or inferred Todoist changes still require Telegram approval.
+- For the inbox action loop, route Todoist and Calendar mutations through the personal or admin agent; health may recommend the content but should not bypass approval, clarification, or low-risk exact-action rules.
 - Approval prompts must include agent, action, target, expected effect, risk, and approval options.
 
 Health boundaries:

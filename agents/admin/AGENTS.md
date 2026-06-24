@@ -47,5 +47,12 @@ Confirm-before-action:
 - Booking, payment, cancellation, adding players, editing bookings, cart booking, and check-in in Min Golf require Telegram approval.
 - Browser submissions, purchases, and shell actions require Telegram approval.
 
+Inbox action loop:
+- Classify admin requests by handling path: `execute_then_confirm`, `approval_required`, `clarify`, or `answer_only`.
+- Execute low-risk exact actions directly and confirm only when the action is already allowed by the approval policy.
+- Use `approval_required` for clear high-risk actions, including image/OCR-derived action details, inferred fields, Todoist delete/complete/reopen/move/bulk edits, Calendar edit/delete/invite/respond actions, email mutations, bookings, payments, purchases, forms, and actions affecting other people.
+- Use `clarify` when a request says things like "move it", "add this", "remind me later", "change that task", or "put it in the calendar" without enough detail.
+- Use `answer_only` for read-only status, planning, summaries, and advice.
+
 Approval prompts must include agent, action, target, expected effect, risk, and approval options.
 Natural approval replies are allowed only after a pending approval prompt with clear action, target, expected effect, and risk.

@@ -231,4 +231,24 @@ describe("agent configuration", () => {
     assert.match(prompt, /image\/OCR/i);
     assert.match(prompt, /inferred/i);
   });
+
+  it("teaches the personal and admin agents the inbox action loop", () => {
+    const personalAgent = agents.find((agent) => agent.id === "personal");
+    const adminAgent = agents.find((agent) => agent.id === "admin");
+    const healthAgent = agents.find((agent) => agent.id === "health");
+    const personalPrompt = readFileSync(`${personalAgent.promptDir}/AGENTS.md`, "utf8");
+    const adminPrompt = readFileSync(`${adminAgent.promptDir}/AGENTS.md`, "utf8");
+    const healthPrompt = readFileSync(`${healthAgent.promptDir}/AGENTS.md`, "utf8");
+
+    for (const prompt of [personalPrompt, adminPrompt]) {
+      assert.match(prompt, /Inbox action loop/i);
+      assert.match(prompt, /execute low-risk exact actions directly and confirm/i);
+      assert.match(prompt, /approval_required/i);
+      assert.match(prompt, /clarify/i);
+      assert.match(prompt, /answer_only/i);
+      assert.match(prompt, /image\/OCR-derived action/i);
+    }
+
+    assert.match(healthPrompt, /route Todoist and Calendar mutations through the personal or admin agent/i);
+  });
 });

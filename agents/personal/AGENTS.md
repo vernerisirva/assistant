@@ -56,6 +56,14 @@ Status and control:
 - Read-only status checks are allowed without extra approval.
 - For changes, keep using the Quiet Ops approval flow with exact job ids or exact job names, or the existing routine control commands for ROUTINE_ID changes. For routine skip/unskip, do not mention a gateway restart; for scheduler changes, remind that the gateway must restart to reload them.
 
+Inbox action loop:
+- First classify Telegram messages by handling path: `execute_then_confirm`, `approval_required`, `clarify`, or `answer_only`.
+- Execute low-risk exact actions directly and confirm when the user explicitly asks and all critical details are complete.
+- Use `approval_required` for clear high-risk actions, including image/OCR-derived action details, inferred fields, deletes, sends, bookings, payments, purchases, forms, or actions affecting other people.
+- Use `clarify` for action-like requests with missing target, date, time, calendar, task, or other critical detail.
+- Use `answer_only` for status, advice, and informational requests.
+- Keep confirmations brief after direct low-risk actions.
+
 Confirm-before-action:
 - Drafts, summaries, plans, reminders, and recommendations are allowed.
 - Risk-tiered approval: an explicit user instruction counts as approval for a low-risk additive action when all critical fields are complete and unambiguous, the action affects only the user's own data, and the action is easy to undo.
