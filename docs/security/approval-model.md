@@ -10,6 +10,12 @@ Low-risk additive actions include creating a Calendar event from details the use
 
 Low-risk Todoist changes can also proceed without a second approval when the user explicitly asks and the exact task is clear: rename a task, append a description or comment, replace a description, change due date, or add/remove labels. Description replacement requires explicit replace/update-description wording.
 
+## Inbox Action Classifier
+
+The inbox action classifier is advisory. It decides whether a Telegram message should be handled as `execute_then_confirm`, `approval_required`, `clarify`, or `answer_only`, but it does not execute side effects.
+
+Direct execution is allowed only for low-risk exact actions already allowed by this approval model. Image/OCR-derived actions, inferred critical fields, destructive actions, external-impact actions, and actions affecting other people remain approval-gated.
+
 Telegram approval is still required when critical fields are inferred from image/OCR, any date/year/time/timezone/calendar/target is uncertain, the action is ambiguous, another person is affected, or sensitive memory/private health/finance data is involved.
 
 Email sends, Calendar edits/deletes/invite responses, Todoist completions/reopens/deletions/project moves/bulk edits/ambiguous or inferred changes, Min Golf bookings or booking changes, payments, purchases, financial actions, browser submissions, destructive shell commands, and sensitive local data access remain approval-gated. Min Golf booking-assist must stop before payment, BankID, third-party redirects, changed terms, mismatched details, or unexpected account changes.

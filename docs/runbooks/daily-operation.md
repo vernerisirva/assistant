@@ -45,6 +45,17 @@ Low-risk additive actions do not need a second approval when the user explicitly
 
 Low-risk Todoist updates also do not need a second approval when the exact task is clear and the user explicitly asks to rename it, append or replace a description, change due date, or add/remove labels. Ask for approval when details are inferred from image/OCR, dates or targets are uncertain, another person is affected, or the action deletes, completes, reopens, moves, bulk edits, sends, invites, books, pays, purchases, submits forms, or touches sensitive memory.
 
+## Inbox Action Loop Checks
+
+When the bot gives an unexpected approval prompt or acts too cautiously, check the intended handling path:
+
+- `execute_then_confirm`: explicit low-risk action with complete details.
+- `approval_required`: clear action that is risky, destructive, inferred, image/OCR-derived, or externally impactful.
+- `clarify`: action-like message with missing critical details.
+- `answer_only`: read-only question, status request, advice, or planning.
+
+The classifier is deterministic and side-effect free; execution remains controlled by the relevant tool and approval policy.
+
 Run a routine manually:
 
 ```bash
