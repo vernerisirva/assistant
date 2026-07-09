@@ -8,6 +8,7 @@
     "search-min-golf-tee-time-availability",
     "draft-min-golf-booking-approval-request",
     "read-local-memory",
+    "capture-explicit-local-feedback",
     "remember-explicit-low-risk-memory",
     "forget-single-memory-by-request",
     "create-explicit-complete-calendar-event",
@@ -40,6 +41,15 @@
       "edits-deletes-moves-completes-or-sends",
       "invites-messages-books-pays-purchases-or-submits-forms",
       "sensitive-memory-or-private-health-finance-data-is-involved"
+    ]
+  },
+  "localFeedback": {
+    "storage": "local-only",
+    "entryFields": ["timestamp", "type", "message", "source"],
+    "blockedWhen": [
+      "sensitive-content",
+      "external-delivery",
+      "inferred-conversation-context"
     ]
   },
   "lowRiskTodoistTaskChanges": {

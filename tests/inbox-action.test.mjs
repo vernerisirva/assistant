@@ -250,6 +250,31 @@ describe("inbox action classifier", () => {
     });
   });
 
+  it("classifies explicit local feedback as low-risk capture", () => {
+    for (const message of [
+      "That was useful",
+      "That was annoying",
+      "Feedback: morning brief was too long",
+      "Log improvement idea: calendar planning should show gaps between meetings",
+    ]) {
+      expectDecision(message, {}, {
+        intent: "feedback.capture",
+        mode: "execute_then_confirm",
+        risk: "low",
+        approvalRequired: false,
+      });
+    }
+  });
+
+  it("keeps external feedback delivery approval-gated", () => {
+    expectDecision("Send this feedback to Anna", {}, {
+      intent: "feedback.send",
+      mode: "approval_required",
+      risk: "high",
+      approvalRequired: true,
+    });
+  });
+
   it("allows complete typed calendar creation but gates edits and invites", () => {
     expectDecision(
       "Create calendar event Dentist on 2026-06-21 14:00 in Personal calendar",

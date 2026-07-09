@@ -22,6 +22,7 @@ Low-risk direct actions do not need a second approval when the user explicitly a
 - Create a simple personal Calendar event from typed complete details, without guests.
 - Store or forget one low-risk memory when explicitly requested.
 - Make a low-risk change to one clearly identified personal Todoist task.
+- Capture explicit local feedback in the local feedback log.
 
 Clarification-needed actions should ask one concise clarifying question before execution or approval:
 
@@ -72,6 +73,14 @@ For screenshot/reference-derived Todoist cleanup, the safe implementation patter
 Ask a clarifying question when the target is ambiguous, such as `change my tasks`, `clean up my Todoist tasks`, `update the task` with no exact match, or a screenshot/reference that contains multiple plausible tasks.
 
 Telegram approval is still required for Todoist deletes, reopens, moves between projects/sections, bulk edits, shared/project-wide changes, sensitive content, inferred update content, or changes that affect other people.
+
+## Feedback Capture
+
+Explicit local feedback can be captured without a second approval. The feedback log is local-only and append-only at `.openclaw/state/feedback/feedback.jsonl`. Each entry contains only `timestamp`, `type`, `message`, and `source`.
+
+The assistant must store only the feedback text the user explicitly provides. It must not attach, summarize, infer, or copy surrounding conversation content, including the preceding assistant response. Feedback capture must not write to memory, Todoist, Calendar, Gmail, routines, config, or agent prompts, and it must never send feedback externally.
+
+Sensitive feedback is not stored. Ask the user to rephrase without private health, financial, or authentication details. Sending, sharing, emailing, or posting feedback externally requires explicit Telegram approval with a clear recipient and target.
 
 ## Inbox Action Classifier
 

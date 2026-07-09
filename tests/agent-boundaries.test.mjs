@@ -167,6 +167,19 @@ describe("agent configuration", () => {
     assert.match(prompt, /sensitive memory requires Telegram approval/i);
   });
 
+  it("teaches the personal agent to capture explicit local feedback without memory creep", () => {
+    const personalAgent = agents.find((agent) => agent.id === "personal");
+    const prompt = readFileSync(`${personalAgent.promptDir}/AGENTS.md`, "utf8");
+
+    assert.match(prompt, /Feedback capture/);
+    assert.match(prompt, /npm run feedback -- add/);
+    assert.match(prompt, /only the explicit feedback text/i);
+    assert.match(prompt, /do not attach.*conversation context/i);
+    assert.match(prompt, /do not write feedback to memory/i);
+    assert.match(prompt, /Sensitive feedback.*rephrase/i);
+    assert.match(prompt, /never send feedback externally/i);
+  });
+
   it("teaches the personal agent to run memory-aware daily routines", () => {
     const personalAgent = agents.find((agent) => agent.id === "personal");
     const prompt = readFileSync(`${personalAgent.promptDir}/AGENTS.md`, "utf8");

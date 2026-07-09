@@ -80,6 +80,33 @@ describe("inbox classifier debug command", () => {
     assert.match(sensitiveMemory.safety.reason, /Sensitive memory/i);
   });
 
+  it("routes explicit local feedback through personal without approval", () => {
+    for (const message of [
+      "That was useful",
+      "That was annoying",
+      "Feedback: morning brief was too long",
+      "Log improvement idea: calendar planning should show gaps between meetings",
+    ]) {
+      const result = classify(message);
+
+      assert.equal(result.selectedAgent, "personal");
+      assert.equal(result.action.intent, "feedback.capture");
+      assert.equal(result.action.mode, "execute_then_confirm");
+      assert.equal(result.sideEffecting, true);
+      assert.equal(result.approvalRequired, false);
+      assert.match(result.safety.reason, /local feedback/i);
+    }
+  });
+
+  it("keeps external feedback delivery approval-gated", () => {
+    const result = classify("Send this feedback to Anna");
+
+    assert.equal(result.selectedAgent, "personal");
+    assert.equal(result.action.intent, "feedback.send");
+    assert.equal(result.sideEffecting, true);
+    assert.equal(result.approvalRequired, true);
+  });
+
   it("shows exact low-risk Todoist task changes as side-effecting without approval", () => {
     for (const message of [
       "Clean up the formatting of this Todoist task",

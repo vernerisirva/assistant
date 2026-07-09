@@ -1,4 +1,9 @@
 import { isApprovalMessage, normalizeApprovalText } from "./approval-language.mjs";
+import {
+  feedbackTypeFromMessage,
+  isExternalFeedbackRequest,
+  isSensitiveFeedbackMessage,
+} from "./feedback.mjs";
 
 export const inboxActionModes = Object.freeze({
   executeThenConfirm: "execute_then_confirm",
@@ -15,6 +20,8 @@ export const inboxActionIntents = Object.freeze({
   statusQuery: "status.query",
   adviceQuery: "advice.query",
   approvalResponse: "approval.response",
+  feedbackCapture: "feedback.capture",
+  feedbackSend: "feedback.send",
   clarify: "clarify",
   noAction: "no_action",
 });
@@ -57,6 +64,17 @@ export function classifyInboxAction(message, options = {}) {
 
   if (isApprovalLikeWithoutPending(text)) {
     return answerOnly("no_action", "Approval-like message without a pending approval prompt.");
+  }
+
+  if (isExternalFeedbackRequest(raw)) {
+    return approvalRequired("feedback.send", "high", "Sending or sharing feedback externally requires approval.");
+  }
+
+  if (feedbackTypeFromMessage(raw)) {
+    if (isSensitiveFeedbackMessage(raw)) {
+      return clarify("Sensitive feedback should be rephrased without private health, financial, or authentication details before local capture.");
+    }
+    return executeThenConfirm("feedback.capture", "Explicit local feedback capture stores only the user's provided text.");
   }
 
   if (opts.affectsOtherPeople) {

@@ -201,6 +201,14 @@ function chooseRoute(text, action) {
     };
   }
 
+  if (["feedback.capture", "feedback.send"].includes(action.intent)) {
+    return {
+      agent: "personal",
+      confidence: "high",
+      reason: "Message is explicit feedback for Hilla's local improvement log.",
+    };
+  }
+
   for (const rule of routeRules) {
     if (rule.pattern.test(text)) {
       return {

@@ -45,6 +45,19 @@ Low-risk additive actions do not need a second approval when the user explicitly
 
 Low-risk Todoist updates also do not need a second approval when one exact personal task is clear and the user explicitly asks for formatting cleanup, wording cleanup, adding detail, rename, append or replace a description/comment, change due date, add/remove labels, or marking that one task complete. A screenshot/reference-derived exact Todoist target is allowed for those low-risk updates. For formatting-only cleanup, use the screenshot/reference only to identify the task, fetch or read the actual Todoist task content, and reformat that fetched content without adding substantive content. Ask for clarification when the target is ambiguous. Ask for approval when non-Todoist details are inferred from image/OCR, Todoist update content is inferred rather than fetched or explicitly provided, dates or targets are uncertain, another person is affected, or the action deletes, reopens, moves, bulk edits, changes shared/project-wide tasks, sends, invites, books, pays, purchases, submits forms, or touches sensitive memory.
 
+## Local Feedback
+
+Capture explicit local feedback without sending it anywhere:
+
+```bash
+npm run feedback -- add --type useful --message "That was useful"
+npm run feedback -- add --type annoying --message "That was annoying"
+npm run feedback -- add --type improvement --message "Morning brief was too long"
+npm run feedback -- list
+```
+
+Feedback entries are append-only local runtime state at `.openclaw/state/feedback/feedback.jsonl`, which is ignored by Git. Each entry stores only timestamp, type, message, and source. Do not attach conversation context or the preceding assistant response. Sensitive feedback is not stored; ask the user to rephrase without private health, financial, or authentication details. Do not send feedback externally without explicit Telegram approval.
+
 ## Inbox Action Loop Checks
 
 When the bot gives an unexpected approval prompt or acts too cautiously, check the intended handling path:

@@ -65,13 +65,13 @@ Priority scale:
 
 ### 6. Routine Feedback Loop
 
-- Problem: Routines ask for light feedback, but there is no strong pattern for converting feedback into safer prompt/config improvements.
-- User value: Check-ins get better over time without silent memory creep.
+- Status: local feedback capture v1 is implemented for explicit useful, annoying, and improvement feedback.
+- User value: Check-ins and workflows can be improved from explicit friction without silent memory creep or copied conversation context.
 - Affected agent(s): personal, health.
-- Safety risk: Medium if feedback becomes silent memory; low if it stays explicit.
-- Approval requirement: Ask before storing inferred stable preferences; sensitive memory requires Telegram approval.
-- Suggested tests: Agent-boundary tests for inferred routine feedback; memory tests for sensitive vs low-risk storage.
-- Rough priority: P2.
+- Safety risk: Low while feedback stays local, explicit, and separate from memory; sensitive content and external delivery remain blocked.
+- Approval requirement: No extra approval for explicit four-field local feedback capture. External sharing requires approval; sensitive feedback must be rephrased.
+- Suggested tests: Feedback log field/sensitivity tests; classifier tests for local capture vs external sharing.
+- Rough priority: P2. Follow-up only: a manual feedback review flow, never automatic prompt/config changes.
 
 ### 7. Memory Review And Cleanup Flow
 

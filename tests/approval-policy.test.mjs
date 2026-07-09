@@ -49,6 +49,15 @@ describe("approval policy", () => {
     assert.ok(policy.allowedWithoutExtraApproval.includes("forget-single-memory-by-request"));
   });
 
+  it("allows explicit local feedback capture while keeping sensitive or external feedback blocked", () => {
+    assert.ok(policy.allowedWithoutExtraApproval.includes("capture-explicit-local-feedback"));
+    assert.deepEqual(policy.localFeedback.entryFields, ["timestamp", "type", "message", "source"]);
+    assert.equal(policy.localFeedback.storage, "local-only");
+    assert.ok(policy.localFeedback.blockedWhen.includes("sensitive-content"));
+    assert.ok(policy.localFeedback.blockedWhen.includes("external-delivery"));
+    assert.ok(policy.localFeedback.blockedWhen.includes("inferred-conversation-context"));
+  });
+
   it("allows explicit complete low-risk additive actions without a second approval", () => {
     assert.ok(policy.allowedWithoutExtraApproval.includes("create-explicit-complete-calendar-event"));
     assert.ok(policy.allowedWithoutExtraApproval.includes("create-explicit-complete-todoist-task"));
