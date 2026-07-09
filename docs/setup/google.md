@@ -21,4 +21,6 @@ The assistant may summarize Gmail and draft responses. Sending, archiving, delet
 
 Calendar access is still a setup path in this first skeleton, not an implemented runtime mutation. Configure it later through an OpenClaw-compatible tool, script, or skill. The assistant may read calendar context, flag conflicts, and draft changes once the integration exists.
 
+Calendar planning v1 is intentionally narrower: `npm run calendar:plan` analyzes a supplied normalized read-only event snapshot. It does not implement a Google Calendar API client and does not fetch Calendar events itself. Runtime Calendar retrieval remains handled by the existing OpenClaw/Telegram context path. The planner cannot create, edit, delete, invite, RSVP, email, book, or otherwise mutate Calendar data.
+
 Creating a Calendar event is allowed without a second approval only when the user explicitly asks, all critical fields are typed or otherwise certain, the target calendar is clear, no guests are invited, and the event is easy to undo. Approval is still required when details come from image/OCR, when year/date/time/timezone/calendar is inferred or uncertain, or when editing, deleting, inviting guests to, or responding to Calendar events.

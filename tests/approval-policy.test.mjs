@@ -58,6 +58,14 @@ describe("approval policy", () => {
     assert.ok(policy.localFeedback.blockedWhen.includes("inferred-conversation-context"));
   });
 
+  it("allows read-only calendar snapshot planning without promoting calendar mutations", () => {
+    assert.ok(policy.allowedWithoutExtraApproval.includes("analyze-read-only-calendar-snapshot"));
+    assert.ok(actionsForDomain("calendar").includes("create-event"));
+    assert.ok(actionsForDomain("calendar").includes("edit-event"));
+    assert.ok(actionsForDomain("calendar").includes("delete-event"));
+    assert.ok(actionsForDomain("calendar").includes("respond-to-invite"));
+  });
+
   it("allows explicit complete low-risk additive actions without a second approval", () => {
     assert.ok(policy.allowedWithoutExtraApproval.includes("create-explicit-complete-calendar-event"));
     assert.ok(policy.allowedWithoutExtraApproval.includes("create-explicit-complete-todoist-task"));

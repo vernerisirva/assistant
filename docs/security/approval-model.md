@@ -12,6 +12,7 @@ Read-only actions do not need approval:
 
 - Read configured local context.
 - Summarize Gmail, Calendar, Todoist, routines, memory, or status.
+- Analyze a supplied read-only Calendar event snapshot for planning; the helper must not fetch or mutate Calendar data.
 - Search/read visible Min Golf availability without changing booking state.
 - Draft replies, plans, task changes, calendar changes, grocery lists, and recommendations.
 - Run local read-only diagnostics.

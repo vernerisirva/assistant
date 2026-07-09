@@ -97,6 +97,7 @@ Priority scale:
 
 ### 9. Calendar Creation From Typed Details
 
+- Status: read-only Calendar snapshot planning is implemented separately; creation remains a distinct, carefully approved future path.
 - Problem: Calendar creation is allowed by policy for complete typed details, but runtime support is still mostly setup/documentation.
 - User value: Fast creation of simple personal events without guests.
 - Affected agent(s): personal, admin.

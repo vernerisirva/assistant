@@ -250,6 +250,32 @@ describe("inbox action classifier", () => {
     });
   });
 
+  it("classifies calendar planning questions as read-only planning", () => {
+    for (const message of [
+      "What does my day look like?",
+      "Where are my free blocks today?",
+      "Help me plan work around my meetings",
+      "Do I have space for a workout today?",
+      "What calendar pressure do I have this week?",
+    ]) {
+      expectDecision(message, {}, {
+        intent: "calendar.plan",
+        mode: "answer_only",
+        risk: "none",
+        approvalRequired: false,
+      });
+    }
+  });
+
+  it("keeps focus-block creation out of read-only calendar planning", () => {
+    expectDecision("Create a focus block", {}, {
+      intent: "calendar.create",
+      mode: "clarify",
+      risk: "unknown",
+      approvalRequired: false,
+    });
+  });
+
   it("classifies explicit local feedback as low-risk capture", () => {
     for (const message of [
       "That was useful",

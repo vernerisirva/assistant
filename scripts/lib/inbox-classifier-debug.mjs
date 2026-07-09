@@ -209,6 +209,14 @@ function chooseRoute(text, action) {
     };
   }
 
+  if (action.intent === "calendar.plan") {
+    return {
+      agent: "admin",
+      confidence: "high",
+      reason: "Message asks for read-only Calendar planning from existing context.",
+    };
+  }
+
   for (const rule of routeRules) {
     if (rule.pattern.test(text)) {
       return {

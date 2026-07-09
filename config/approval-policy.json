@@ -4,6 +4,7 @@
   "allowedWithoutExtraApproval": [
     "read-telegram-messages-sent-to-assistant",
     "summarize-configured-gmail-and-calendar",
+    "analyze-read-only-calendar-snapshot",
     "read-configured-todoist-tasks",
     "search-min-golf-tee-time-availability",
     "draft-min-golf-booking-approval-request",

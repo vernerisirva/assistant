@@ -1,0 +1,40 @@
+[
+  {
+    "title": "Sprint planning",
+    "start": "2026-07-06T07:00:00.000Z",
+    "end": "2026-07-06T08:00:00.000Z",
+    "calendar": "Personal"
+  },
+  {
+    "title": "Team standup",
+    "start": "2026-07-09T07:00:00.000Z",
+    "end": "2026-07-09T08:00:00.000Z",
+    "calendar": "Personal"
+  },
+  {
+    "title": "Roadmap review",
+    "start": "2026-07-09T08:00:00.000Z",
+    "end": "2026-07-09T09:00:00.000Z",
+    "location": "Meet",
+    "calendar": "Work"
+  },
+  {
+    "title": "Client call",
+    "start": "2026-07-09T11:00:00.000Z",
+    "end": "2026-07-09T12:00:00.000Z",
+    "calendar": "Work"
+  },
+  {
+    "title": "Optional availability",
+    "start": "2026-07-09T13:00:00.000Z",
+    "end": "2026-07-09T14:00:00.000Z",
+    "busy": false,
+    "calendar": "Personal"
+  },
+  {
+    "title": "Admin review",
+    "start": "2026-07-10T08:00:00.000Z",
+    "end": "2026-07-10T09:00:00.000Z",
+    "calendar": "Work"
+  }
+]

@@ -37,6 +37,20 @@ describe("inbox classifier debug command", () => {
     assert.match(result.reason, /source-backed|research/i);
   });
 
+  it("routes calendar planning questions to admin as read-only work", () => {
+    for (const message of [
+      "What does my day look like?",
+      "Where are my free blocks today?",
+    ]) {
+      const result = classify(message);
+
+      assert.equal(result.selectedAgent, "admin");
+      assert.equal(result.action.intent, "calendar.plan");
+      assert.equal(result.sideEffecting, false);
+      assert.equal(result.approvalRequired, false);
+    }
+  });
+
   it("flags Min Golf booking-like messages as approval-gated admin work", () => {
     const result = classify("Can you book golf tomorrow morning?");
 

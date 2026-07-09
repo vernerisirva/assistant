@@ -17,6 +17,7 @@ export const inboxActionIntents = Object.freeze({
   todoistUpdate: "todoist.update",
   reminderCreate: "reminder.create",
   calendarCreate: "calendar.create",
+  calendarPlan: "calendar.plan",
   statusQuery: "status.query",
   adviceQuery: "advice.query",
   approvalResponse: "approval.response",
@@ -46,6 +47,8 @@ const todoistPattern = /\b(todoist|tasks?|description)\b/;
 const broadTodoistChangePattern = /\b(change|update|clean up|edit|modify)\b.*\b(my )?(todoist )?tasks?\b|\b(todoist )?tasks?\b.*\b(change|update|clean up|edit|modify)\b/;
 const reminderPattern = /\b(remind me|set reminder|reminder)\b/;
 const calendarPattern = /\b(calendar|event)\b/;
+const calendarPlanningPattern = /\b(what does my day look like|free blocks?|plan work around (my )?meetings|space for a workout|calendar pressure.*week)\b/;
+const focusBlockCreationPattern = /\b(create|add|schedule)\b.*\bfocus block\b/;
 const calendarHighRiskPattern = /\b(delete|remove|move|reschedule|invite|add guest|rsvp|respond)\b/;
 const statusPattern = /\b(agent running|bot running|status|what is running|scheduled|automatic messages|what.*next scheduled)\b/;
 const advicePattern = /\b(what should i do|what next|recommend|how would you improve|what would you do)\b/;
@@ -101,7 +104,11 @@ export function classifyInboxAction(message, options = {}) {
     return classifyTodoist(text, opts);
   }
 
-  if (calendarPattern.test(text)) {
+  if (calendarPlanningPattern.test(text)) {
+    return answerOnly("calendar.plan", "Calendar planning request is read-only and does not mutate events.");
+  }
+
+  if (calendarPattern.test(text) || focusBlockCreationPattern.test(text)) {
     return classifyCalendar(text, opts);
   }
 
@@ -173,7 +180,13 @@ function classifyCalendar(text, opts) {
       return executeThenConfirm("calendar.create", "Complete typed calendar creation request.");
     }
 
-    return clarify("Calendar creation is missing date, time, title, timezone, or target calendar.");
+    return decision(
+      "calendar.create",
+      "unknown",
+      "clarify",
+      false,
+      "Calendar creation is missing date, time, title, timezone, or target calendar.",
+    );
   }
 
   return answerOnly("no_action", "Calendar was mentioned without a supported event creation request.");

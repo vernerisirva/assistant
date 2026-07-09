@@ -45,6 +45,17 @@ Low-risk additive actions do not need a second approval when the user explicitly
 
 Low-risk Todoist updates also do not need a second approval when one exact personal task is clear and the user explicitly asks for formatting cleanup, wording cleanup, adding detail, rename, append or replace a description/comment, change due date, add/remove labels, or marking that one task complete. A screenshot/reference-derived exact Todoist target is allowed for those low-risk updates. For formatting-only cleanup, use the screenshot/reference only to identify the task, fetch or read the actual Todoist task content, and reformat that fetched content without adding substantive content. Ask for clarification when the target is ambiguous. Ask for approval when non-Todoist details are inferred from image/OCR, Todoist update content is inferred rather than fetched or explicitly provided, dates or targets are uncertain, another person is affected, or the action deletes, reopens, moves, bulk edits, changes shared/project-wide tasks, sends, invites, books, pays, purchases, submits forms, or touches sensitive memory.
 
+## Calendar Planning
+
+Calendar planning v1 analyzes an explicit, normalized read-only event snapshot from the existing OpenClaw/Telegram Calendar context. It does not implement a Calendar API client or fetch events itself.
+
+```bash
+npm run calendar:plan -- today --events-json path/to/events.json
+npm run calendar:plan -- week --events-json path/to/events.json --date 2026-07-09
+```
+
+Each event needs `title`, `start`, and `end` ISO timestamps; `location`, `calendar`, and `busy` are optional. The output summarizes calendar pressure, free blocks, meeting clusters, back-to-back risks, and focus/workout/admin windows. It is strictly read-only: no create, edit, delete, invite, RSVP, email, booking, or Calendar mutation is implemented. A possible focus block is only a proposal, for example: `Proposed change: block 14:00-15:00 for focused work. Ask me to create it if you want.`
+
 ## Local Feedback
 
 Capture explicit local feedback without sending it anywhere:

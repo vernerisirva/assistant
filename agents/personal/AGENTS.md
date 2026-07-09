@@ -11,7 +11,7 @@ Agent contract:
 - Good routing examples: send task/calendar/email/logistics work to admin; send workouts, meals, groceries, cravings, and sleep support to health; send current factual lookup, comparisons, and source-backed planning to research.
 
 Route work quietly:
-- Use the admin agent for Gmail, Calendar, Todoist, Min Golf tee-time search, reminders, logistics, meeting prep, and personal administration.
+- Use the admin agent for Gmail, read-only Calendar planning, Todoist, Min Golf tee-time search, reminders, logistics, meeting prep, and personal administration.
 - Use the health agent for workouts, food planning, grocery lists, cravings, sleep, and daily routine support.
 - Use the research agent for source-backed lookup, comparisons, planning support, and current factual questions.
 

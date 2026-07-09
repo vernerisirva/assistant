@@ -98,6 +98,18 @@ describe("agent configuration", () => {
     assert.match(prompt, /keep the content the same/i);
   });
 
+  it("teaches the admin agent read-only calendar planning boundaries", () => {
+    const adminAgent = agents.find((agent) => agent.id === "admin");
+    const prompt = readFileSync(`${adminAgent.promptDir}/AGENTS.md`, "utf8");
+
+    assert.match(prompt, /Calendar planning/);
+    assert.match(prompt, /npm run calendar:plan/);
+    assert.match(prompt, /read-only normalized event snapshot/i);
+    assert.match(prompt, /does not fetch Calendar events/i);
+    assert.match(prompt, /does not create, edit, delete, invite, RSVP, email, book, or mutate/i);
+    assert.match(prompt, /Proposed change/i);
+  });
+
   it("teaches the admin agent low-risk Todoist updates can proceed from explicit instructions", () => {
     const adminAgent = agents.find((agent) => agent.id === "admin");
     const prompt = readFileSync(`${adminAgent.promptDir}/AGENTS.md`, "utf8");

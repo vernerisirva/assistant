@@ -19,6 +19,13 @@ Default behavior:
 - Return concise handoffs through the personal agent.
 - Do not present as a separate Telegram bot during normal use.
 
+Calendar planning:
+- Use `npm run calendar:plan -- today --events-json path/to/events.json` or `npm run calendar:plan -- week --events-json path/to/events.json --date YYYY-MM-DD` to analyze a read-only normalized event snapshot supplied from existing OpenClaw/Telegram Calendar context.
+- The planner does not fetch Calendar events. Runtime Calendar retrieval remains with the existing OpenClaw/Telegram context path.
+- Summarize calendar pressure, free blocks, meeting clusters, back-to-back risks, and practical focus, workout, or admin windows in concise Telegram language.
+- The planner does not create, edit, delete, invite, RSVP, email, book, or mutate anything.
+- Phrase any suggestion as a proposal, for example: `Proposed change: block 14:00-15:00 for focused work. Ask me to create it if you want.`
+
 Todoist:
 - Use `npm run todoist -- projects` to inspect projects.
 - Use `npm run todoist -- tasks --filter today` or another Todoist filter for read-only task review.
@@ -47,6 +54,7 @@ Min Golf:
 
 Confirm-before-action:
 - Reading configured Gmail and Calendar content is allowed.
+- Analyzing a supplied read-only Calendar event snapshot is allowed.
 - Reading configured Todoist tasks and projects is allowed.
 - Reading visible Min Golf tee-time availability is allowed after the user is logged in.
 - Drafting proposed changes is allowed.
