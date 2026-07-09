@@ -41,7 +41,7 @@ Starting the gateway alone does not prove these routines are running automatical
 
 When the assistant proposes a side effect, approve it only if the action, target, expected effect, and risk are clear. Natural approvals such as `approve`, `ok`, `that's ok`, `yes do it`, or `go ahead` are enough after a clear approval prompt.
 
-Low-risk additive actions do not need a second approval when the user explicitly asks and all critical fields are complete and unambiguous. Examples: create a Calendar event from typed details, create a Todoist task from clear text, or remember a low-risk preference explicitly requested by the user.
+Low-risk additive actions do not need a second approval when the user explicitly asks and all critical fields are complete and unambiguous. Examples: build a Calendar creation preview from typed details, create a Todoist task from clear text, or remember a low-risk preference explicitly requested by the user. Calendar creation v1 is preview-only and never creates an event.
 
 Low-risk Todoist updates also do not need a second approval when one exact personal task is clear and the user explicitly asks for formatting cleanup, wording cleanup, adding detail, rename, append or replace a description/comment, change due date, add/remove labels, or marking that one task complete. A screenshot/reference-derived exact Todoist target is allowed for those low-risk updates. For formatting-only cleanup, use the screenshot/reference only to identify the task, fetch or read the actual Todoist task content, and reformat that fetched content without adding substantive content. Ask for clarification when the target is ambiguous. Ask for approval when non-Todoist details are inferred from image/OCR, Todoist update content is inferred rather than fetched or explicitly provided, dates or targets are uncertain, another person is affected, or the action deletes, reopens, moves, bulk edits, changes shared/project-wide tasks, sends, invites, books, pays, purchases, submits forms, or touches sensitive memory.
 
@@ -55,6 +55,18 @@ npm run calendar:plan -- week --events-json path/to/events.json --date 2026-07-0
 ```
 
 Each event needs `title`, `start`, and `end` ISO timestamps; `location`, `calendar`, and `busy` are optional. The output summarizes calendar pressure, free blocks, meeting clusters, back-to-back risks, and focus/workout/admin windows. It is strictly read-only: no create, edit, delete, invite, RSVP, email, booking, or Calendar mutation is implemented. A possible focus block is only a proposal, for example: `Proposed change: block 14:00-15:00 for focused work. Ask me to create it if you want.`
+
+## Calendar Creation Preview
+
+Validate a single proposed personal event without contacting Google Calendar:
+
+```bash
+npm run calendar:create -- --title "Gym" --date 2026-07-09 --start 17:30 --duration 60 --dry-run
+```
+
+The helper defaults the timezone to `Europe/Stockholm` and the calendar to the primary personal Calendar when neither is supplied. It returns one of: a policy-allowed preview / ready for a future safe create tool, clarification needed, or approval required. It never creates an event, even for a policy-allowed preview. Do not present its output as a completed Calendar change.
+
+For a policy-allowed preview, use exactly one event with a clear title, date, start, and duration or end; no guests, recurrence, sensitive content, external impact, or existing event mutation. Ask for clarification for missing/ambiguous details, unclear timezone, possible duplicate, or unclear guests. Approval is required for guests/invitations, edit/delete/move, recurrence, multiple events, non-primary/shared Calendars, sensitive/other-person impact, uncertain screenshot/OCR-derived substantive content, booking/payment, or browser activity.
 
 ## Local Feedback
 
@@ -86,6 +98,7 @@ Preview how Hilla would route and classify a Telegram message without taking act
 npm run inbox:debug -- "Can you book golf tomorrow morning?"
 npm run inbox:debug -- --json "Send email to Anna saying I will be late"
 npm run inbox:debug -- --source screenshot --exact-task-target --complete-details "Clean up the formatting of this Todoist task"
+npm run inbox:debug -- --complete-details --target-calendar-clear "Create calendar event Gym on 2026-07-09 at 17:30 for 60 minutes"
 ```
 
 Preview or run exact Todoist updates after one task has been resolved:

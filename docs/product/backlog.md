@@ -97,13 +97,13 @@ Priority scale:
 
 ### 9. Calendar Creation From Typed Details
 
-- Status: read-only Calendar snapshot planning is implemented separately; creation remains a distinct, carefully approved future path.
-- Problem: Calendar creation is allowed by policy for complete typed details, but runtime support is still mostly setup/documentation.
-- User value: Fast creation of simple personal events without guests.
+- Status: normalized Calendar creation preview is implemented; a real safe Calendar write tool is still intentionally absent.
+- Problem: Hilla can now validate one simple event request, but cannot yet create it through a documented safe runtime path.
+- User value: Clear, safe previews now; a future write tool can reuse the validated request.
 - Affected agent(s): personal, admin.
 - Safety risk: Medium. Wrong date/time/calendar creates real calendar noise.
-- Approval requirement: No second approval only when explicitly requested, typed, complete, clear calendar, no guests, and easy to undo. Approval required for OCR/inferred/uncertain details and all edits/deletes/invites/responses.
-- Suggested tests: Calendar payload builder tests if implemented; approval-policy tests; agent-boundary tests.
+- Approval requirement: A preview is policy-allowed only when explicitly requested, typed, complete, primary personal Calendar, no guests, no recurrence, and low-risk. Approval required for guests/invites, OCR/inferred substantive content, uncertainty, non-primary/shared Calendars, recurrence/multiple events, and all edits/deletes/invites/responses. The preview itself never creates an event.
+- Suggested tests: Calendar preview builder tests; approval-policy tests; agent-boundary tests; safe write-tool contract tests before any runtime mutation.
 - Rough priority: P2.
 
 ### 10. Gmail Mutation Guardrails

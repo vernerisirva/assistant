@@ -20,7 +20,7 @@ Read-only actions do not need approval:
 Low-risk direct actions do not need a second approval when the user explicitly asks, the target is exact, all critical fields are complete, the action affects only the user's own data, and it is easy to undo:
 
 - Create a simple personal Todoist task from clear text.
-- Create a simple personal Calendar event from typed complete details, without guests.
+- Build a preview for one simple personal Calendar event from typed complete details, without guests. This repository has no Calendar write tool, so the preview never creates an event.
 - Store or forget one low-risk memory when explicitly requested.
 - Make a low-risk change to one clearly identified personal Todoist task.
 - Capture explicit local feedback in the local feedback log.
@@ -83,11 +83,19 @@ The assistant must store only the feedback text the user explicitly provides. It
 
 Sensitive feedback is not stored. Ask the user to rephrase without private health, financial, or authentication details. Sending, sharing, emailing, or posting feedback externally requires explicit Telegram approval with a clear recipient and target.
 
+## Calendar Creation Preview
+
+`npm run calendar:create -- ... --dry-run` validates and normalizes one proposed Calendar event. It is a pure preview helper: it does not fetch Calendar data, call a Calendar API, create an event, edit an event, send email, invite guests, RSVP, book, purchase, or submit a browser form.
+
+A policy-allowed preview is available only for one explicitly requested personal event with a clear title, `YYYY-MM-DD` date, start time, and duration or end time. It uses the primary personal Calendar and defaults the timezone to `Europe/Stockholm` only when no timezone was supplied. It must have no guests, recurrence, sensitive content, external impact, or existing-event mutation. The output must say that no event was created and that it is only ready for a future documented safe Calendar write tool.
+
+Ask one clarifying question for missing or ambiguous title, date, start time, duration/end time, timezone, possible duplicate, or unclear guests. Telegram approval is required for guests/invitations/notifications, edits/deletes/moves, recurrence, multiple events, named non-primary or shared Calendars, sensitive or other-person impact, uncertain screenshot/OCR-derived substantive content, booking/payment, and browser activity.
+
 ## Inbox Action Classifier
 
 The inbox action classifier is advisory. It decides whether a Telegram message should be handled as `execute_then_confirm`, `approval_required`, `clarify`, or `answer_only`, but it does not execute side effects.
 
-Direct execution is allowed only for low-risk exact actions already allowed by this approval model. Reference-derived exact Todoist targets may proceed for explicit low-risk Todoist updates; reference-derived non-Todoist actions, inferred critical fields, destructive actions, external-impact actions, and actions affecting other people remain approval-gated.
+Direct execution is allowed only for low-risk exact actions already allowed by this approval model. Calendar creation v1 is preview-only even when policy-allowed; it has no Calendar write path. Reference-derived exact Todoist targets may proceed for explicit low-risk Todoist updates; uncertain reference-derived non-Todoist substantive details, inferred critical fields, destructive actions, external-impact actions, and actions affecting other people remain approval-gated.
 
 Telegram approval is still required when critical fields are inferred from image/OCR, any date/year/time/timezone/calendar/target is uncertain, the action is ambiguous, another person is affected, or sensitive memory/private health/finance data is involved. For Todoist, an exact screenshot/reference target is not by itself an inferred critical field.
 

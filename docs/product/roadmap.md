@@ -56,7 +56,7 @@ Success looks like:
 
 Focus: allow more useful actions only where the approval model is clear and tests protect the boundary.
 
-- Calendar creation from complete typed details, staying separate from Calendar edits/deletes/invites.
+- A documented safe Calendar write tool that can consume the already implemented creation preview, staying separate from Calendar edits/deletes/invites.
 - Todoist exact low-risk updates that are already allowed by policy.
 - Approval-gated quiet-ops changes with exact job ids/names.
 - Approval-gated Min Golf non-payment booking assist only when the visible final booking matches approved details.

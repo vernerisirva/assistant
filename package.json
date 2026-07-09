@@ -13,6 +13,7 @@
     "inbox:debug": "node scripts/inbox-classifier-debug.mjs",
     "feedback": "node scripts/feedback.mjs",
     "calendar:plan": "node scripts/calendar-plan.mjs",
+    "calendar:create": "node scripts/calendar-create.mjs",
     "todoist": "node scripts/todoist.mjs",
     "mingolf": "node scripts/mingolf.mjs",
     "memory": "node scripts/memory.mjs",

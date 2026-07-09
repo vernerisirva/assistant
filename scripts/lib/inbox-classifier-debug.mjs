@@ -127,8 +127,38 @@ export function parseInboxClassifierDebugArgs(argv) {
       continue;
     }
 
+    if (arg === "--target-calendar-clear") {
+      options.actionOptions.targetCalendarClear = true;
+      continue;
+    }
+
+    if (arg === "--has-guests") {
+      options.actionOptions.hasGuests = true;
+      continue;
+    }
+
     if (arg === "--inferred-update-content") {
       options.actionOptions.inferredUpdateContent = true;
+      continue;
+    }
+
+    if (arg === "--reference-details-certain") {
+      options.actionOptions.referenceDetailsCertain = true;
+      continue;
+    }
+
+    if (arg === "--calendar-recurring") {
+      options.actionOptions.calendarRecurring = true;
+      continue;
+    }
+
+    if (arg === "--calendar-multiple") {
+      options.actionOptions.calendarMultiple = true;
+      continue;
+    }
+
+    if (arg === "--possible-duplicate") {
+      options.actionOptions.possibleDuplicate = true;
       continue;
     }
 
@@ -176,7 +206,7 @@ export function formatInboxClassifierDebug(result) {
     "",
     "Action classifier:",
     `- Handling path: ${result.action.mode}`,
-    `- Detected executable intent: ${executableIntent ? "yes" : "no"} (intent: ${result.action.intent})`,
+    actionIntentLine(result.action, executableIntent),
     `- Base risk: ${result.action.risk}`,
     `- Reason: ${result.action.reason}`,
     "",
@@ -214,6 +244,14 @@ function chooseRoute(text, action) {
       agent: "admin",
       confidence: "high",
       reason: "Message asks for read-only Calendar planning from existing context.",
+    };
+  }
+
+  if (action.intent === "calendar.create") {
+    return {
+      agent: "admin",
+      confidence: "high",
+      reason: "Message asks the admin agent to validate a Calendar creation request as a preview.",
     };
   }
 
@@ -280,7 +318,18 @@ function actionHasExecutableIntent(action) {
   return ["execute_then_confirm", "approval_required"].includes(action.mode);
 }
 
+function actionIntentLine(action, executableIntent) {
+  if (action.intent === "calendar.create" && action.mode === "execute_then_confirm") {
+    return "- Detected action intent: policy-allowed Calendar creation preview only (no event is created).";
+  }
+  return `- Detected executable intent: ${executableIntent ? "yes" : "no"} (intent: ${action.intent})`;
+}
+
 function buildLayerNote(result, executableIntent) {
+  if (result.action.intent === "calendar.create" && result.action.mode === "execute_then_confirm") {
+    return "the classifier recognizes a policy-allowed creation preview only; this repository has no Calendar write tool and creates no event.";
+  }
+
   if (!executableIntent && result.sideEffecting) {
     return "the base classifier did not detect an executable intent, but the safety overlay found side-effect language.";
   }

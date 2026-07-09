@@ -141,10 +141,21 @@ describe("agent configuration", () => {
     assert.match(prompt, /complete and unambiguous/i);
     assert.match(prompt, /additive/i);
     assert.match(prompt, /easy to undo/i);
-    assert.match(prompt, /create a Calendar event/i);
+    assert.match(prompt, /Calendar creation preview/i);
     assert.match(prompt, /create a Todoist task/i);
     assert.match(prompt, /OCR/i);
     assert.match(prompt, /inferred/i);
+  });
+
+  it("teaches the admin agent the Calendar preview-only runtime boundary", () => {
+    const adminAgent = agents.find((agent) => agent.id === "admin");
+    const prompt = readFileSync(`${adminAgent.promptDir}/AGENTS.md`, "utf8");
+
+    assert.match(prompt, /npm run calendar:create/);
+    assert.match(prompt, /pure preview/i);
+    assert.match(prompt, /no event was created/i);
+    assert.match(prompt, /safe write tool/i);
+    assert.match(prompt, /recurring or multiple events/i);
   });
 
   it("teaches the admin agent to use Min Golf in read-only phase 1", () => {

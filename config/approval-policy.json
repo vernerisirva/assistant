@@ -12,7 +12,7 @@
     "capture-explicit-local-feedback",
     "remember-explicit-low-risk-memory",
     "forget-single-memory-by-request",
-    "create-explicit-complete-calendar-event",
+    "build-explicit-complete-calendar-creation-preview",
     "create-explicit-complete-todoist-task",
     "rename-explicit-todoist-task",
     "update-explicit-todoist-task-description",
@@ -42,6 +42,35 @@
       "edits-deletes-moves-completes-or-sends",
       "invites-messages-books-pays-purchases-or-submits-forms",
       "sensitive-memory-or-private-health-finance-data-is-involved"
+    ]
+  },
+  "calendarCreationPreview": {
+    "runtimeBoundary": "preview-only-no-calendar-write-tool-configured",
+    "defaultTimezone": "Europe/Stockholm",
+    "defaultCalendar": "primary-personal-calendar",
+    "allowedWhenCompleteAndExplicit": [
+      "one-personal-event",
+      "clear-title-date-start-and-duration-or-end",
+      "no-guests",
+      "no-recurrence",
+      "no-existing-event-mutation",
+      "no-sensitive-content",
+      "no-external-impact"
+    ],
+    "clarificationNeededWhen": [
+      "missing-or-ambiguous-title-date-start-duration-or-end",
+      "unclear-timezone",
+      "possible-duplicate",
+      "unclear-guests"
+    ],
+    "approvalStillRequiredWhen": [
+      "guests-invites-or-notifications",
+      "edit-delete-or-move-existing-event",
+      "recurrence-or-multiple-events",
+      "non-primary-or-shared-calendar",
+      "sensitive-or-other-person-impact",
+      "uncertain-screenshot-or-ocr-derived-substantive-content",
+      "booking-payment-or-browser-submission"
     ]
   },
   "localFeedback": {

@@ -66,8 +66,17 @@ describe("approval policy", () => {
     assert.ok(actionsForDomain("calendar").includes("respond-to-invite"));
   });
 
+  it("allows Calendar creation previews but keeps real Calendar writes approval-gated", () => {
+    assert.ok(policy.allowedWithoutExtraApproval.includes("build-explicit-complete-calendar-creation-preview"));
+    assert.equal(policy.calendarCreationPreview.runtimeBoundary, "preview-only-no-calendar-write-tool-configured");
+    assert.equal(policy.calendarCreationPreview.defaultTimezone, "Europe/Stockholm");
+    assert.equal(policy.calendarCreationPreview.defaultCalendar, "primary-personal-calendar");
+    assert.ok(policy.calendarCreationPreview.allowedWhenCompleteAndExplicit.includes("one-personal-event"));
+    assert.ok(policy.calendarCreationPreview.approvalStillRequiredWhen.includes("recurrence-or-multiple-events"));
+    assert.ok(actionsForDomain("calendar").includes("create-event"));
+  });
+
   it("allows explicit complete low-risk additive actions without a second approval", () => {
-    assert.ok(policy.allowedWithoutExtraApproval.includes("create-explicit-complete-calendar-event"));
     assert.ok(policy.allowedWithoutExtraApproval.includes("create-explicit-complete-todoist-task"));
     assert.equal(policy.lowRiskAdditiveActions.requireExplicitUserInstruction, true);
     assert.equal(policy.lowRiskAdditiveActions.requireCompleteCriticalFields, true);

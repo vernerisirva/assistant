@@ -34,6 +34,10 @@ const defaultOptions = Object.freeze({
   completeDetails: false,
   targetCalendarClear: false,
   hasGuests: false,
+  calendarRecurring: false,
+  calendarMultiple: false,
+  possibleDuplicate: false,
+  referenceDetailsCertain: false,
   affectsOtherPeople: false,
   sensitiveContent: false,
   inferredUpdateContent: false,
@@ -50,6 +54,8 @@ const calendarPattern = /\b(calendar|event)\b/;
 const calendarPlanningPattern = /\b(what does my day look like|free blocks?|plan work around (my )?meetings|space for a workout|calendar pressure.*week)\b/;
 const focusBlockCreationPattern = /\b(create|add|schedule)\b.*\bfocus block\b/;
 const calendarHighRiskPattern = /\b(delete|remove|move|reschedule|invite|add guest|rsvp|respond)\b/;
+const calendarRecurringPattern = /\b(recurring|repeat|every day|every week|weekly|monthly)\b/;
+const calendarMultiplePattern = /\b(two|three|multiple|several|all)\b.*\b(calendar )?events?\b|\b(calendar )?events?\b.*\b(two|three|multiple|several|all)\b/;
 const statusPattern = /\b(agent running|bot running|status|what is running|scheduled|automatic messages|what.*next scheduled)\b/;
 const advicePattern = /\b(what should i do|what next|recommend|how would you improve|what would you do)\b/;
 const ambiguousActionPattern = /\b(move it|add this|remind me later|change that|update it|put it in the calendar)\b/;
@@ -91,6 +97,10 @@ export function classifyInboxAction(message, options = {}) {
   if (isReferenceDerivedSource(opts.source)) {
     if (todoistPattern.test(text)) {
       return classifyTodoist(text, { ...opts, referenceDerived: true });
+    }
+
+    if (calendarPattern.test(text) || focusBlockCreationPattern.test(text)) {
+      return classifyCalendar(text, { ...opts, referenceDerived: true });
     }
 
     return approvalRequired(inferActionIntent(text), "medium", "Reference-derived non-Todoist actions require approval.");
@@ -175,9 +185,25 @@ function classifyCalendar(text, opts) {
     return approvalRequired("calendar.create", "high", "Calendar edits, invites, and responses require approval.");
   }
 
+  if (calendarRecurringPattern.test(text) || opts.calendarRecurring) {
+    return approvalRequired("calendar.create", "high", "Recurring Calendar events require approval.");
+  }
+
+  if (calendarMultiplePattern.test(text) || opts.calendarMultiple) {
+    return approvalRequired("calendar.create", "high", "Creating multiple Calendar events requires approval.");
+  }
+
   if (/\b(add|create|put|schedule)\b/.test(text)) {
+    if (opts.referenceDerived && !opts.referenceDetailsCertain) {
+      return approvalRequired("calendar.create", "medium", "Uncertain screenshot or OCR-derived Calendar details require approval.");
+    }
+
+    if (opts.possibleDuplicate) {
+      return clarify("Calendar creation may duplicate an existing event. Confirm the intended event first.");
+    }
+
     if (opts.completeDetails && opts.targetCalendarClear) {
-      return executeThenConfirm("calendar.create", "Complete typed calendar creation request.");
+      return executeThenConfirm("calendar.create", "Policy-allowed preview for one complete low-risk personal Calendar event; no event is created until a documented safe Calendar write tool exists.");
     }
 
     return decision(

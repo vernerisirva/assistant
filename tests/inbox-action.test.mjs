@@ -301,7 +301,7 @@ describe("inbox action classifier", () => {
     });
   });
 
-  it("allows complete typed calendar creation but gates edits and invites", () => {
+  it("classifies complete low-risk personal Calendar creation as a policy-allowed preview", () => {
     expectDecision(
       "Create calendar event Dentist on 2026-06-21 14:00 in Personal calendar",
       { completeDetails: true, targetCalendarClear: true },
@@ -313,11 +313,22 @@ describe("inbox action classifier", () => {
       },
     );
 
+    const preview = classifyInboxAction(
+      "Create calendar event Dentist on 2026-06-21 14:00 in Personal calendar",
+      { completeDetails: true, targetCalendarClear: true },
+    );
+    assert.match(preview.reason, /policy-allowed preview/i);
+    assert.match(preview.reason, /no event is created/i);
+  });
+
+  it("keeps Calendar edits, guests, recurrence, and multiple events approval-gated", () => {
     for (const message of [
       "Delete calendar event Dentist",
       "Move calendar event Dentist to 15:00",
       "Invite Anna to calendar event Dentist",
       "RSVP yes to the AGM calendar invite",
+      "Create a recurring calendar event Gym",
+      "Create two calendar events for my workouts",
     ]) {
       expectDecision(
         message,

@@ -74,6 +74,25 @@ describe("inbox classifier debug command", () => {
     }
   });
 
+  it("shows a complete low-risk Calendar request as a preview, never a created event", () => {
+    const result = classify("Create calendar event Gym on 2026-07-09 at 17:30 for 60 minutes", {
+      actionOptions: { completeDetails: true, targetCalendarClear: true },
+    });
+
+    assert.equal(result.selectedAgent, "admin");
+    assert.equal(result.action.intent, "calendar.create");
+    assert.equal(result.action.mode, "execute_then_confirm");
+    assert.equal(result.sideEffecting, true);
+    assert.equal(result.approvalRequired, false);
+    assert.match(result.action.reason, /policy-allowed preview/i);
+
+    const output = formatInboxClassifierDebug(result);
+    assert.match(output, /policy-allowed preview/i);
+    assert.match(output, /no event is created/i);
+    assert.match(output, /no Calendar write tool/i);
+    assert.doesNotMatch(output, /base classifier detected an executable intent/i);
+  });
+
   it("explains Todoist and memory side-effect implications", () => {
     const todoist = classify("Delete Todoist task Gym workout");
     assert.equal(todoist.selectedAgent, "admin");
@@ -271,6 +290,24 @@ describe("inbox classifier debug command", () => {
           inferredUpdateContent: true,
         },
         message: "Clean up the formatting of this Todoist task",
+      },
+    );
+  });
+
+  it("parses explicit Calendar preview context flags", () => {
+    assert.deepEqual(
+      parseInboxClassifierDebugArgs([
+        "--complete-details",
+        "--target-calendar-clear",
+        "Create calendar event Gym on 2026-07-09 at 17:30 for 60 minutes",
+      ]),
+      {
+        json: false,
+        actionOptions: {
+          completeDetails: true,
+          targetCalendarClear: true,
+        },
+        message: "Create calendar event Gym on 2026-07-09 at 17:30 for 60 minutes",
       },
     );
   });

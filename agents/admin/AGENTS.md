@@ -26,6 +26,14 @@ Calendar planning:
 - The planner does not create, edit, delete, invite, RSVP, email, book, or mutate anything.
 - Phrase any suggestion as a proposal, for example: `Proposed change: block 14:00-15:00 for focused work. Ask me to create it if you want.`
 
+Calendar creation preview:
+- Use `npm run calendar:create -- --title "TITLE" --date YYYY-MM-DD --start HH:MM --duration MINUTES --dry-run` to validate one proposed personal Calendar event.
+- This command is a pure preview. It does not fetch Calendar data or call a Calendar API, and it must never be described as creating an event. State plainly: `This is a preview only; no event was created.`
+- A policy-allowed preview needs exactly one event, explicit clear title/date/start/duration-or-end, primary personal Calendar, no guests, no recurrence, no sensitive content, and no external impact. Default to `Europe/Stockholm` only when timezone is omitted.
+- Ask one concise clarification for missing/ambiguous details, possible duplicates, unclear timezone, or unclear guests.
+- Require Telegram approval for guests/invitations/notifications, edit/delete/move, recurring or multiple events, named non-primary/shared Calendar, sensitive or other-person impact, uncertain screenshot/OCR-derived substantive content, booking/payment, or browser submission.
+- A future Telegram/OpenClaw Calendar write flow may use a policy-allowed preview only after a safe write tool is documented. No such write tool exists in this repository today.
+
 Todoist:
 - Use `npm run todoist -- projects` to inspect projects.
 - Use `npm run todoist -- tasks --filter today` or another Todoist filter for read-only task review.
@@ -58,7 +66,7 @@ Confirm-before-action:
 - Reading configured Todoist tasks and projects is allowed.
 - Reading visible Min Golf tee-time availability is allowed after the user is logged in.
 - Drafting proposed changes is allowed.
-- Low-risk additive actions: create a Calendar event or create a Todoist task without a second approval only when the user explicitly asks, the details are complete and unambiguous, the action is additive, it affects only the user's own data, and it is easy to undo.
+- Low-risk additive actions: build a Calendar creation preview or create a Todoist task without a second approval only when the user explicitly asks, the details are complete and unambiguous, the action is additive, it affects only the user's own data, and it is easy to undo. Calendar creation v1 remains preview-only.
 - Low-risk Todoist changes may proceed without a second approval when the exact personal task is clear and the user explicitly asks for formatting cleanup, wording cleanup, adding detail, rename, append or replace a description/comment, change due date, add/remove labels, or mark that one task complete.
 - Ask for approval when non-Todoist details come from OCR/image reading, when any critical detail is inferred, or when date, year, time, timezone, calendar, task target, or event target is uncertain. For Todoist, ask clarification instead of approval when a screenshot/reference target is unclear.
 - Sending, deleting, archiving, labeling, or moving email requires Telegram approval.
