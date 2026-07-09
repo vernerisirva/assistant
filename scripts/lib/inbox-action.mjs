@@ -27,13 +27,16 @@ const defaultOptions = Object.freeze({
   targetCalendarClear: false,
   hasGuests: false,
   affectsOtherPeople: false,
+  sensitiveContent: false,
+  inferredUpdateContent: false,
 });
 
 const destructiveTodoistPattern =
-  /\b(delete|remove task|complete|mark .* done|reopen|move .* todoist|move todoist|bulk edit|all todoist|all tasks)\b/;
+  /\b(delete|remove task|reopen|move .* todoist|move todoist|bulk edit|all todoist|all tasks|all old todoist|every todoist|shared todoist|project-wide|all old tasks|every .*task|shared .*task|project .*tasks?)\b/;
 const lowRiskTodoistUpdatePattern =
-  /\b(rename|update .*description|replace .*description|append .*comment|append .*description|change due|reschedule|add label|remove label)\b/;
-const todoistPattern = /\b(todoist|task)\b/;
+  /\b(rename|clean up .*formatting|clean .*formatting|format .*task|clean up .*wording|clean .*wording|wording cleanup|formatting cleanup|update .*description|replace .*description|append .*comment|append .*description|add detail|add .*detail|change due|reschedule|add label|remove label|complete .*task|mark .*done|mark .* complete)\b/;
+const todoistPattern = /\b(todoist|tasks?|description)\b/;
+const broadTodoistChangePattern = /\b(change|update|clean up|edit|modify)\b.*\b(my )?(todoist )?tasks?\b|\b(todoist )?tasks?\b.*\b(change|update|clean up|edit|modify)\b/;
 const reminderPattern = /\b(remind me|set reminder|reminder)\b/;
 const calendarPattern = /\b(calendar|event)\b/;
 const calendarHighRiskPattern = /\b(delete|remove|move|reschedule|invite|add guest|rsvp|respond)\b/;
@@ -56,12 +59,20 @@ export function classifyInboxAction(message, options = {}) {
     return answerOnly("no_action", "Approval-like message without a pending approval prompt.");
   }
 
-  if (opts.source === "image" || opts.source === "ocr") {
-    return approvalRequired(inferActionIntent(text), "medium", "Image or OCR-derived actions require approval.");
-  }
-
   if (opts.affectsOtherPeople) {
     return approvalRequired(inferActionIntent(text), "high", "Actions affecting other people require approval.");
+  }
+
+  if (opts.sensitiveContent) {
+    return approvalRequired(inferActionIntent(text), "high", "Sensitive content requires approval.");
+  }
+
+  if (isReferenceDerivedSource(opts.source)) {
+    if (todoistPattern.test(text)) {
+      return classifyTodoist(text, { ...opts, referenceDerived: true });
+    }
+
+    return approvalRequired(inferActionIntent(text), "medium", "Reference-derived non-Todoist actions require approval.");
   }
 
   if (ambiguousActionPattern.test(text)) {
@@ -100,15 +111,30 @@ function classifyTodoist(text, opts) {
     return approvalRequired("todoist.update", "high", "Destructive or bulk Todoist changes require approval.");
   }
 
+  if (opts.inferredUpdateContent) {
+    return approvalRequired("todoist.update", "medium", "Inferred Todoist update content requires approval.");
+  }
+
   if (lowRiskTodoistUpdatePattern.test(text)) {
     if (opts.exactTaskTarget && opts.completeDetails) {
-      return executeThenConfirm("todoist.update", "Exact Todoist task target and explicit low-risk update.");
+      const reason = opts.referenceDerived
+        ? "Reference-derived exact Todoist task target and explicit low-risk personal productivity update."
+        : "Exact Todoist task target and explicit low-risk personal productivity update.";
+      return executeThenConfirm("todoist.update", reason);
     }
 
     return clarify("Todoist update is missing exact task target or complete details.");
   }
 
+  if (broadTodoistChangePattern.test(text)) {
+    return clarify("Todoist change is missing one exact personal task target.");
+  }
+
   if (/\b(add|create|new)\b/.test(text)) {
+    if (opts.referenceDerived) {
+      return approvalRequired("todoist.create", "medium", "Reference-derived Todoist creation details require approval.");
+    }
+
     if (opts.completeDetails) {
       return executeThenConfirm("todoist.create", "Complete typed Todoist creation request.");
     }
@@ -140,6 +166,10 @@ function inferActionIntent(text) {
   if (calendarPattern.test(text)) return "calendar.create";
   if (reminderPattern.test(text)) return "reminder.create";
   return "clarify";
+}
+
+function isReferenceDerivedSource(source) {
+  return ["image", "ocr", "screenshot", "reference"].includes(source);
 }
 
 function executeThenConfirm(intent, reason) {

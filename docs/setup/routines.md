@@ -42,6 +42,25 @@ Weekly review:
 npm run routine -- weekly-review
 ```
 
+Example weekly review output shape:
+
+```text
+Weekly Review (personal)
+
+Cover:
+- week-recap: Summarize 1-2 important things that happened this week.
+- unfinished-tasks: List 1-2 unfinished Todoist/admin threads.
+- calendar-pressure: Flag 1-2 upcoming Calendar pressure points.
+- health-routines: Summarize workouts, golf, sleep, food, and groceries.
+- important-decisions: Name 1-2 decisions to make.
+- top-3-priorities: Choose the top 3 priorities for next week.
+- stop-or-simplify: Choose one thing to stop, simplify, defer, or make easier.
+
+Weekly review rules:
+- Proposed actions only: Todoist or Calendar changes require confirmation.
+- Do not modify Todoist, Calendar, Gmail, memory, or routines from the weekly review.
+```
+
 Preview scheduled routine jobs without changing OpenClaw:
 
 ```bash

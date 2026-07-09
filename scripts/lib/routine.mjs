@@ -70,6 +70,7 @@ export function buildRoutineBrief(
     allowedWithoutApproval,
     approvalRequired,
     telegramPrompt: buildTelegramPrompt({
+      routineId,
       title,
       agent,
       sections,
@@ -133,12 +134,13 @@ function sectionsForRoutine(routineId) {
       ];
     case "weekly-review":
       return [
-        section("calendar", "Review the week ahead and pressure points."),
-        section("food-plan", "Plan simple repeatable meals for the week."),
-        section("grocery-plan", "Draft groceries grouped by store section."),
-        section("workouts", "Place realistic workout anchors."),
-        section("admin-friction", "Identify open admin loops."),
-        section("one-adjustment", "Choose one small adjustment for next week."),
+        section("week-recap", "Summarize 1-2 important things that happened this week, including wins or friction."),
+        section("unfinished-tasks", "List 1-2 unfinished Todoist/admin threads that deserve attention next week."),
+        section("calendar-pressure", "Flag 1-2 upcoming Calendar pressure points, travel buffers, deadlines, or crowded days."),
+        section("health-routines", "Summarize 1-2 health or routine consistency patterns, including workouts, golf, sleep, food, and groceries."),
+        section("important-decisions", "Name 1-2 decisions the user should make instead of leaving open."),
+        section("top-3-priorities", "Choose the top 3 priorities for next week across admin, health, relationships, and personal work."),
+        section("stop-or-simplify", "Choose one thing to stop doing, simplify, defer, or make easier next week."),
       ];
     default:
       throw new Error(`Unknown routine: ${routineId}`);
@@ -161,9 +163,20 @@ function formatMemoryContext(memoryEntries) {
     .toSorted();
 }
 
-function buildTelegramPrompt({ title, agent, sections, memoryContext }) {
+function buildTelegramPrompt({ routineId, title, agent, sections, memoryContext }) {
   const sectionLines = sections.map((entry) => `- ${entry.id}: ${entry.instruction}`).join("\n");
   const memoryLines = memoryContext.map((entry) => `- ${entry}`).join("\n");
+  const weeklyLines = routineId === "weekly-review"
+    ? [
+      "",
+      "Weekly review rules:",
+      "- Keep this short enough for Telegram: use compact bullets, not a long essay.",
+      "- Use configured Calendar, Gmail, Todoist, routine, health, food, and memory context only as read-only inputs.",
+      "- Proposed actions only: if you suggest Todoist or Calendar changes, phrase them as proposed actions requiring confirmation.",
+      "- Do not modify Todoist, Calendar, Gmail, memory, or routines from the weekly review.",
+      "- End with the top 3 priorities and one thing to stop doing or simplify.",
+    ]
+    : [];
 
   return [
     `${title} (${agent})`,
@@ -173,6 +186,7 @@ function buildTelegramPrompt({ title, agent, sections, memoryContext }) {
     "",
     "Cover:",
     sectionLines,
+    ...weeklyLines,
     "",
     "Keep the Telegram reply concise, practical, and non-shaming.",
     "Draft or recommend freely; ask for approval before side effects.",

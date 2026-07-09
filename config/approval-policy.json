@@ -14,9 +14,13 @@
     "create-explicit-complete-todoist-task",
     "rename-explicit-todoist-task",
     "update-explicit-todoist-task-description",
+    "clean-up-explicit-todoist-task-formatting",
+    "clean-up-explicit-todoist-task-wording",
+    "add-detail-to-explicit-todoist-task",
     "append-explicit-todoist-task-comment",
     "reschedule-explicit-todoist-task",
     "label-explicit-todoist-task",
+    "complete-explicit-personal-todoist-task",
     "draft-email-calendar-plan-grocery-and-health-recommendations",
     "draft-todoist-task-changes",
     "ask-clarifying-questions",
@@ -44,17 +48,26 @@
     "requireCompleteCriticalFields": true,
     "allowedWhenExactAndExplicit": [
       "rename-task",
+      "clean-up-formatting",
+      "clean-up-wording",
+      "add-detail",
       "append-description-or-comment",
       "replace-description",
       "change-due-date",
-      "add-or-remove-labels"
+      "add-or-remove-labels",
+      "mark-complete"
     ],
+    "referenceDerivedExactTargetAllowedWhenLowRisk": true,
+    "formattingOnlySourceOfTruth": "todoist-task-content-or-explicit-user-instruction",
     "approvalStillRequiredWhen": [
-      "delete-complete-reopen-or-move-task",
+      "delete-reopen-or-move-task",
       "bulk-edits",
       "ambiguous-task-target",
-      "details-inferred-from-image-or-ocr",
+      "reference-derived-target-is-unclear",
+      "critical-update-content-inferred-from-image-or-ocr",
       "replace-description-without-explicit-replace-instruction",
+      "shared-or-project-wide-change",
+      "sensitive-content",
       "affects-other-people"
     ]
   },

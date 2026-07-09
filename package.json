@@ -10,6 +10,7 @@
     "render:config": "node scripts/render-openclaw-config.mjs",
     "doctor": "node scripts/doctor.mjs",
     "assistant:status": "node scripts/assistant-status.mjs",
+    "inbox:debug": "node scripts/inbox-classifier-debug.mjs",
     "todoist": "node scripts/todoist.mjs",
     "mingolf": "node scripts/mingolf.mjs",
     "memory": "node scripts/memory.mjs",

@@ -37,10 +37,15 @@ describe("inbox action classifier", () => {
     for (const message of [
       "Rename Todoist task Gym workout to Post-round gym plan",
       "Update the description for Todoist task Gym workout to warm-up then strength",
+      "Clean up the formatting of this Todoist task",
+      "Clean up the wording of Todoist task AI video",
+      "Add detail to Todoist task AI video description",
       "Append comment to Todoist task Gym workout: keep it easy after golf",
       "Change due date for Todoist task Renew gym card to 2026-06-19 10:00",
       "Add label health to Todoist task Gym workout",
       "Remove label errands from Todoist task Renew gym card",
+      "Complete Todoist task Gym workout",
+      "Mark Todoist task Gym workout done",
     ]) {
       expectDecision(message, options, {
         intent: "todoist.update",
@@ -51,13 +56,123 @@ describe("inbox action classifier", () => {
     }
   });
 
+  it("allows one exact Todoist match from context for low-risk description cleanup", () => {
+    expectDecision(
+      "Update my AI video task description",
+      { exactTaskTarget: true, completeDetails: true },
+      {
+        intent: "todoist.update",
+        mode: "execute_then_confirm",
+        risk: "low",
+        approvalRequired: false,
+      },
+    );
+  });
+
+  it("allows exact screenshot or reference Todoist targets for low-risk formatting updates", () => {
+    for (const source of ["image", "ocr", "screenshot", "reference"]) {
+      expectDecision(
+        "Clean up formatting of this Todoist task",
+        { source, exactTaskTarget: true, completeDetails: true },
+        {
+          intent: "todoist.update",
+          mode: "execute_then_confirm",
+          risk: "low",
+          approvalRequired: false,
+        },
+      );
+    }
+  });
+
+  it("allows exact screenshot or reference Todoist targets for wording cleanup that preserves meaning", () => {
+    expectDecision(
+      "Clean up wording of this Todoist task, keep the meaning the same",
+      { source: "screenshot", exactTaskTarget: true, completeDetails: true },
+      {
+        intent: "todoist.update",
+        mode: "execute_then_confirm",
+        risk: "low",
+        approvalRequired: false,
+      },
+    );
+  });
+
+  it("requires approval for inferred substantive Todoist update content", () => {
+    expectDecision(
+      "Add detail to this Todoist task",
+      {
+        source: "screenshot",
+        exactTaskTarget: true,
+        completeDetails: true,
+        inferredUpdateContent: true,
+      },
+      {
+        intent: "todoist.update",
+        mode: "approval_required",
+        risk: "medium",
+        approvalRequired: true,
+      },
+    );
+  });
+
+  it("keeps sensitive and other-person screenshot Todoist updates approval-gated", () => {
+    for (const options of [
+      { source: "screenshot", exactTaskTarget: true, completeDetails: true, sensitiveContent: true },
+      { source: "screenshot", exactTaskTarget: true, completeDetails: true, affectsOtherPeople: true },
+    ]) {
+      expectDecision(
+        "Clean up formatting of this Todoist task",
+        options,
+        {
+          intent: "todoist.update",
+          mode: "approval_required",
+          risk: "high",
+          approvalRequired: true,
+        },
+      );
+    }
+  });
+
+  it("asks for clarification when screenshot Todoist target is unclear", () => {
+    expectDecision(
+      "Clean up formatting of this Todoist task",
+      { source: "screenshot", completeDetails: true },
+      {
+        intent: "clarify",
+        mode: "clarify",
+        risk: "unknown",
+        approvalRequired: false,
+      },
+    );
+  });
+
+  it("requires approval for screenshot-derived destructive or bulk Todoist actions", () => {
+    for (const message of [
+      "Delete this Todoist task",
+      "Bulk edit all Todoist tasks in this screenshot",
+    ]) {
+      expectDecision(
+        message,
+        { source: "screenshot", exactTaskTarget: true, completeDetails: true },
+        {
+          intent: "todoist.update",
+          mode: "approval_required",
+          risk: "high",
+          approvalRequired: true,
+        },
+      );
+    }
+  });
+
   it("requires approval for destructive Todoist actions", () => {
     for (const message of [
       "Delete Todoist task Renew gym card",
-      "Complete Todoist task Gym workout",
       "Reopen Todoist task Gym workout",
       "Move Todoist task Renew gym card to Work",
       "Bulk edit all Todoist tasks due today",
+      "Delete all old Todoist tasks",
+      "Change every Todoist task in the project",
+      "Update the shared Todoist task for Anna",
     ]) {
       expectDecision(
         message,
@@ -69,6 +184,21 @@ describe("inbox action classifier", () => {
           approvalRequired: true,
         },
       );
+    }
+  });
+
+  it("asks for clarification for ambiguous Todoist changes", () => {
+    for (const message of [
+      "Change my tasks",
+      "Clean up my Todoist tasks",
+      "Update Todoist task",
+    ]) {
+      expectDecision(message, {}, {
+        intent: "clarify",
+        mode: "clarify",
+        risk: "unknown",
+        approvalRequired: false,
+      });
     }
   });
 

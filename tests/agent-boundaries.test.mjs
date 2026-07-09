@@ -46,6 +46,20 @@ describe("agent configuration", () => {
     }
   });
 
+  it("defines a clear contract in every agent prompt", () => {
+    for (const agent of agents) {
+      const prompt = readFileSync(`${agent.promptDir}/AGENTS.md`, "utf8");
+
+      assert.match(prompt, /Agent contract:/);
+      assert.match(prompt, /Purpose:/);
+      assert.match(prompt, /Primary responsibilities:/);
+      assert.match(prompt, /Allowed read-only actions:/);
+      assert.match(prompt, /Actions requiring explicit Telegram approval:/);
+      assert.match(prompt, /Hard stop points:/);
+      assert.match(prompt, /Good routing examples:/);
+    }
+  });
+
   it("keeps specialist agents hidden behind personal handoffs", () => {
     for (const agent of agents.filter((entry) =>
       specialistAgentIds.includes(entry.id),
@@ -77,8 +91,11 @@ describe("agent configuration", () => {
     );
     assert.match(
       prompt,
-      /Delete, complete, reopen, move between projects\/sections, bulk edits, ambiguous targets, OCR\/image-derived details, and inferred task changes require Telegram approval/i,
+      /Delete, reopen, move between projects\/sections, bulk edits, shared or project-wide changes, ambiguous targets, sensitive content, inferred update content, and changes affecting other people require Telegram approval/i,
     );
+    assert.match(prompt, /Screenshot\/reference-derived exact task targets do not require approval by themselves/i);
+    assert.match(prompt, /fetch or read the actual Todoist task content/i);
+    assert.match(prompt, /keep the content the same/i);
   });
 
   it("teaches the admin agent low-risk Todoist updates can proceed from explicit instructions", () => {
@@ -86,6 +103,10 @@ describe("agent configuration", () => {
     const prompt = readFileSync(`${adminAgent.promptDir}/AGENTS.md`, "utf8");
 
     assert.match(prompt, /Low-risk Todoist changes/);
+    assert.match(prompt, /formatting cleanup/i);
+    assert.match(prompt, /wording cleanup/i);
+    assert.match(prompt, /adding detail/i);
+    assert.match(prompt, /marking one personal task complete/i);
     assert.match(prompt, /rename a task/i);
     assert.match(prompt, /append a description or comment/i);
     assert.match(prompt, /replace a description/i);
@@ -93,9 +114,10 @@ describe("agent configuration", () => {
     assert.match(prompt, /add or remove labels/i);
     assert.match(prompt, /exact task/i);
     assert.match(prompt, /without a second approval/i);
-    assert.match(prompt, /Delete, complete, reopen, move/i);
+    assert.match(prompt, /Delete, reopen, move/i);
+    assert.match(prompt, /shared or project-wide/i);
     assert.match(prompt, /bulk/i);
-    assert.match(prompt, /OCR/i);
+    assert.match(prompt, /screenshot\/reference/i);
   });
 
   it("teaches the admin agent the low-risk additive action exception", () => {
@@ -228,7 +250,8 @@ describe("agent configuration", () => {
     assert.match(prompt, /Low-risk Todoist changes also count as approved/i);
     assert.match(prompt, /append or replace a description/i);
     assert.match(prompt, /Ask for approval when/i);
-    assert.match(prompt, /image\/OCR/i);
+    assert.match(prompt, /non-Todoist action details are read from image\/OCR/i);
+    assert.match(prompt, /exact screenshot\/reference target/i);
     assert.match(prompt, /inferred/i);
   });
 
@@ -246,7 +269,7 @@ describe("agent configuration", () => {
       assert.match(prompt, /approval_required/i);
       assert.match(prompt, /clarify/i);
       assert.match(prompt, /answer_only/i);
-      assert.match(prompt, /image\/OCR-derived action/i);
+      assert.match(prompt, /reference-derived non-Todoist action details/i);
     }
 
     assert.match(healthPrompt, /route Todoist and Calendar mutations through the personal or admin agent/i);

@@ -47,7 +47,7 @@ This plan implements the first-build skeleton described in the approved design s
 - `docs/setup/telegram.md`: Telegram BotFather and allowlist setup checklist.
 - `docs/setup/google.md`: Gmail Pub/Sub and Google Calendar setup checklist.
 - `docs/security/approval-model.md`: confirm-before-action and future trust ladder.
-- `docs/runbooks/daily-operation.md`: operator commands and maintenance habits.
+- `docs/operations/daily-operation.md`: operator commands and maintenance habits.
 - `scripts/lib/env.mjs`: dependency-free `.env` parsing and required-key checks.
 - `scripts/lib/config.mjs`: JSON loading and path helpers.
 - `scripts/render-openclaw-config.mjs`: generates `.openclaw/openclaw.json`.
@@ -1216,7 +1216,7 @@ git commit -m "feat: add local OpenClaw diagnostics"
 - Create: `README.md`
 - Create: `docs/setup/telegram.md`
 - Create: `docs/setup/google.md`
-- Create: `docs/runbooks/daily-operation.md`
+- Create: `docs/operations/daily-operation.md`
 
 - [ ] **Step 1: Create README**
 
@@ -1326,7 +1326,7 @@ Calendar access should be configured through an OpenClaw-compatible tool, script
 
 - [ ] **Step 4: Create daily operation runbook**
 
-Use `apply_patch` to create `docs/runbooks/daily-operation.md`:
+Use `apply_patch` to create `docs/operations/daily-operation.md`:
 
 ```markdown
 # Daily Operation Runbook
@@ -1369,7 +1369,7 @@ Expected: matches in README and docs for setup, safety, and operation.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add README.md docs/setup docs/runbooks
+git add README.md docs/setup docs/operations
 git commit -m "docs: add assistant setup guide"
 ```
 

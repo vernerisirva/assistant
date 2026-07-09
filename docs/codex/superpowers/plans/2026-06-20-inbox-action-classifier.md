@@ -19,7 +19,7 @@
 - Modify `agents/health/AGENTS.md`: keep health side-effect boundaries routed through personal/admin.
 - Modify `tests/agent-boundaries.test.mjs`: enforce action-loop prompt language.
 - Modify `docs/security/approval-model.md`: document classifier role without changing approval authority.
-- Modify `docs/runbooks/daily-operation.md`: add operating guidance for action-loop debugging.
+- Modify `docs/operations/daily-operation.md`: add operating guidance for action-loop debugging.
 
 ## Decision Contract
 
@@ -618,7 +618,7 @@ git commit -m "docs: teach agents inbox action loop"
 
 **Files:**
 - Modify: `docs/security/approval-model.md`
-- Modify: `docs/runbooks/daily-operation.md`
+- Modify: `docs/operations/daily-operation.md`
 
 - [ ] **Step 1: Update approval model documentation**
 
@@ -634,7 +634,7 @@ Direct execution is allowed only for low-risk exact actions already allowed by t
 
 - [ ] **Step 2: Update daily operation documentation**
 
-In `docs/runbooks/daily-operation.md`, add this section near the assistant status or troubleshooting section:
+In `docs/operations/daily-operation.md`, add this section near the assistant status or troubleshooting section:
 
 ```md
 ## Inbox Action Loop Checks
@@ -666,7 +666,7 @@ pass
 - [ ] **Step 4: Commit documentation updates**
 
 ```bash
-git add docs/security/approval-model.md docs/runbooks/daily-operation.md
+git add docs/security/approval-model.md docs/operations/daily-operation.md
 git commit -m "docs: document inbox action routing"
 ```
 

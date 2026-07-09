@@ -153,7 +153,7 @@ describe("routine briefs", () => {
     assert.doesNotMatch(brief.telegramPrompt, /sensitive detail/);
   });
 
-  it("builds a weekly review with groceries and one adjustment", () => {
+  it("builds a weekly review with next-week planning structure and safety boundaries", () => {
     const brief = buildRoutineBrief("weekly-review", {
       schedules,
       food,
@@ -162,10 +162,26 @@ describe("routine briefs", () => {
     });
 
     assert.equal(brief.routineId, "weekly-review");
-    assert.ok(brief.sections.some((section) => section.id === "grocery-plan"));
-    assert.ok(brief.sections.some((section) => section.id === "one-adjustment"));
+    assert.deepEqual(
+      brief.sections.map((section) => section.id),
+      [
+        "week-recap",
+        "unfinished-tasks",
+        "calendar-pressure",
+        "health-routines",
+        "important-decisions",
+        "top-3-priorities",
+        "stop-or-simplify",
+      ],
+    );
+    assert.ok(brief.sections.every((section) => /1-2|top 3|one/i.test(section.instruction)));
     assert.ok(brief.foodSections.includes("protein"));
     assert.ok(brief.memoryContext.some((line) => line.includes("golf/tee-time")));
+    assert.match(brief.telegramPrompt, /Proposed actions only/i);
+    assert.match(brief.telegramPrompt, /Todoist or Calendar/i);
+    assert.match(brief.telegramPrompt, /confirmation/i);
+    assert.match(brief.telegramPrompt, /Do not modify Todoist, Calendar, Gmail, memory, or routines/i);
+    assert.match(brief.telegramPrompt, /Keep this short enough for Telegram/i);
   });
 });
 

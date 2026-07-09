@@ -1,21 +1,84 @@
 # Approval Model
 
-The assistant uses risk-tiered approval. It may read configured channels, summarize, draft, plan, and recommend. It may also perform low-risk additive actions without a second approval when the user's instruction is explicit, all critical fields are complete and unambiguous, the action affects only the user's own data, and the action is easy to undo.
+Hilla uses risk-tiered approval. The goal is to be useful without becoming reckless: read-only work should be frictionless, exact low-risk personal productivity work can run from an explicit user instruction, unclear work should ask one clarifying question, and risky work still needs Telegram approval.
 
 Every approval prompt must say which agent is acting, what action is proposed, which target will change, what effect is expected, and what risk exists. The user can approve or deny. Both approved and denied attempts are logged with the approval prompt context so the decision can be reconstructed later. Denied actions are not retried unless the user asks again.
 
 Approval wording is flexible but must be explicit and tied to a pending approval prompt. Short natural replies such as `approve`, `ok`, `that's ok`, `yes do it`, `go ahead`, `proceed`, `sounds good`, and `looks good` are allowed. Questions, hedges, and denials such as `maybe ok`, `probably`, `is that ok?`, `can you approve this?`, `no`, `stop`, and `cancel` are not approvals.
 
-Low-risk additive actions include creating a Calendar event from details the user typed directly, creating a Todoist task from clear text, and storing a low-risk memory when the user explicitly asks the assistant to remember it. Forgetting one memory by user request is allowed.
+## Action Classes
 
-Low-risk Todoist changes can also proceed without a second approval when the user explicitly asks and the exact task is clear: rename a task, append a description or comment, replace a description, change due date, or add/remove labels. Description replacement requires explicit replace/update-description wording.
+Read-only actions do not need approval:
+
+- Read configured local context.
+- Summarize Gmail, Calendar, Todoist, routines, memory, or status.
+- Search/read visible Min Golf availability without changing booking state.
+- Draft replies, plans, task changes, calendar changes, grocery lists, and recommendations.
+- Run local read-only diagnostics.
+
+Low-risk direct actions do not need a second approval when the user explicitly asks, the target is exact, all critical fields are complete, the action affects only the user's own data, and it is easy to undo:
+
+- Create a simple personal Todoist task from clear text.
+- Create a simple personal Calendar event from typed complete details, without guests.
+- Store or forget one low-risk memory when explicitly requested.
+- Make a low-risk change to one clearly identified personal Todoist task.
+
+Clarification-needed actions should ask one concise clarifying question before execution or approval:
+
+- The target is unclear, for example `change my tasks`, `move it`, or `update that`.
+- There are multiple plausible Todoist, Calendar, Gmail, or reminder targets.
+- A date, time, timezone, calendar, task, label, or content field is missing.
+- The assistant would need to infer a critical field from context.
+
+Approval-required actions need explicit Telegram approval before execution:
+
+- Sending, deleting, archiving, labeling, or moving email.
+- Calendar edits, deletes, invites, guests, or invite responses.
+- Todoist deletes, reopens, moves, bulk edits, shared/project-wide changes, ambiguous changes, sensitive-content changes, unclear reference-derived targets, or inferred update content.
+- Min Golf bookings or booking changes.
+- Purchases, payments, financial actions, delivery orders, browser form submissions, account changes, and actions affecting other people.
+- Sensitive memory writes or exports.
+
+Hard stop actions must stop even after a vague approval and only continue after exact details are shown and approved, if the repo policy allows them at all:
+
+- Payment, BankID, Swish, card entry, invoice, checkout, or financial transfer.
+- Third-party booking/payment redirects, changed booking terms, or mismatched booking details.
+- Browser submissions or account changes where the visible final state differs from what was approved.
+- Extracting secrets or unrelated sensitive local data.
+
+## Todoist Policy
+
+No extra approval is needed when the user explicitly asks for a low-risk change to one clearly identified personal Todoist task. A screenshot or other reference can identify the target without creating an approval requirement, as long as exactly one personal Todoist task is resolved and the requested update is low-risk. Examples:
+
+- Formatting cleanup.
+- Wording cleanup.
+- Adding detail to the description or comment.
+- Appending or replacing a description when explicitly requested.
+- Adding or removing a label.
+- Changing a due date.
+- Marking one personal task complete.
+- Creating a simple personal task from clear text.
+
+The assistant should execute the exact low-risk action and then briefly confirm what changed.
+
+For screenshot/reference-derived Todoist cleanup, the safe implementation pattern is:
+
+- Use the screenshot/reference only to identify exactly one personal Todoist task.
+- Fetch or read the actual Todoist task content before editing.
+- Reformat the fetched Todoist content, or apply content explicitly provided by the user.
+- If the user asks to keep the content the same, do not add, remove, or reinterpret substantive content.
+- Reply briefly after the update, for example: `Updated the Todoist task formatting. I kept the content the same and only cleaned up the description layout.`
+
+Ask a clarifying question when the target is ambiguous, such as `change my tasks`, `clean up my Todoist tasks`, `update the task` with no exact match, or a screenshot/reference that contains multiple plausible tasks.
+
+Telegram approval is still required for Todoist deletes, reopens, moves between projects/sections, bulk edits, shared/project-wide changes, sensitive content, inferred update content, or changes that affect other people.
 
 ## Inbox Action Classifier
 
 The inbox action classifier is advisory. It decides whether a Telegram message should be handled as `execute_then_confirm`, `approval_required`, `clarify`, or `answer_only`, but it does not execute side effects.
 
-Direct execution is allowed only for low-risk exact actions already allowed by this approval model. Image/OCR-derived actions, inferred critical fields, destructive actions, external-impact actions, and actions affecting other people remain approval-gated.
+Direct execution is allowed only for low-risk exact actions already allowed by this approval model. Reference-derived exact Todoist targets may proceed for explicit low-risk Todoist updates; reference-derived non-Todoist actions, inferred critical fields, destructive actions, external-impact actions, and actions affecting other people remain approval-gated.
 
-Telegram approval is still required when critical fields are inferred from image/OCR, any date/year/time/timezone/calendar/target is uncertain, the action is ambiguous, another person is affected, or sensitive memory/private health/finance data is involved.
+Telegram approval is still required when critical fields are inferred from image/OCR, any date/year/time/timezone/calendar/target is uncertain, the action is ambiguous, another person is affected, or sensitive memory/private health/finance data is involved. For Todoist, an exact screenshot/reference target is not by itself an inferred critical field.
 
-Email sends, Calendar edits/deletes/invite responses, Todoist completions/reopens/deletions/project moves/bulk edits/ambiguous or inferred changes, Min Golf bookings or booking changes, payments, purchases, financial actions, browser submissions, destructive shell commands, and sensitive local data access remain approval-gated. Min Golf booking-assist must stop before payment, BankID, third-party redirects, changed terms, mismatched details, or unexpected account changes.
+Email sends, Calendar edits/deletes/invite responses, Todoist deletes/reopens/moves/bulk/shared/project-wide changes, Min Golf bookings or booking changes, payments, purchases, financial actions, browser submissions, destructive shell commands, and sensitive local data access remain approval-gated. Min Golf booking-assist must stop before payment, BankID, third-party redirects, changed terms, mismatched details, or unexpected account changes.

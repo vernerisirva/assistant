@@ -92,6 +92,10 @@ export function createTodoistClient({
         },
       }));
     },
+    getTask(taskId) {
+      requireTaskId(taskId);
+      return request(`/tasks/${encodeURIComponent(taskId)}`);
+    },
     addTask(input, { requestId } = {}) {
       return request("/tasks", {
         method: "POST",

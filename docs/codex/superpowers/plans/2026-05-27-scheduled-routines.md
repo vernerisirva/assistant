@@ -56,7 +56,7 @@ Expected: PASS.
 **Files:**
 - Modify: `agents/personal/AGENTS.md`
 - Modify: `docs/setup/routines.md`
-- Modify: `docs/runbooks/daily-operation.md`
+- Modify: `docs/operations/daily-operation.md`
 - Modify: `README.md`
 
 - [ ] **Step 1: Update docs** to explain scheduled routine installation, feedback boundaries, and approval safety.

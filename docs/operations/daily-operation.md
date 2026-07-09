@@ -43,7 +43,7 @@ When the assistant proposes a side effect, approve it only if the action, target
 
 Low-risk additive actions do not need a second approval when the user explicitly asks and all critical fields are complete and unambiguous. Examples: create a Calendar event from typed details, create a Todoist task from clear text, or remember a low-risk preference explicitly requested by the user.
 
-Low-risk Todoist updates also do not need a second approval when the exact task is clear and the user explicitly asks to rename it, append or replace a description, change due date, or add/remove labels. Ask for approval when details are inferred from image/OCR, dates or targets are uncertain, another person is affected, or the action deletes, completes, reopens, moves, bulk edits, sends, invites, books, pays, purchases, submits forms, or touches sensitive memory.
+Low-risk Todoist updates also do not need a second approval when one exact personal task is clear and the user explicitly asks for formatting cleanup, wording cleanup, adding detail, rename, append or replace a description/comment, change due date, add/remove labels, or marking that one task complete. A screenshot/reference-derived exact Todoist target is allowed for those low-risk updates. For formatting-only cleanup, use the screenshot/reference only to identify the task, fetch or read the actual Todoist task content, and reformat that fetched content without adding substantive content. Ask for clarification when the target is ambiguous. Ask for approval when non-Todoist details are inferred from image/OCR, Todoist update content is inferred rather than fetched or explicitly provided, dates or targets are uncertain, another person is affected, or the action deletes, reopens, moves, bulk edits, changes shared/project-wide tasks, sends, invites, books, pays, purchases, submits forms, or touches sensitive memory.
 
 ## Inbox Action Loop Checks
 
@@ -55,6 +55,24 @@ When the bot gives an unexpected approval prompt or acts too cautiously, check t
 - `answer_only`: read-only question, status request, advice, or planning.
 
 The classifier is deterministic and side-effect free; execution remains controlled by the relevant tool and approval policy.
+
+Preview how Hilla would route and classify a Telegram message without taking action:
+
+```bash
+npm run inbox:debug -- "Can you book golf tomorrow morning?"
+npm run inbox:debug -- --json "Send email to Anna saying I will be late"
+npm run inbox:debug -- --source screenshot --exact-task-target --complete-details "Clean up the formatting of this Todoist task"
+```
+
+Preview or run exact Todoist updates after one task has been resolved:
+
+```bash
+npm run todoist -- exact-update --task-id TASK_ID --action format-description --dry-run
+npm run todoist -- exact-update --task-id TASK_ID --action append-detail --detail "User-provided detail" --dry-run
+npm run todoist -- exact-update --match-content "Gym workout" --action complete
+```
+
+If `--match-content` resolves multiple tasks, ask one clarifying question instead of editing.
 
 Run a routine manually:
 

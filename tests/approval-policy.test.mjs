@@ -60,12 +60,25 @@ describe("approval policy", () => {
   it("allows explicit exact low-risk Todoist task updates without a second approval", () => {
     assert.ok(policy.allowedWithoutExtraApproval.includes("rename-explicit-todoist-task"));
     assert.ok(policy.allowedWithoutExtraApproval.includes("update-explicit-todoist-task-description"));
+    assert.ok(policy.allowedWithoutExtraApproval.includes("clean-up-explicit-todoist-task-formatting"));
+    assert.ok(policy.allowedWithoutExtraApproval.includes("clean-up-explicit-todoist-task-wording"));
+    assert.ok(policy.allowedWithoutExtraApproval.includes("add-detail-to-explicit-todoist-task"));
+    assert.ok(policy.allowedWithoutExtraApproval.includes("complete-explicit-personal-todoist-task"));
     assert.ok(policy.allowedWithoutExtraApproval.includes("append-explicit-todoist-task-comment"));
     assert.ok(policy.allowedWithoutExtraApproval.includes("reschedule-explicit-todoist-task"));
     assert.ok(policy.allowedWithoutExtraApproval.includes("label-explicit-todoist-task"));
     assert.equal(policy.lowRiskTodoistTaskChanges.requireExactTaskTarget, true);
     assert.equal(policy.lowRiskTodoistTaskChanges.requireExplicitUserInstruction, true);
     assert.equal(policy.lowRiskTodoistTaskChanges.requireCompleteCriticalFields, true);
+    assert.equal(policy.lowRiskTodoistTaskChanges.referenceDerivedExactTargetAllowedWhenLowRisk, true);
+    assert.equal(
+      policy.lowRiskTodoistTaskChanges.formattingOnlySourceOfTruth,
+      "todoist-task-content-or-explicit-user-instruction",
+    );
+    assert.ok(policy.lowRiskTodoistTaskChanges.allowedWhenExactAndExplicit.includes("clean-up-formatting"));
+    assert.ok(policy.lowRiskTodoistTaskChanges.allowedWhenExactAndExplicit.includes("clean-up-wording"));
+    assert.ok(policy.lowRiskTodoistTaskChanges.allowedWhenExactAndExplicit.includes("add-detail"));
+    assert.ok(policy.lowRiskTodoistTaskChanges.allowedWhenExactAndExplicit.includes("mark-complete"));
   });
 
   it("keeps inferred, ambiguous, destructive, and external-impact actions approval-gated", () => {
@@ -73,11 +86,14 @@ describe("approval policy", () => {
     assert.ok(policy.lowRiskAdditiveActions.approvalStillRequiredWhen.includes("date-year-time-timezone-or-calendar-is-uncertain"));
     assert.ok(policy.lowRiskAdditiveActions.approvalStillRequiredWhen.includes("edits-deletes-moves-completes-or-sends"));
     assert.ok(policy.lowRiskAdditiveActions.approvalStillRequiredWhen.includes("invites-messages-books-pays-purchases-or-submits-forms"));
-    assert.ok(policy.lowRiskTodoistTaskChanges.approvalStillRequiredWhen.includes("delete-complete-reopen-or-move-task"));
+    assert.ok(policy.lowRiskTodoistTaskChanges.approvalStillRequiredWhen.includes("delete-reopen-or-move-task"));
     assert.ok(policy.lowRiskTodoistTaskChanges.approvalStillRequiredWhen.includes("bulk-edits"));
     assert.ok(policy.lowRiskTodoistTaskChanges.approvalStillRequiredWhen.includes("ambiguous-task-target"));
-    assert.ok(policy.lowRiskTodoistTaskChanges.approvalStillRequiredWhen.includes("details-inferred-from-image-or-ocr"));
+    assert.ok(policy.lowRiskTodoistTaskChanges.approvalStillRequiredWhen.includes("reference-derived-target-is-unclear"));
+    assert.ok(policy.lowRiskTodoistTaskChanges.approvalStillRequiredWhen.includes("critical-update-content-inferred-from-image-or-ocr"));
     assert.ok(policy.lowRiskTodoistTaskChanges.approvalStillRequiredWhen.includes("replace-description-without-explicit-replace-instruction"));
+    assert.ok(policy.lowRiskTodoistTaskChanges.approvalStillRequiredWhen.includes("shared-or-project-wide-change"));
+    assert.ok(policy.lowRiskTodoistTaskChanges.approvalStillRequiredWhen.includes("sensitive-content"));
   });
 
   it("defines a narrow promotion process for future trusted routines", () => {
