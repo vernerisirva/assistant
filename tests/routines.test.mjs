@@ -77,7 +77,7 @@ describe("food planning defaults", () => {
 });
 
 describe("routine briefs", () => {
-  it("builds a memory-aware morning brief", () => {
+  it("builds a concise, read-only morning plan with practical sections", () => {
     const brief = buildRoutineBrief("morning-brief", {
       schedules,
       food,
@@ -90,13 +90,35 @@ describe("routine briefs", () => {
     assert.equal(brief.title, "Morning Brief");
     assert.ok(brief.memoryContext.some((line) => line.includes("food/breakfast")));
     assert.ok(brief.memoryContext.some((line) => line.includes("tone/telegram")));
-    assert.ok(brief.sections.some((section) => section.id === "calendar"));
-    assert.ok(brief.sections.some((section) => section.id === "meal-plan"));
-    assert.ok(brief.sections.some((section) => section.id === "workout-anchor"));
+    assert.deepEqual(
+      brief.sections.map((section) => section.id),
+      [
+        "calendar-pressure",
+        "must-do-tasks",
+        "quick-wins",
+        "health-routine-anchor",
+        "one-thing-to-avoid",
+        "suggested-day-plan",
+        "proposed-changes",
+      ],
+    );
+    assert.match(brief.sections[0].instruction, /today's calendar pressure/i);
+    assert.match(brief.sections[1].instruction, /up to 3/i);
+    assert.match(brief.sections[2].instruction, /1-2/i);
+    assert.match(brief.sections[3].instruction, /one realistic/i);
+    assert.match(brief.sections[4].instruction, /one thing to avoid/i);
+    assert.match(brief.sections[5].instruction, /morning, midday, and afternoon/i);
+    assert.match(brief.sections[6].instruction, /only if useful/i);
     assert.ok(brief.allowedWithoutApproval.includes("summarize-configured-gmail-and-calendar"));
     assert.ok(brief.approvalRequired.some((item) => item.includes("calendar changes")));
     assert.match(brief.telegramPrompt, /Morning Brief/);
     assert.match(brief.telegramPrompt, /Use memory/);
+    assert.match(brief.telegramPrompt, /Morning brief rules/i);
+    assert.match(brief.telegramPrompt, /short enough for Telegram/i);
+    assert.match(brief.telegramPrompt, /Calendar, Gmail, Todoist, food, health, and memory context only as read-only inputs/i);
+    assert.match(brief.telegramPrompt, /Proposed Todoist or Calendar changes only if useful/i);
+    assert.match(brief.telegramPrompt, /Do not modify Todoist, Calendar, Gmail, memory, or routines from the morning brief/i);
+    assert.match(brief.telegramPrompt, /Do not send email, edit Calendar events, book anything, make purchases, or submit browser forms/i);
   });
 
   it("builds an evening review with memory suggestion boundaries", () => {

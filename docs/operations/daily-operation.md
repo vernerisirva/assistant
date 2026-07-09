@@ -84,6 +84,8 @@ npm run routine -- evening-review
 npm run routine -- weekly-review
 ```
 
+The morning brief is a short, read-only daily plan. It covers calendar pressure, up to three must-do tasks, quick wins, one health/routine anchor, one thing to avoid, a morning/midday/afternoon plan, and any useful Todoist or Calendar suggestions. Suggestions do not change Todoist or Calendar; a separate explicit user request must follow the approval policy.
+
 Preview scheduled routine jobs:
 
 ```bash

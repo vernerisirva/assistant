@@ -18,6 +18,26 @@ Morning brief:
 npm run routine -- morning-brief
 ```
 
+Example morning brief output shape:
+
+```text
+Morning Brief (personal)
+
+Cover:
+- calendar-pressure: Flag only conflicts, deadlines, or tight transitions.
+- must-do-tasks: List up to 3 tasks that matter today.
+- quick-wins: List 1-2 small actions that reduce friction.
+- health-routine-anchor: Choose one realistic food, movement, sleep, or recovery anchor.
+- one-thing-to-avoid: Name one preventable source of friction.
+- suggested-day-plan: Give a simple morning, midday, and afternoon plan.
+- proposed-changes: Suggest a Todoist or Calendar change only when useful.
+
+Morning brief rules:
+- Read and summarize configured context only.
+- Proposed Todoist or Calendar changes require a separate explicit user action.
+- Do not modify Todoist, Calendar, Gmail, memory, or routines from the morning brief.
+```
+
 Midday health check-in:
 
 ```bash
@@ -122,7 +142,7 @@ Add `--dry-run` to preview a mutation without writing. Mutating commands write `
 
 The personal agent should use the routine output as a briefing template, then gather live context from configured tools where appropriate: Calendar, Gmail, Todoist, memory, food planning, and health context. Scheduled cron jobs should return the final Telegram text only; they must not call Telegram or message-sending tools themselves because cron delivery sends the final answer.
 
-The assistant may summarize, draft, recommend, and check in. Side effects still require Telegram approval.
+The assistant may summarize, draft, recommend, and check in. Side effects still require Telegram approval. The morning brief is planning-only: it may propose Todoist or Calendar changes, but it must not execute them from the routine.
 
 The assistant may run quiet-ops status and audit commands for questions like "what automatic messages are scheduled?" or "audit notification noise." Disabling, enabling, changing a time, or rescheduling a reminder is a side effect: the assistant must show the exact job id or exact job name and wait for Telegram approval before running the command.
 

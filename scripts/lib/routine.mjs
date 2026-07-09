@@ -83,11 +83,13 @@ function sectionsForRoutine(routineId) {
   switch (routineId) {
     case "morning-brief":
       return [
-        section("calendar", "Summarize today's calendar and schedule pressure."),
-        section("todoist", "Summarize overdue and today Todoist tasks."),
-        section("priorities", "Name the top 1-3 priorities for the day."),
-        section("meal-plan", "Draft breakfast, lunch, dinner, snack, and backup options."),
-        section("workout-anchor", "Pick a realistic workout or movement anchor."),
+        section("calendar-pressure", "Summarize today's calendar pressure: name only conflicts, deadlines, or tight transitions."),
+        section("must-do-tasks", "List up to 3 must-do tasks from overdue and today context; do not pad the list."),
+        section("quick-wins", "List 1-2 quick wins that reduce friction or close small open loops."),
+        section("health-routine-anchor", "Choose one realistic health/routine anchor for food, movement, sleep, or recovery."),
+        section("one-thing-to-avoid", "Name one thing to avoid today that would create preventable friction."),
+        section("suggested-day-plan", "Give a simple suggested plan for morning, midday, and afternoon."),
+        section("proposed-changes", "Propose Todoist or Calendar changes only if useful; label them as suggestions requiring a separate user action."),
       ];
     case "midday-check-in":
       return [
@@ -166,7 +168,7 @@ function formatMemoryContext(memoryEntries) {
 function buildTelegramPrompt({ routineId, title, agent, sections, memoryContext }) {
   const sectionLines = sections.map((entry) => `- ${entry.id}: ${entry.instruction}`).join("\n");
   const memoryLines = memoryContext.map((entry) => `- ${entry}`).join("\n");
-  const weeklyLines = routineId === "weekly-review"
+  const routineLines = routineId === "weekly-review"
     ? [
       "",
       "Weekly review rules:",
@@ -176,7 +178,17 @@ function buildTelegramPrompt({ routineId, title, agent, sections, memoryContext 
       "- Do not modify Todoist, Calendar, Gmail, memory, or routines from the weekly review.",
       "- End with the top 3 priorities and one thing to stop doing or simplify.",
     ]
-    : [];
+    : routineId === "morning-brief"
+      ? [
+        "",
+        "Morning brief rules:",
+        "- Keep this short enough for Telegram: seven compact sections, with no motivational filler.",
+        "- Use configured Calendar, Gmail, Todoist, food, health, and memory context only as read-only inputs.",
+        "- Proposed Todoist or Calendar changes only if useful: state them as suggestions, and require a separate explicit user action before any change.",
+        "- Do not modify Todoist, Calendar, Gmail, memory, or routines from the morning brief.",
+        "- Do not send email, edit Calendar events, book anything, make purchases, or submit browser forms from the morning brief.",
+      ]
+      : [];
 
   return [
     `${title} (${agent})`,
@@ -186,7 +198,7 @@ function buildTelegramPrompt({ routineId, title, agent, sections, memoryContext 
     "",
     "Cover:",
     sectionLines,
-    ...weeklyLines,
+    ...routineLines,
     "",
     "Keep the Telegram reply concise, practical, and non-shaming.",
     "Draft or recommend freely; ask for approval before side effects.",
