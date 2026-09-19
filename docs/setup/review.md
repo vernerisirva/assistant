@@ -26,7 +26,7 @@ npm run review -- --dry-run                  # build the prompt, send nothing, s
 npm run review -- --base main --head HEAD    # review this branch against main
 npm run review -- --second                   # also ask the configured second model
 npm run review -- --json                     # machine-readable result
-npm run review -- --test-summary "329 passing, 0 failing"
+npm run review -- --test-summary "386 passing, 0 failing"
 npm run review -- --objective "What this change is supposed to achieve"
 ```
 
@@ -59,8 +59,10 @@ OpenRouter charged, so spending is always visible.
 ## What the reviewer sees
 
 The product objective, the diff, the changed-file list, the commit subjects, and
-optionally deterministic test results. It is never given the implementer's
-reasoning, self-review, or conclusions, so its judgement is its own.
+optionally deterministic test results. The objective and test summary come from
+the caller and say so in the prompt. The reviewer is never given the
+implementer's reasoning, self-review, or conclusions, so its judgement is its
+own. The diff itself is presented as untrusted content under review.
 
 ## Verdicts
 
@@ -72,8 +74,13 @@ The harness fails closed in every ambiguous case:
 
 - A reviewer claiming `PASS` while listing a blocking finding is recorded as
   `BLOCKERS`, and the adjustment is shown.
-- A response with no verdict, an unknown verdict, or output that cannot be
-  parsed is an error, never a pass.
+- A response with no verdict, a non-string verdict, an unknown verdict, or
+  output that cannot be parsed is an error, never a pass.
+- The response must be a single JSON object, optionally inside one fenced
+  block, and nothing else. A verdict is never read out of surrounding prose,
+  so a reviewer quoting an injected payload from the diff cannot supply one.
+- A finding or note that does not match the schema is kept and escalated rather
+  than dropped, so a described defect can never vanish into silence.
 - A finding whose severity is missing or not recognized is treated as blocking,
   and the unrecognized label is printed. Only explicitly non-blocking words
   such as `note`, `minor` or `suggestion` become notes.
@@ -83,4 +90,12 @@ diff is fenced with a longer delimiter than any backtick run it contains, so a
 diff cannot close its own fence and inject instructions.
 
 If one reviewer of two fails, the review that already succeeded is still
-reported rather than discarded, and the failure is printed alongside it.
+reported rather than discarded, and the failure is printed alongside it. The run
+then exits `2` rather than `0`, because the lost answer may have been the one
+objecting. Once the cost ceiling is exceeded, remaining reviewers are skipped
+instead of being paid for.
+
+The product objective and any test summary are supplied by the caller and are
+labelled as such in the prompt. Everything else the reviewer sees is the diff
+and repository facts; it is never given the implementer's reasoning or
+conclusions.

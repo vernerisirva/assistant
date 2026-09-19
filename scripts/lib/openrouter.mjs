@@ -56,7 +56,14 @@ export function createOpenRouterClient({
         throw new Error(describeFailure(response.status, details, apiKey));
       }
 
-      const payload = await response.json();
+      let payload;
+      try {
+        payload = await response.json();
+      } catch (error) {
+        throw new Error(
+          `OpenRouter returned a response that is not JSON: ${redactSecrets(error?.message ?? String(error), apiKey)}`,
+        );
+      }
       if (payload?.error) {
         // A 200 response can still carry an error body that echoes the request,
         // so this is redacted exactly like a transport failure.

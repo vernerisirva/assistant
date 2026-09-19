@@ -129,7 +129,20 @@ export async function runReviewCli(argv, {
     } catch (error) {
       // A later reviewer failing must not discard an earlier answer that was
       // already paid for. The failure is reported alongside what did succeed.
-      failures.push({ model, message: error.message });
+      failures.push({ model, message: error?.message ?? String(error) });
+    }
+
+    const spent = totalCost(reviews).total;
+    if (spent !== null && Number.isFinite(config.maxCostUsd) && spent > config.maxCostUsd) {
+      // Do not keep paying once the ceiling is already behind us.
+      const remaining = models.slice(models.indexOf(model) + 1);
+      if (remaining.length > 0) {
+        failures.push({
+          model: remaining.join(", "),
+          message: `Skipped: $${spent.toFixed(4)} already spent, above the ceiling of $${config.maxCostUsd}.`,
+        });
+      }
+      break;
     }
   }
 
@@ -158,7 +171,13 @@ export async function runReviewCli(argv, {
       cost.total !== null && Number.isFinite(config.maxCostUsd) && cost.total > config.maxCostUsd
         ? `Reviews cost $${cost.total.toFixed(4)} in total, above the configured ceiling of $${config.maxCostUsd}.`
         : null,
-    exitCode: verdict === "BLOCKERS" ? REVIEW_EXIT.blockers : REVIEW_EXIT.clean,
+    // A failed reviewer may have been the one saying "do not merge", so a run
+    // with a lost answer is never reported as clean.
+    exitCode: verdict === "BLOCKERS"
+      ? REVIEW_EXIT.blockers
+      : failures.length > 0
+        ? REVIEW_EXIT.error
+        : REVIEW_EXIT.clean,
   };
 }
 

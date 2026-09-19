@@ -68,10 +68,10 @@ export function buildReviewMessages({
   if (!String(diff ?? "").trim()) throw new Error("A non-empty diff is required for review.");
 
   const sections = [
-    `# Product objective\n\n${objective}`,
+    `# Product objective (supplied by the caller)\n\n${objective}`,
     diffStat ? `# Changed files\n\n${diffStat}` : "",
     commits ? `# Commits in range\n\n${commits}` : "",
-    testSummary ? `# Deterministic test results\n\n${testSummary}` : "",
+    testSummary ? `# Deterministic test results (reported by the caller, not verified here)\n\n${testSummary}` : "",
     truncated
       ? "# Note\n\nThe diff below was truncated to fit the configured size limit. Judge only what you can see, and say so if the truncation prevents a conclusion."
       : "",
@@ -125,6 +125,10 @@ export function parseReviewResponse(content) {
 
   const findings = normalizeFindings(parsed.findings);
   const notes = normalizeNotes(parsed.notes);
+  if (parsed.verdict !== undefined && parsed.verdict !== null && typeof parsed.verdict !== "string") {
+    throw new Error("The reviewer returned a verdict that is not a string.");
+  }
+
   const claimed = String(parsed.verdict ?? "").trim().toUpperCase();
 
   if (!claimed) {
@@ -205,8 +209,21 @@ function normalizeFindings(findings) {
   if (!Array.isArray(findings)) throw new Error("The reviewer returned findings that are not a list.");
 
   return findings
-    .filter((finding) => finding && typeof finding === "object" && !Array.isArray(finding))
     .map((finding) => {
+      // A finding that does not match the schema is still something the
+      // reviewer wrote. Dropping it would turn a described defect into silence,
+      // so it is kept and escalated instead.
+      if (!finding || typeof finding !== "object" || Array.isArray(finding)) {
+        return {
+          severity: "blocking",
+          reportedSeverity: "(malformed entry)",
+          title: describeEntry(finding),
+          file: null,
+          evidence: "",
+          recommendation: "",
+        };
+      }
+
       const reported = String(finding.severity ?? "").trim().toLowerCase();
       const recognized = BLOCKING_WORDS.has(reported) || NOTE_WORDS.has(reported);
 
@@ -227,7 +244,22 @@ function normalizeFindings(findings) {
 function normalizeNotes(notes) {
   if (notes === undefined || notes === null) return [];
   if (!Array.isArray(notes)) throw new Error("The reviewer returned notes that are not a list.");
-  return notes.map((note) => text(note)).filter(Boolean);
+  return notes.map((note) => text(note) || describeEntry(note)).filter(Boolean);
+}
+
+/** Renders an off-schema entry as readable text instead of discarding it. */
+function describeEntry(value) {
+  if (value === null || value === undefined) return "Malformed finding: (empty)";
+  const rendered = typeof value === "string" ? value : safeStringify(value);
+  return rendered.slice(0, 500) || "Malformed finding: (empty)";
+}
+
+function safeStringify(value) {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
 }
 
 function text(value) {
@@ -238,16 +270,11 @@ function extractJson(content) {
   const raw = String(content ?? "").trim();
   if (!raw) throw new Error("The reviewer returned an empty response.");
 
-  const candidates = [raw];
-
-  const fenced = raw.match(/```(?:json)?\s*\n([\s\S]*?)```/);
-  if (fenced) candidates.push(fenced[1]);
-
-  const firstBrace = raw.indexOf("{");
-  const lastBrace = raw.lastIndexOf("}");
-  if (firstBrace !== -1 && lastBrace > firstBrace) {
-    candidates.push(raw.slice(firstBrace, lastBrace + 1));
-  }
+  // Only the whole response, or a response that is exactly one fenced block,
+  // is accepted. Scanning for a JSON object inside prose would let a reviewer
+  // quoting an injected payload from the diff supply the verdict.
+  const fenced = raw.match(/^```(?:json)?\s*\n([\s\S]*?)\n?```$/);
+  const candidates = fenced ? [raw, fenced[1]] : [raw];
 
   for (const candidate of candidates) {
     try {
@@ -258,7 +285,8 @@ function extractJson(content) {
   }
 
   throw new Error(
-    `The reviewer response could not be parsed as JSON. First 200 characters: ${raw.slice(0, 200)}`,
+    "The reviewer response must be a single JSON object and nothing else. " +
+      `First 200 characters: ${raw.slice(0, 200)}`,
   );
 }
 
