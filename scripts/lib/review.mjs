@@ -153,7 +153,7 @@ export function reconcileVerdict(claimed, findings, notes) {
   if (findings.some((finding) => finding.severity === "blocking")) return "BLOCKERS";
   if (claimed === "BLOCKERS") return "BLOCKERS";
   if (findings.length > 0 || notes.length > 0) return "PASS_WITH_NOTES";
-  return "PASS";
+  return claimed === "PASS_WITH_NOTES" ? "PASS_WITH_NOTES" : "PASS";
 }
 
 export function formatReviewSummary(result) {
@@ -167,7 +167,7 @@ export function formatReviewSummary(result) {
 
   if (result.range) lines.push(`- Range: ${result.range}`);
   if (result.truncated) lines.push("- Diff was truncated to the configured size limit.");
-  if (result.summary) lines.push(`- Summary: ${result.summary}`);
+  if (result.summary) lines.push(`- Summary: ${plain(result.summary)}`);
 
   if (result.claimedVerdict && result.claimedVerdict !== result.verdict) {
     lines.push(`- Verdict adjusted from the reviewer's claimed ${result.claimedVerdict} to match its findings.`);
@@ -188,19 +188,23 @@ export function formatReviewSummary(result) {
 
   if (result.notes.length > 0) {
     lines.push("", `Notes (${result.notes.length}):`);
-    result.notes.forEach((note, index) => lines.push(`${index + 1}. ${note}`));
+    result.notes.forEach((note, index) => lines.push(`${index + 1}. ${plain(note)}`));
   }
 
   return lines.join("\n");
 }
 
+function plain(value) {
+  return String(value ?? "").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+}
+
 function formatFinding(finding, index) {
-  const lines = [`${index + 1}. ${finding.title}${finding.file ? ` (${finding.file})` : ""}`];
+  const lines = [`${index + 1}. ${plain(finding.title)}${finding.file ? ` (${plain(finding.file)})` : ""}`];
   if (finding.reportedSeverity) {
     lines.push(`   Severity "${finding.reportedSeverity}" was not recognized, so it is treated as blocking.`);
   }
-  if (finding.evidence) lines.push(`   Evidence: ${finding.evidence}`);
-  if (finding.recommendation) lines.push(`   Fix: ${finding.recommendation}`);
+  if (finding.evidence) lines.push(`   Evidence: ${plain(finding.evidence)}`);
+  if (finding.recommendation) lines.push(`   Fix: ${plain(finding.recommendation)}`);
   return lines;
 }
 
@@ -244,7 +248,9 @@ function normalizeFindings(findings) {
 function normalizeNotes(notes) {
   if (notes === undefined || notes === null) return [];
   if (!Array.isArray(notes)) throw new Error("The reviewer returned notes that are not a list.");
-  return notes.map((note) => text(note) || describeEntry(note)).filter(Boolean);
+  return notes
+    .map((note) => (typeof note === "string" ? text(note) : describeEntry(note)))
+    .filter(Boolean);
 }
 
 /** Renders an off-schema entry as readable text instead of discarding it. */
@@ -273,7 +279,7 @@ function extractJson(content) {
   // Only the whole response, or a response that is exactly one fenced block,
   // is accepted. Scanning for a JSON object inside prose would let a reviewer
   // quoting an injected payload from the diff supply the verdict.
-  const fenced = raw.match(/^```(?:json)?\s*\n([\s\S]*?)\n?```$/);
+  const fenced = raw.match(/^```(?:json5?)?[ \t]*\r?\n([\s\S]*?)\r?\n?```$/i);
   const candidates = fenced ? [raw, fenced[1]] : [raw];
 
   for (const candidate of candidates) {

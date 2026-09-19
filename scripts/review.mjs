@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createOpenRouterClient, MISSING_KEY_MESSAGE } from "./lib/openrouter.mjs";
+import { createOpenRouterClient, MISSING_KEY_MESSAGE, redactSecrets } from "./lib/openrouter.mjs";
 import {
   buildReviewMessages,
   collectReviewContext,
@@ -129,7 +129,10 @@ export async function runReviewCli(argv, {
     } catch (error) {
       // A later reviewer failing must not discard an earlier answer that was
       // already paid for. The failure is reported alongside what did succeed.
-      failures.push({ model, message: error?.message ?? String(error) });
+      failures.push({
+        model,
+        message: redactSecrets(error?.message ?? String(error), env.OPENROUTER_API_KEY),
+      });
     }
 
     const spent = totalCost(reviews).total;
@@ -181,6 +184,11 @@ export async function runReviewCli(argv, {
   };
 }
 
+/** Reviewer text is untrusted, so control characters never reach the terminal. */
+function plain(value) {
+  return String(value ?? "").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+}
+
 export function formatReviewResult(result) {
   if (result.dryRun) {
     return [
@@ -205,7 +213,7 @@ export function formatReviewResult(result) {
     sections.push("A second opinion was requested but config.secondaryModel is not set.");
   }
   for (const failure of result.failures ?? []) {
-    sections.push(`Reviewer ${failure.model} failed: ${failure.message}`);
+    sections.push(`Reviewer ${plain(failure.model)} failed: ${plain(failure.message)}`);
   }
   if (result.totalCostUsd !== null) {
     const partial = result.totalCostPartial ? " (partial: some reviews reported no cost)" : "";

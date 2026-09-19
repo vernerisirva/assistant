@@ -13,7 +13,10 @@ OPENROUTER_API_KEY=sk-or-your-key-here
 ```
 
 Do not commit or paste the key into chats, issues, logs, or docs. The harness
-never prints it, and redacts key-shaped text out of upstream error messages.
+never prints it: every failure path, including a rejected request and a
+non-JSON body, is redacted, and key-shaped text is stripped even when the key
+itself is unknown. Reviewer text is stripped of control characters before it
+reaches a terminal.
 
 Without a key the command fails with setup instructions and a non-zero exit
 code. It never falls back to a local model or to self-review, because a review

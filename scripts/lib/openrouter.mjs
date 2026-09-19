@@ -45,11 +45,21 @@ export function createOpenRouterClient({
       const body = { model, messages, temperature };
       if (maxCompletionTokens) body.max_completion_tokens = maxCompletionTokens;
 
-      const response = await fetchImpl(endpoint, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-      });
+      let response;
+      try {
+        response = await fetchImpl(endpoint, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        });
+      } catch (error) {
+        // A transport rejection can carry request context, and a custom
+        // fetchImpl is a supported extension point, so this is redacted like
+        // every other failure rather than trusted to be key-free.
+        throw new Error(
+          `OpenRouter request could not be sent: ${redactSecrets(error?.message ?? String(error), apiKey)}`,
+        );
+      }
 
       if (!response.ok) {
         const details = await response.text().catch(() => "");

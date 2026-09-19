@@ -751,3 +751,74 @@ describe("malformed reviewer entries are escalated, never dropped", () => {
     });
   });
 });
+
+describe("no failure path prints the key", () => {
+  const key = "sk-or-v1-REALSECRETVALUE";
+
+  it("redacts a rejected fetch, the one path that used to escape", async () => {
+    const client = createOpenRouterClient({
+      apiKey: key,
+      fetchImpl: async () => {
+        throw new Error(`connect ECONNREFUSED while sending Authorization: Bearer ${key}`);
+      },
+    });
+
+    await assert.rejects(() => client.complete({ model: "m", messages: [] }), (error) => {
+      assert.match(error.message, /could not be sent/);
+      assert.doesNotMatch(error.message, new RegExp(key));
+      assert.match(error.message, /\[redacted\]/);
+      return true;
+    });
+  });
+
+  it("keeps the key out of the result, the text output and a recorded failure", async () => {
+    const result = await runReviewCli(["--second"], {
+      config,
+      git: fakeGit(),
+      env: { OPENROUTER_API_KEY: key },
+      fetchImpl: async (_url, init) => {
+        if (JSON.parse(init.body).model === config.primaryModel) {
+          return jsonResponse(completion(cleanReview));
+        }
+        throw new Error(`proxy log: request failed, Bearer ${key}`);
+      },
+    });
+
+    assert.equal(result.failures.length, 1);
+    assert.doesNotMatch(JSON.stringify(result), new RegExp(key));
+    assert.doesNotMatch(formatReviewResult(result), new RegExp(key));
+    assert.equal(result.exitCode, REVIEW_EXIT.error);
+  });
+
+  it("strips control characters from reviewer-supplied text", () => {
+    const escape = String.fromCharCode(27);
+    const bell = String.fromCharCode(7);
+    const parsed = parseReviewResponse(JSON.stringify({
+      verdict: "BLOCKERS",
+      findings: [{ severity: "blocking", title: `clear${escape}[2Jscreen`, evidence: `a${bell}b` }],
+      notes: [`note${escape}[31mred`],
+    }));
+    const text = formatReviewSummary({ ...parsed, model: "m", usage: null });
+
+    assert.ok(!text.includes(escape));
+    assert.ok(!text.includes(bell));
+    assert.match(text, /clear\[2Jscreen/);
+    assert.equal(parsed.verdict, "BLOCKERS");
+  });
+
+  it("accepts a fenced block whatever case its tag uses", () => {
+    for (const tag of ["json", "JSON", "Json", ""]) {
+      assert.equal(parseReviewResponse("```" + tag + "\n" + cleanReview + "\n```").verdict, "PASS");
+    }
+  });
+
+  it("drops a whitespace-only note but keeps the claimed label honest", () => {
+    const parsed = parseReviewResponse(JSON.stringify({
+      verdict: "PASS_WITH_NOTES",
+      notes: ["   ", ""],
+    }));
+
+    assert.deepEqual(parsed.notes, []);
+    assert.equal(parsed.verdict, "PASS_WITH_NOTES");
+  });
+});
