@@ -52,6 +52,32 @@ Troubleshooting order:
 
 Only run state-changing commands when the user asked for that change or explicitly approved it.
 
+## Workflow For Substantial Changes
+
+The owner is not a routine code-review gate. For a substantial change, run this
+loop and only escalate when it genuinely needs a human decision:
+
+1. Implement the smallest coherent change.
+2. Run `npm test`.
+3. Read your own complete diff.
+4. Run `npm run review -- --base main --head HEAD` for an independent model review.
+5. Fix legitimate blockers. Reject findings that are unsupported or that conflict
+   with the stated objective, and record why.
+6. Rerun the focused tests.
+7. Review again only if the fixes were material.
+8. Open a PR; CI runs `npm test`.
+9. Merge when tests pass and no blocking findings remain.
+
+Stop reviewing once deterministic gates are green and a review returns no
+blockers. One review for a meaningful change, plus one more after material
+fixes, is the normal ceiling.
+
+Escalate to the owner for product ambiguity where different readings change
+user-facing behavior, any change to a safety or approval boundary, credentials
+or account authorization, meaningful spending, destructive or hard-to-reverse
+actions, or a reviewer finding whose correct fix would change intended product
+behavior. See `docs/setup/review.md` for setup and cost controls.
+
 ## Source Layout
 
 - `agents/<agent>/AGENTS.md`: source standing orders for each OpenClaw agent.
@@ -60,6 +86,7 @@ Only run state-changing commands when the user asked for that change or explicit
 - `config/approval-policy.json`: safety and approval policy source.
 - `config/schedules.json`: routine schedule defaults.
 - `config/food-planning.json`: food-planning defaults.
+- `scripts/review.mjs`: independent model review harness.
 - `scripts/`: local CLI helpers.
 - `scripts/lib/`: tested helper modules.
 - `tests/`: Node test suite.

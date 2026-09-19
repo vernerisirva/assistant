@@ -1,0 +1,10 @@
+{
+  "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+  "primaryModel": "openai/gpt-5.6-luna-pro",
+  "secondaryModel": "google/gemini-2.5-pro",
+  "temperature": 0,
+  "maxCompletionTokens": 6000,
+  "maxDiffBytes": 240000,
+  "maxCostUsd": 0.5,
+  "appTitle": "Hilla independent review"
+}
