@@ -27,6 +27,9 @@ export function parseReviewArgs(argv) {
     if (arg === "--dry-run") { options.dryRun = true; continue; }
     if (arg === "--second") { options.second = true; continue; }
 
+    const valued = ["--base", "--head", "--model", "--objective", "--test-summary"];
+    if (!valued.includes(arg)) throw new Error(`Unknown review option: ${arg}`);
+
     const value = argv[index + 1];
     if (value === undefined || value.startsWith("--")) {
       throw new Error(`${arg} requires a value.`);
@@ -39,7 +42,6 @@ export function parseReviewArgs(argv) {
       case "--model": options.model = value; break;
       case "--objective": options.objective = value; break;
       case "--test-summary": options.testSummary = value; break;
-      default: throw new Error(`Unknown review option: ${arg}`);
     }
   }
 
@@ -53,6 +55,16 @@ export async function runReviewCli(argv, {
   git,
 } = {}) {
   const options = parseReviewArgs(argv);
+
+  const client = options.dryRun
+    ? null
+    : createOpenRouterClient({
+        apiKey: env.OPENROUTER_API_KEY,
+        fetchImpl,
+        endpoint: config.endpoint,
+        appTitle: config.appTitle,
+      });
+
   const context = collectReviewContext({
     base: options.base,
     head: options.head,
@@ -61,7 +73,7 @@ export async function runReviewCli(argv, {
   });
 
   const messages = buildReviewMessages({
-    objective: options.objective ?? DEFAULT_OBJECTIVE,
+    objective: options.objective?.trim() || DEFAULT_OBJECTIVE,
     diff: context.diff,
     diffStat: context.diffStat,
     commits: context.commits,
@@ -70,6 +82,7 @@ export async function runReviewCli(argv, {
   });
 
   const models = [options.model ?? config.primaryModel];
+  const secondSkipped = options.second && !config.secondaryModel;
   if (options.second && config.secondaryModel) models.push(config.secondaryModel);
 
   const promptBytes = messages.reduce((total, message) => total + Buffer.byteLength(message.content, "utf8"), 0);
@@ -81,6 +94,7 @@ export async function runReviewCli(argv, {
       dryRun: true,
       range: context.range,
       models,
+      secondSkipped,
       promptBytes,
       truncated: context.truncated,
       limits: {
@@ -92,31 +106,35 @@ export async function runReviewCli(argv, {
     };
   }
 
-  const client = createOpenRouterClient({
-    apiKey: env.OPENROUTER_API_KEY,
-    fetchImpl,
-    endpoint: config.endpoint,
-    appTitle: config.appTitle,
-  });
-
   const reviews = [];
+  const failures = [];
   for (const model of models) {
-    const completion = await client.complete({
-      model,
-      messages,
-      maxCompletionTokens: config.maxCompletionTokens,
-      temperature: config.temperature,
-    });
-    const parsed = parseReviewResponse(completion.content);
+    try {
+      const completion = await client.complete({
+        model,
+        messages,
+        maxCompletionTokens: config.maxCompletionTokens,
+        temperature: config.temperature,
+      });
+      const parsed = parseReviewResponse(completion.content);
 
-    reviews.push({
-      ...parsed,
-      model: completion.model,
-      usage: completion.usage,
-      range: context.range,
-      truncated: context.truncated,
-      costWarning: costWarningFor(completion.usage, config.maxCostUsd),
-    });
+      reviews.push({
+        ...parsed,
+        model: completion.model,
+        usage: completion.usage,
+        range: context.range,
+        truncated: context.truncated,
+        costWarning: costWarningFor(completion.usage, config.maxCostUsd),
+      });
+    } catch (error) {
+      // A later reviewer failing must not discard an earlier answer that was
+      // already paid for. The failure is reported alongside what did succeed.
+      failures.push({ model, message: error.message });
+    }
+  }
+
+  if (reviews.length === 0) {
+    throw new Error(failures[0]?.message ?? "No review was produced.");
   }
 
   const verdict = reviews.some((review) => review.verdict === "BLOCKERS")
@@ -125,12 +143,21 @@ export async function runReviewCli(argv, {
       ? "PASS_WITH_NOTES"
       : "PASS";
 
+  const cost = totalCost(reviews);
+
   return {
     dryRun: false,
     verdict,
     range: context.range,
     reviews,
-    totalCostUsd: totalCost(reviews),
+    failures,
+    secondSkipped,
+    totalCostUsd: cost.total,
+    totalCostPartial: cost.partial,
+    totalCostWarning:
+      cost.total !== null && Number.isFinite(config.maxCostUsd) && cost.total > config.maxCostUsd
+        ? `Reviews cost $${cost.total.toFixed(4)} in total, above the configured ceiling of $${config.maxCostUsd}.`
+        : null,
     exitCode: verdict === "BLOCKERS" ? REVIEW_EXIT.blockers : REVIEW_EXIT.clean,
   };
 }
@@ -142,6 +169,7 @@ export function formatReviewResult(result) {
       `- Models that would be asked: ${result.models.join(", ")}`,
       `- Prompt size: ${result.promptBytes} bytes`,
       result.truncated ? "- Diff would be truncated to the configured size limit." : null,
+      result.secondSkipped ? "- A second opinion was requested but config.secondaryModel is not set." : null,
       `- Caps: ${result.limits.maxCompletionTokens} completion tokens, ${result.limits.maxDiffBytes} diff bytes, $${result.limits.maxCostUsd} advisory cost ceiling`,
     ].filter(Boolean).join("\n");
   }
@@ -154,9 +182,17 @@ export function formatReviewResult(result) {
   if (result.reviews.length > 1) {
     sections.push(`Combined verdict across ${result.reviews.length} reviewers: ${result.verdict}`);
   }
-  if (result.totalCostUsd !== null) {
-    sections.push(`Total reported cost: $${result.totalCostUsd.toFixed(4)}`);
+  if (result.secondSkipped) {
+    sections.push("A second opinion was requested but config.secondaryModel is not set.");
   }
+  for (const failure of result.failures ?? []) {
+    sections.push(`Reviewer ${failure.model} failed: ${failure.message}`);
+  }
+  if (result.totalCostUsd !== null) {
+    const partial = result.totalCostPartial ? " (partial: some reviews reported no cost)" : "";
+    sections.push(`Total reported cost: $${result.totalCostUsd.toFixed(4)}${partial}`);
+  }
+  if (result.totalCostWarning) sections.push(result.totalCostWarning);
 
   return sections.join("\n\n");
 }
@@ -169,7 +205,10 @@ function costWarningFor(usage, maxCostUsd) {
 
 function totalCost(reviews) {
   const costs = reviews.map((review) => review.usage?.costUsd).filter((cost) => Number.isFinite(cost));
-  return costs.length > 0 ? costs.reduce((total, cost) => total + cost, 0) : null;
+  return {
+    total: costs.length > 0 ? costs.reduce((sum, cost) => sum + cost, 0) : null,
+    partial: costs.length !== reviews.length,
+  };
 }
 
 if (process.argv[1] && currentFile === resolve(process.argv[1])) {

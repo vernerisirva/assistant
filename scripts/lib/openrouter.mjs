@@ -58,9 +58,10 @@ export function createOpenRouterClient({
 
       const payload = await response.json();
       if (payload?.error) {
-        throw new Error(
-          `OpenRouter returned an error: ${payload.error.message ?? "unknown error"}`,
-        );
+        // A 200 response can still carry an error body that echoes the request,
+        // so this is redacted exactly like a transport failure.
+        const message = redactSecrets(payload.error.message ?? "unknown error", apiKey);
+        throw new Error(`OpenRouter returned an error: ${message}`);
       }
 
       const content = payload?.choices?.[0]?.message?.content;

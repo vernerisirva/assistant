@@ -68,6 +68,19 @@ reasoning, self-review, or conclusions, so its judgement is its own.
 - `PASS_WITH_NOTES` — no blocking defects; notes are worth reading.
 - `PASS` — nothing found.
 
-A reviewer that claims `PASS` while listing a blocking finding is recorded as
-`BLOCKERS`, and the adjustment is shown. Output that cannot be parsed is an
-error, never a pass.
+The harness fails closed in every ambiguous case:
+
+- A reviewer claiming `PASS` while listing a blocking finding is recorded as
+  `BLOCKERS`, and the adjustment is shown.
+- A response with no verdict, an unknown verdict, or output that cannot be
+  parsed is an error, never a pass.
+- A finding whose severity is missing or not recognized is treated as blocking,
+  and the unrecognized label is printed. Only explicitly non-blocking words
+  such as `note`, `minor` or `suggestion` become notes.
+
+The diff under review is untrusted content. The reviewer is told so, and the
+diff is fenced with a longer delimiter than any backtick run it contains, so a
+diff cannot close its own fence and inject instructions.
+
+If one reviewer of two fails, the review that already succeeded is still
+reported rather than discarded, and the failure is printed alongside it.
