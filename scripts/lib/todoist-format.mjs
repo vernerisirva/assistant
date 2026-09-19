@@ -57,6 +57,7 @@ export function normalizeTodoistDescription(description = "") {
   const output = [];
   let fence = null;
   let pendingBlankLine = false;
+  let seenContent = false;
 
   for (const rawLine of lines) {
     const fenceMatch = rawLine.match(FENCE_LINE);
@@ -71,11 +72,12 @@ export function normalizeTodoistDescription(description = "") {
       fence = fenceMatch[1];
       if (pendingBlankLine && output.length > 0) output.push("");
       pendingBlankLine = false;
+      seenContent = true;
       output.push(trimLineEnd(rawLine));
       continue;
     }
 
-    const line = normalizeDescriptionLine(rawLine);
+    const line = normalizeDescriptionLine(rawLine, { firstContentLine: !seenContent });
     if (line === "") {
       pendingBlankLine = output.length > 0;
       continue;
@@ -83,6 +85,7 @@ export function normalizeTodoistDescription(description = "") {
 
     if (pendingBlankLine) output.push("");
     pendingBlankLine = false;
+    seenContent = true;
     output.push(line);
   }
 
@@ -152,7 +155,14 @@ function isSameStructuralText(title, line) {
   return wanted !== "" && comparableStructuralText(line) === wanted;
 }
 
-function normalizeDescriptionLine(rawLine) {
+/**
+ * Leading whitespace only carries meaning relative to a line above it: list
+ * continuation text, nested list content, and indented code all depend on it.
+ * The first line of a description is the one place where indentation cannot
+ * mean any of those things, so that is the only place stray indentation is
+ * removed. Everywhere else indentation is preserved as written.
+ */
+function normalizeDescriptionLine(rawLine, { firstContentLine = false } = {}) {
   const line = trimLineEnd(rawLine);
   if (line.trim() === "") return "";
 
@@ -165,9 +175,9 @@ function normalizeDescriptionLine(rawLine) {
     return `${keptIndent}${listMatch[1]} ${listMatch[2]}`;
   }
 
-  if (indentWidth(indent) >= CODE_INDENT_WIDTH) return line;
+  if (firstContentLine && indentWidth(indent) < CODE_INDENT_WIDTH) return body;
 
-  return body;
+  return line;
 }
 
 function closesFence(openFence, candidate) {

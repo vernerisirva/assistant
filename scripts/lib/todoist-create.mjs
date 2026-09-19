@@ -71,6 +71,7 @@ export function buildTodoistCreatePlan(input = {}) {
     taskId: null,
     payload: buildTodoistTaskPayload(fields.task),
     descriptionLines: fields.task.description ? fields.task.description.split("\n") : [],
+    descriptionState: fields.task.description ? "set" : "empty",
     adjustments: fields.adjustments,
     warnings: fields.warnings,
     confirmation: `Created the Todoist task "${fields.task.content}".`,
@@ -83,13 +84,21 @@ export function buildTodoistUpdatePlan(taskId, input = {}) {
   }
 
   const fields = buildTaskFields(input, { requireContent: false, allowTitleOverflow: false });
+  const descriptionState = describeUpdateDescription(input, fields.task);
+  const payload = buildTodoistTaskPayload(fields.task, { requireContent: false });
+
+  // buildTodoistTaskPayload drops empty values, so an explicit request to clear
+  // the description is re-added here. The preview may only say a field changes
+  // when that field is actually in the wire payload.
+  if (descriptionState === "empty") payload.description = "";
 
   return {
     mode: "execute_then_confirm",
     command: "update",
     taskId,
-    payload: buildTodoistTaskPayload(fields.task, { requireContent: false }),
+    payload,
     descriptionLines: fields.task.description ? fields.task.description.split("\n") : [],
+    descriptionState,
     adjustments: fields.adjustments,
     warnings: fields.warnings,
     confirmation: `Updated the Todoist task ${taskId}.`,
@@ -108,6 +117,8 @@ export function formatTodoistTaskPlan(plan, { dryRun = false } = {}) {
   if (plan.descriptionLines.length > 0) {
     lines.push("- Description:");
     for (const line of plan.descriptionLines) lines.push(`  | ${line}`);
+  } else if (plan.descriptionState === "unchanged") {
+    lines.push("- Description: (unchanged)");
   } else {
     lines.push("- Description: (empty)");
   }
@@ -189,6 +200,16 @@ function buildTaskFields(rawInput, { requireContent, allowTitleOverflow }) {
   recordWarnings({ task, warnings });
 
   return { task, adjustments, warnings };
+}
+
+/**
+ * An update that carries no description field leaves the existing description
+ * alone. Only an explicitly supplied empty description clears it.
+ */
+function describeUpdateDescription(input, task) {
+  if (task.description) return "set";
+  if (input.description === undefined || input.description === null) return "unchanged";
+  return "empty";
 }
 
 function composeDescription({ title, overflow, description, adjustments }) {

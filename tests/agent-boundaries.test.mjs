@@ -110,7 +110,8 @@ describe("agent configuration", () => {
 
     for (const prompt of [adminPrompt, personalPrompt]) {
       assert.match(prompt, /Todoist task writing/);
-      assert.match(prompt, /--task-json/);
+      assert.match(prompt, /--task-json-stdin/);
+      assert.match(prompt, /quoted heredoc/i);
       assert.match(prompt, /real line break/i);
       assert.match(prompt, /one short actionable line/i);
       assert.match(prompt, /URLs out of the title/i);

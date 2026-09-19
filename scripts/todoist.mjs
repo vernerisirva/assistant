@@ -25,6 +25,7 @@ export function parseTodoistArgs(argv) {
   const [command = "help", ...rest] = argv;
   const options = {};
   let taskJson = null;
+  let taskJsonStdin = false;
   let dryRun = false;
   let text = false;
 
@@ -36,6 +37,10 @@ export function parseTodoistArgs(argv) {
     }
     if (arg === "--text") {
       text = true;
+      continue;
+    }
+    if (arg === "--task-json-stdin") {
+      taskJsonStdin = true;
       continue;
     }
 
@@ -96,8 +101,13 @@ export function parseTodoistArgs(argv) {
     }
   }
 
+  if (taskJson && taskJsonStdin) {
+    throw new Error("Use either --task-json or --task-json-stdin, not both.");
+  }
+
   const parsed = { command, options: mergeTaskJson(taskJson, options), dryRun };
   if (text) parsed.text = true;
+  if (taskJsonStdin) parsed.taskJsonStdin = true;
 
   if (["close", "reopen", "delete", "update"].includes(command) && !parsed.options.taskId) {
     throw new Error("--task-id is required.");
@@ -118,8 +128,13 @@ export function parseTodoistArgs(argv) {
 export async function runTodoistCli(argv, {
   env = mergedEnv(projectPath(projectRoot, ".env")),
   client,
+  stdin = process.stdin,
 } = {}) {
   const parsed = parseTodoistArgs(argv);
+
+  if (parsed.taskJsonStdin) {
+    parsed.options = mergeTaskJson(await readTaskJsonFromStdin(stdin), parsed.options);
+  }
 
   if (parsed.command === "help") {
     return {
@@ -127,7 +142,7 @@ export async function runTodoistCli(argv, {
       examples: [
         "npm run todoist -- tasks --filter today",
         "npm run todoist -- add --content \"Buy oats\" --due tomorrow --dry-run",
-        "npm run todoist -- add --task-json '{\"content\":\"Review AI research updates\",\"description\":\"Goal:\\\\nFind 1-3 updates.\",\"dueString\":\"tomorrow\"}' --dry-run --text",
+        "npm run todoist -- add --task-json-stdin --dry-run --text <<'JSON'\n{\"content\":\"Review AI research updates\",\"description\":\"Goal:\\nFind 1-3 updates.\"}\nJSON",
         "npm run todoist -- exact-update --task-id TASK_ID --action format-description --dry-run",
       ],
     };
@@ -216,6 +231,37 @@ function parseTaskJson(value) {
     parsed = JSON.parse(value);
   } catch (error) {
     throw new Error(`--task-json must be valid JSON: ${error.message}`);
+  }
+
+  return normalizeTaskFieldKeys(parsed);
+}
+
+/**
+ * Structured task input over stdin. This is the shell-safe path: task text is
+ * never embedded in a quoted shell argument, so apostrophes, quotes, `$HOME`,
+ * `$(...)`, and backticks cannot break or be expanded by the shell. It feeds
+ * the same normalization and plan builder as --task-json and the flags.
+ */
+async function readTaskJsonFromStdin(stream) {
+  if (!stream || stream.isTTY) {
+    throw new Error(
+      "--task-json-stdin needs a JSON object on stdin. Pipe it in, for example with a quoted heredoc.",
+    );
+  }
+
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+  const raw = Buffer.concat(chunks).toString("utf8").trim();
+
+  if (!raw) {
+    throw new Error("--task-json-stdin received empty stdin. Provide a JSON object.");
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`--task-json-stdin must be valid JSON: ${error.message}`);
   }
 
   return normalizeTaskFieldKeys(parsed);

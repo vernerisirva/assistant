@@ -1,6 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { Readable } from "node:stream";
 import {
   buildTodoistTaskPayload,
   createTodoistClient,
@@ -33,6 +35,28 @@ function recordingClient(calls, response = { id: "task-new", content: "Created" 
       return jsonResponse(response);
     },
   });
+}
+
+function stdinOf(value) {
+  return Readable.from([typeof value === "string" ? value : JSON.stringify(value)]);
+}
+
+/** Runs the real CLI through a real shell, so the transport layer is covered. */
+function runCliInShell(script) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("/bin/sh", ["-c", script], { cwd: process.cwd() });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", (code) => resolve({ code, stdout, stderr }));
+  });
+}
+
+/** Builds the documented quoted-heredoc invocation for a task object. */
+function heredocScript(task, flags = "--dry-run") {
+  return `node scripts/todoist.mjs add --task-json-stdin ${flags} <<'TASKJSON'\n${JSON.stringify(task)}\nTASKJSON\n`;
 }
 
 const refusingClient = new Proxy({}, {
@@ -967,14 +991,17 @@ describe("Todoist documentation", () => {
 
   it("documents the canonical structured creation command", () => {
     for (const doc of [setup, operation]) {
-      assert.match(doc, /npm run todoist -- add --task-json/);
+      assert.match(doc, /npm run todoist -- add --task-json-stdin/);
+      assert.match(doc, /<<'JSON'/);
       assert.match(doc, /real line break/i);
-      assert.match(doc, /--dry-run --text/);
+      assert.match(doc, /never enters a shell argument/i);
+      assert.match(doc, /stay literal/i);
     }
 
     assert.match(setup, /canonical command for anything with a multiline description/i);
-    assert.match(setup, /use one backslash/i);
     assert.match(setup, /byte-for-byte what a real `add` sends/i);
+    assert.match(setup, /Call O'Connor/);
+    assert.match(setup, /\(unchanged\)/);
   });
 
   it("documents the formatting policy and the supported task fields", () => {
@@ -982,6 +1009,8 @@ describe("Todoist documentation", () => {
     assert.match(setup, /One short actionable line naming the task/i);
     assert.match(setup, /Extra title lines are moved into the description rather than dropped/i);
     assert.match(setup, /fenced code blocks are preserved exactly/i);
+    assert.match(setup, /Indentation is preserved/);
+    assert.match(setup, /Trailing whitespace is removed outside fenced code blocks/);
     assert.match(setup, /only repeats the title is dropped/i);
     assert.match(setup, /Validation rejects empty content/i);
 
@@ -999,5 +1028,282 @@ describe("Todoist documentation", () => {
       setup,
       /Creating a task is allowed without a second approval only when the user explicitly asks/,
     );
+  });
+});
+
+describe("shell-safe structured task input", () => {
+  const awkwardTask = {
+    content: "Call O'Connor",
+    description: [
+      "Don't forget this. \"Quoted\" text too.",
+      "",
+      "$HOME and $(whoami) and `date` stay literal.",
+      "",
+      "- [Hugging Face Daily Papers](https://huggingface.co/papers)",
+      "",
+      "```js",
+      'process.stdout.write("a\\nb");',
+      "```",
+    ].join("\n"),
+    dueString: "tomorrow",
+  };
+
+  it("keeps apostrophes, quotes, and shell metacharacters literal end to end", async () => {
+    const { code, stdout, stderr } = await runCliInShell(heredocScript(awkwardTask));
+    assert.equal(stderr, "");
+    assert.equal(code, 0);
+
+    const { payload } = JSON.parse(stdout);
+
+    assert.equal(payload.content, "Call O'Connor");
+    assert.match(payload.description, /Don't forget this\. "Quoted" text too\./);
+    assert.match(payload.description, /\$HOME and \$\(whoami\) and `date` stay literal\./);
+    assert.match(payload.description, /\[Hugging Face Daily Papers\]\(https:\/\/huggingface\.co\/papers\)/);
+    assert.equal(payload.due_string, "tomorrow");
+  });
+
+  it("does not let the shell expand or execute anything in task text", async () => {
+    const { stdout } = await runCliInShell(heredocScript(awkwardTask));
+    const { payload } = JSON.parse(stdout);
+
+    assert.ok(payload.description.includes("$HOME"));
+    assert.ok(payload.description.includes("$(whoami)"));
+    assert.ok(payload.description.includes("`date`"));
+    assert.ok(!payload.description.includes(process.env.HOME));
+    assert.doesNotMatch(payload.description, /\/Users\//);
+  });
+
+  it("carries multiline text and a code block containing a literal backslash-n", async () => {
+    const { stdout } = await runCliInShell(heredocScript(awkwardTask));
+    const { payload, descriptionLines } = JSON.parse(stdout);
+
+    assert.ok(payload.description.includes("\n"));
+    assert.equal(descriptionLines[0], "Don't forget this. \"Quoted\" text too.");
+    assert.ok(payload.description.includes('process.stdout.write("a\\nb");'));
+    assert.ok(payload.description.includes("```js"));
+  });
+
+  it("fails closed on invalid stdin JSON through the real CLI", async () => {
+    const { code, stdout, stderr } = await runCliInShell(
+      "node scripts/todoist.mjs add --task-json-stdin --dry-run <<'TASKJSON'\n{not json\nTASKJSON\n",
+    );
+
+    assert.equal(code, 1);
+    assert.equal(stdout, "");
+    assert.match(stderr, /--task-json-stdin must be valid JSON/);
+  });
+
+  it("fails clearly on empty stdin through the real CLI", async () => {
+    const { code, stderr } = await runCliInShell(
+      "node scripts/todoist.mjs add --task-json-stdin --dry-run < /dev/null",
+    );
+
+    assert.equal(code, 1);
+    assert.match(stderr, /received empty stdin/);
+  });
+
+  it("reads structured input from stdin in process", async () => {
+    const result = await runTodoistCli(["add", "--task-json-stdin", "--dry-run"], {
+      client: refusingClient,
+      stdin: stdinOf({ content: "Call O'Connor", description: "Don't forget." }),
+    });
+
+    assert.deepEqual(result.payload, {
+      content: "Call O'Connor",
+      description: "Don't forget.",
+    });
+  });
+
+  it("feeds stdin input through the same plan builder as flags and --task-json", async () => {
+    const task = { content: "Review AI research updates", description: "Goal:\nFind updates." };
+    const fromStdin = await runTodoistCli(["add", "--task-json-stdin", "--dry-run"], {
+      client: refusingClient,
+      stdin: stdinOf(task),
+    });
+    const fromJsonFlag = await runTodoistCli(
+      ["add", "--task-json", JSON.stringify(task), "--dry-run"],
+      { client: refusingClient },
+    );
+    const fromFlags = await runTodoistCli(
+      ["add", "--content", task.content, "--description", task.description, "--dry-run"],
+      { client: refusingClient },
+    );
+
+    assert.deepEqual(fromStdin.payload, fromJsonFlag.payload);
+    assert.deepEqual(fromStdin.payload, fromFlags.payload);
+  });
+
+  it("sends exactly the stdin dry-run payload on real creation", async () => {
+    const task = { content: "Call O'Connor", description: "Don't forget.\n\n$HOME stays literal." };
+    const dryRun = await runTodoistCli(["add", "--task-json-stdin", "--dry-run"], {
+      client: refusingClient,
+      stdin: stdinOf(task),
+    });
+    const calls = [];
+    await runTodoistCli(["add", "--task-json-stdin"], {
+      client: recordingClient(calls),
+      stdin: stdinOf(task),
+    });
+
+    assert.deepEqual(calls[0].body, dryRun.payload);
+    assert.equal(calls[0].body.content, "Call O'Connor");
+    assert.ok(calls[0].body.description.includes("$HOME"));
+  });
+
+  it("lets explicit flags override stdin input", async () => {
+    const result = await runTodoistCli(
+      ["add", "--task-json-stdin", "--content", "From flag", "--dry-run"],
+      { client: refusingClient, stdin: stdinOf({ content: "From stdin", dueString: "tomorrow" }) },
+    );
+
+    assert.deepEqual(result.payload, { content: "From flag", due_string: "tomorrow" });
+  });
+
+  it("rejects unsupported fields and a non-object from stdin", async () => {
+    await assert.rejects(
+      () => runTodoistCli(["add", "--task-json-stdin", "--dry-run"], {
+        client: refusingClient,
+        stdin: stdinOf({ content: "x", taskId: "1" }),
+      }),
+      /Unsupported Todoist task field: taskId/,
+    );
+    await assert.rejects(
+      () => runTodoistCli(["add", "--task-json-stdin", "--dry-run"], {
+        client: refusingClient,
+        stdin: stdinOf("[1,2]"),
+      }),
+      /must be a JSON object/,
+    );
+  });
+
+  it("explains itself instead of hanging when stdin is a terminal", async () => {
+    await assert.rejects(
+      () => runTodoistCli(["add", "--task-json-stdin", "--dry-run"], {
+        client: refusingClient,
+        stdin: { isTTY: true },
+      }),
+      /needs a JSON object on stdin/,
+    );
+  });
+
+  it("refuses both structured interfaces at once", () => {
+    assert.throws(
+      () => parseTodoistArgs([
+        "add",
+        "--task-json",
+        '{"content":"x"}',
+        "--task-json-stdin",
+      ]),
+      /Use either --task-json or --task-json-stdin, not both/,
+    );
+  });
+});
+
+describe("description indentation is preserved", () => {
+  it("keeps list continuation text indented under its item", () => {
+    assert.equal(
+      normalizeTodoistDescription("- Deploy release\n  only after all tests pass"),
+      "- Deploy release\n  only after all tests pass",
+    );
+  });
+
+  it("keeps nested list content", () => {
+    assert.equal(
+      normalizeTodoistDescription("- Parent\n  - Child\n    - Grandchild\n    plus a note"),
+      "- Parent\n  - Child\n    - Grandchild\n    plus a note",
+    );
+  });
+
+  it("keeps ordinary intentionally indented text", () => {
+    assert.equal(
+      normalizeTodoistDescription("Note:\n  This is indented on purpose.\n   So is this."),
+      "Note:\n  This is indented on purpose.\n   So is this.",
+    );
+  });
+
+  it("keeps four-space indented code blocks", () => {
+    assert.equal(
+      normalizeTodoistDescription("Example:\n\n    const x = 1;\n        const y = 2;"),
+      "Example:\n\n    const x = 1;\n        const y = 2;",
+    );
+  });
+
+  it("keeps fenced code whitespace, including trailing spaces and blank lines", () => {
+    const fenced = "```bash\nif true; then\n    echo hi   \n\n\n\nfi\n```";
+
+    assert.equal(normalizeTodoistDescription(fenced), fenced);
+  });
+
+  it("still normalizes bullet spacing and strips stray first-line indentation", () => {
+    assert.equal(
+      normalizeTodoistDescription("  Warm up  \n\n\n -  Strength  \n\nCool down  "),
+      "Warm up\n\n- Strength\n\nCool down",
+    );
+    assert.equal(
+      normalizeTodoistDescription("1.   Cook potatoes\n2. Fry sausages"),
+      "1. Cook potatoes\n2. Fry sausages",
+    );
+  });
+
+  it("preserves indentation through the creation pipeline", () => {
+    const description = "- Deploy release\n  only after all tests pass\n\nNote:\n  Indented on purpose.";
+
+    assert.equal(
+      buildTodoistCreatePlan({ content: "Ship it", description }).payload.description,
+      description,
+    );
+  });
+});
+
+describe("Todoist update preview honesty", () => {
+  it("says the description is unchanged when the update has no description", () => {
+    const titleOnly = buildTodoistUpdatePlan("task-1", { content: "Renamed task" });
+    const dueOnly = buildTodoistUpdatePlan("task-1", { dueString: "friday" });
+
+    for (const plan of [titleOnly, dueOnly]) {
+      assert.equal(plan.descriptionState, "unchanged");
+      assert.equal(plan.payload.description, undefined);
+      assert.match(formatTodoistTaskPlan(plan), /- Description: \(unchanged\)/);
+    }
+
+    assert.match(formatTodoistTaskPlan(dueOnly), /- Title: \(unchanged\)/);
+    assert.match(formatTodoistTaskPlan(titleOnly), /- Title: Renamed task/);
+  });
+
+  it("says the description is emptied only when the payload actually clears it", () => {
+    const plan = buildTodoistUpdatePlan("task-1", { description: "" });
+
+    assert.equal(plan.descriptionState, "empty");
+    assert.equal(plan.payload.description, "");
+    assert.match(formatTodoistTaskPlan(plan), /- Description: \(empty\)/);
+  });
+
+  it("shows an empty description for a new task without one", () => {
+    const plan = buildTodoistCreatePlan({ content: "Call dad" });
+
+    assert.equal(plan.descriptionState, "empty");
+    assert.equal(plan.payload.description, undefined);
+    assert.match(formatTodoistTaskPlan(plan), /- Description: \(empty\)/);
+  });
+
+  it("shows the description lines when there is one", () => {
+    const plan = buildTodoistUpdatePlan("task-1", { description: "Goal:\nShip it." });
+
+    assert.equal(plan.descriptionState, "set");
+    assert.equal(plan.payload.description, "Goal:\nShip it.");
+    assert.match(formatTodoistTaskPlan(plan), /\| Goal:\n {2}\| Ship it\./);
+  });
+
+  it("never claims a change for a field missing from the wire payload", () => {
+    const plan = buildTodoistUpdatePlan("task-1", { dueString: "friday" });
+    const preview = formatTodoistTaskPlan(plan);
+
+    for (const [label, key] of [["Due", "due_string"], ["Priority", "priority"], ["Project", "project_id"]]) {
+      if (plan.payload[key] === undefined) {
+        assert.doesNotMatch(preview, new RegExp(`- ${label}:`));
+      } else {
+        assert.match(preview, new RegExp(`- ${label}:`));
+      }
+    }
   });
 });

@@ -38,7 +38,19 @@ Todoist:
 - Use `npm run todoist -- projects` to inspect projects.
 - Use `npm run todoist -- tasks --filter today` or another Todoist filter for read-only task review.
 - Use `npm run todoist -- add --content "Task" --due "tomorrow" --dry-run` to preview a simple one-line task.
-- Use `npm run todoist -- add --task-json '{"content":"Task","description":"Goal:\nWhy this matters.","dueString":"tomorrow"}' --dry-run --text` as the canonical command whenever the description has more than one line. The CLI parses the JSON, so `\n` becomes a real line break instead of literal text in Todoist. Keep the JSON in single quotes and use one backslash.
+- Use `--task-json-stdin` with a quoted heredoc as the canonical command whenever the task has a multiline description, an apostrophe, quotes, or any other awkward character. The task text never goes into a shell argument, so nothing can break the quoting and `$HOME`, `$(...)`, and backticks stay literal. `\n` in the JSON becomes a real line break in Todoist:
+
+```bash
+npm run todoist -- add --task-json-stdin --dry-run --text <<'JSON'
+{
+  "content": "Prepare Tobias meeting",
+  "description": "Topics:\n- Time estimate\n\nOutcome:\nAgree the next step.",
+  "dueString": "tomorrow"
+}
+JSON
+```
+
+- `--task-json '{...}'` still works for simple cases, but prefer `--task-json-stdin`: a single apostrophe in the task text breaks a single-quoted shell argument. Never hand-escape task text into a quoted argument.
 - Use `npm run todoist -- exact-update --task-id TASK_ID --action format-description --dry-run` to preview formatting-only cleanup of one exact task description.
 - Use `npm run todoist -- exact-update --task-id TASK_ID --action append-detail --detail "User-provided detail" --dry-run` to preview adding explicit user-provided detail to one exact task.
 - Use `npm run todoist -- exact-update --match-content "Exact task title" --action complete --dry-run` only when an exact title resolves one task; ask a clarifying question if multiple tasks match.

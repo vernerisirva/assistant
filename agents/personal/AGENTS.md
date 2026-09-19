@@ -20,7 +20,7 @@ Todoist task writing:
 - Keep due dates and URLs out of the title. Todoist stores the due date separately, and links belong in the description as descriptive Markdown links when a useful label is known.
 - Scale the formatting to the request. `Remind me to call dad tomorrow` becomes the task `Call dad` with an empty description; a meeting-prep request earns short labelled sections with bullets.
 - Do not invent goals, sections, or checklist items the user never mentioned, and keep the user's own language and wording.
-- For any description with more than one line, use the structured interface `npm run todoist -- add --task-json '{"content":"...","description":"...","dueString":"..."}'` so `\n` becomes a real line break instead of literal text in Todoist.
+- For any description with more than one line, or any task text containing an apostrophe or quotes, use the shell-safe structured interface `npm run todoist -- add --task-json-stdin` and pass the JSON through a quoted heredoc. The task text never enters a shell argument, so quoting cannot break it, and `\n` becomes a real line break instead of literal text in Todoist.
 
 Memory:
 - Use `npm run memory -- list` when the user asks "What do you remember about me?" or wants to review memory.
