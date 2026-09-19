@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   buildTodoistTaskPayload,
   createTodoistClient,
@@ -11,7 +12,36 @@ import {
   cleanupTodoistDescriptionFormatting,
   resolveExactTodoistTask,
 } from "../scripts/lib/todoist-exact-update.mjs";
+import {
+  buildTodoistCreatePlan,
+  buildTodoistUpdatePlan,
+  formatTodoistTaskPlan,
+  supportedTaskFields,
+} from "../scripts/lib/todoist-create.mjs";
+import {
+  decodeTransportEscapes,
+  normalizeTodoistDescription,
+  splitTodoistTitle,
+} from "../scripts/lib/todoist-format.mjs";
 import { parseTodoistArgs, runTodoistCli } from "../scripts/todoist.mjs";
+
+function recordingClient(calls, response = { id: "task-new", content: "Created" }) {
+  return createTodoistClient({
+    token: "todoist-secret",
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options, body: JSON.parse(options.body ?? "null") });
+      return jsonResponse(response);
+    },
+  });
+}
+
+const refusingClient = new Proxy({}, {
+  get(_target, property) {
+    return async () => {
+      throw new Error(`dry run must not call ${String(property)}`);
+    };
+  },
+});
 
 function jsonResponse(body, status = 200) {
   return {
@@ -244,6 +274,13 @@ describe("exact Todoist update helpers", () => {
     );
   });
 
+  it("converts escaped newline sequences in Todoist descriptions to real line breaks", () => {
+    assert.equal(
+      cleanupTodoistDescriptionFormatting("Lunch plan:\\n- Sausages\\n\\nPrep:\\n1. Cook potatoes"),
+      "Lunch plan:\n- Sausages\n\nPrep:\n1. Cook potatoes",
+    );
+  });
+
   it("appends explicit user-provided detail without inventing content", () => {
     assert.equal(
       appendExplicitTodoistDetail("Warm up", "Keep this easy after golf"),
@@ -377,5 +414,590 @@ describe("Todoist exact-update CLI flow", () => {
     assert.equal(result.mode, "execute_then_confirm");
     assert.equal(result.confirmation, "Marked the Todoist task complete.");
     assert.deepEqual(calls, [["getTask", "task-2"], ["closeTask", "task-2"]]);
+  });
+});
+
+describe("Todoist task creation plan", () => {
+  it("builds a simple title-only task without an empty description field", () => {
+    const plan = buildTodoistCreatePlan({ content: "Call dad" });
+
+    assert.deepEqual(plan.payload, { content: "Call dad" });
+    assert.deepEqual(plan.descriptionLines, []);
+    assert.equal(plan.command, "add");
+    assert.equal(plan.mode, "execute_then_confirm");
+    assert.deepEqual(plan.adjustments, []);
+    assert.deepEqual(plan.warnings, []);
+  });
+
+  it("builds a title plus one-line description", () => {
+    const plan = buildTodoistCreatePlan({
+      content: "Buy Greek yogurt",
+      description: "High-protein breakfast backup",
+    });
+
+    assert.deepEqual(plan.payload, {
+      content: "Buy Greek yogurt",
+      description: "High-protein breakfast backup",
+    });
+  });
+
+  it("keeps a multiline description as real line breaks", () => {
+    const plan = buildTodoistCreatePlan({
+      content: "Review AI research updates",
+      description: "Goal:\nFind 1-3 updates.\n\nSources:\n- Hugging Face\n- arXiv",
+    });
+
+    assert.equal(
+      plan.payload.description,
+      "Goal:\nFind 1-3 updates.\n\nSources:\n- Hugging Face\n- arXiv",
+    );
+    assert.deepEqual(plan.descriptionLines, [
+      "Goal:",
+      "Find 1-3 updates.",
+      "",
+      "Sources:",
+      "- Hugging Face",
+      "- arXiv",
+    ]);
+  });
+
+  it("collapses accidental newlines in the title and keeps the extra lines in the description", () => {
+    const plan = buildTodoistCreatePlan({
+      content: "## Review AI research updates\n- Check papers\n- Read Hugging Face",
+    });
+
+    assert.equal(plan.payload.content, "Review AI research updates");
+    assert.equal(plan.payload.description, "- Check papers\n- Read Hugging Face");
+    assert.ok(plan.adjustments.includes("Moved extra task title lines into the description."));
+  });
+
+  it("trims a trailing newline in the title without inventing a description", () => {
+    const plan = buildTodoistCreatePlan({ content: "  Call dad \n\n" });
+
+    assert.deepEqual(plan.payload, { content: "Call dad" });
+  });
+
+  it("strips Markdown used only for visual structure in the title", () => {
+    assert.equal(buildTodoistCreatePlan({ content: "**Call dad**" }).payload.content, "Call dad");
+    assert.equal(buildTodoistCreatePlan({ content: "- Call dad" }).payload.content, "Call dad");
+    assert.equal(
+      buildTodoistCreatePlan({ content: "Call *dad* and mum" }).payload.content,
+      "Call *dad* and mum",
+    );
+  });
+
+  it("reduces excessive blank lines to one blank line between sections", () => {
+    const plan = buildTodoistCreatePlan({
+      content: "Prepare Tobias meeting",
+      description: "\n\nTopics:\n- Time estimate\n\n\n\n\nOutcome:\nAgree the next step.\n\n\n",
+    });
+
+    assert.equal(
+      plan.payload.description,
+      "Topics:\n- Time estimate\n\nOutcome:\nAgree the next step.",
+    );
+  });
+
+  it("normalizes malformed bullet spacing and keeps nested bullet lists", () => {
+    const plan = buildTodoistCreatePlan({
+      content: "Plan week",
+      description: "-   Parent item\n  - Child item\n*  Second parent",
+    });
+
+    assert.equal(
+      plan.payload.description,
+      "- Parent item\n  - Child item\n* Second parent",
+    );
+  });
+
+  it("keeps numbered lists intact", () => {
+    const plan = buildTodoistCreatePlan({
+      content: "Cook lunch",
+      description: "1.   Cook potatoes\n2. Fry sausages\n10) Serve",
+    });
+
+    assert.equal(
+      plan.payload.description,
+      "1. Cook potatoes\n2. Fry sausages\n10) Serve",
+    );
+  });
+
+  it("preserves Markdown links and plain URLs in the description", () => {
+    const plan = buildTodoistCreatePlan({
+      content: "Review AI research updates",
+      description:
+        "Sources:\n- [Hugging Face Daily Papers](https://huggingface.co/papers)\n- https://arxiv.org/list/cs.CL/recent",
+    });
+
+    assert.equal(
+      plan.payload.description,
+      "Sources:\n- [Hugging Face Daily Papers](https://huggingface.co/papers)\n- https://arxiv.org/list/cs.CL/recent",
+    );
+  });
+
+  it("preserves bold, italic, and headings in the description", () => {
+    const plan = buildTodoistCreatePlan({
+      content: "Prepare review",
+      description: "## Topics\n**Important:** bring the *draft* and _notes_.",
+    });
+
+    assert.equal(
+      plan.payload.description,
+      "## Topics\n**Important:** bring the *draft* and _notes_.",
+    );
+  });
+
+  it("preserves fenced code blocks including indentation and inner blank lines", () => {
+    const description = [
+      "Run this:",
+      "",
+      "```bash",
+      "if true; then",
+      "    echo \"deep indent\"",
+      "",
+      "",
+      "fi",
+      "```",
+      "",
+      "Then report back.",
+    ].join("\n");
+
+    const plan = buildTodoistCreatePlan({ content: "Fix deploy", description });
+
+    assert.equal(plan.payload.description, description);
+  });
+
+  it("keeps indented code blocks and table alignment outside fences", () => {
+    const plan = buildTodoistCreatePlan({
+      content: "Document API",
+      description: "Example:\n\n    const x = 1;\n        const y = 2;\n\n| a | b  |\n| - | -- |",
+    });
+
+    assert.equal(
+      plan.payload.description,
+      "Example:\n\n    const x = 1;\n        const y = 2;\n\n| a | b  |\n| - | -- |",
+    );
+  });
+
+  it("drops a description first line that only repeats the task title", () => {
+    const plan = buildTodoistCreatePlan({
+      content: "Review AI research updates",
+      description: "Review AI research updates\n\nGoal:\nFind 1-3 updates.",
+    });
+
+    assert.equal(plan.payload.description, "Goal:\nFind 1-3 updates.");
+    assert.ok(
+      plan.adjustments.includes(
+        "Removed a description first line that only repeated the task title.",
+      ),
+    );
+  });
+
+  it("keeps a first description line that adds information", () => {
+    const plan = buildTodoistCreatePlan({
+      content: "Review AI research updates",
+      description: "Review AI research updates before Friday\n\nGoal:\nFind 1-3 updates.",
+    });
+
+    assert.equal(
+      plan.payload.description,
+      "Review AI research updates before Friday\n\nGoal:\nFind 1-3 updates.",
+    );
+    assert.deepEqual(plan.adjustments, []);
+  });
+
+  it("preserves due date, project, section, labels, and priority behavior", () => {
+    const plan = buildTodoistCreatePlan({
+      content: "Buy oats",
+      dueString: "tomorrow",
+      dueLang: "en",
+      priority: 3,
+      projectId: "project-1",
+      sectionId: "section-1",
+      labels: ["food", "health"],
+    });
+
+    assert.deepEqual(plan.payload, {
+      content: "Buy oats",
+      due_string: "tomorrow",
+      due_lang: "en",
+      priority: 3,
+      project_id: "project-1",
+      section_id: "section-1",
+      labels: ["food", "health"],
+    });
+  });
+
+  it("warns without rewriting when the title carries a URL or repeats the due date", () => {
+    const plan = buildTodoistCreatePlan({
+      content: "Read https://arxiv.org today",
+      dueString: "today",
+    });
+
+    assert.equal(plan.payload.content, "Read https://arxiv.org today");
+    assert.equal(plan.warnings.length, 2);
+    assert.match(plan.warnings[0], /title contains a URL/i);
+    assert.match(plan.warnings[1], /repeats the due date/i);
+  });
+});
+
+describe("Todoist creation payload validation", () => {
+  it("rejects empty or whitespace-only content", () => {
+    assert.throws(() => buildTodoistCreatePlan({}), /content is required/);
+    assert.throws(() => buildTodoistCreatePlan({ content: "   \n  " }), /content is required/);
+    assert.throws(
+      () => buildTodoistCreatePlan({ description: "Some detail" }),
+      /content is required/,
+    );
+  });
+
+  it("requires the description to be a string", () => {
+    assert.throws(
+      () => buildTodoistCreatePlan({ content: "Call dad", description: { text: "no" } }),
+      /description must be a string/,
+    );
+    assert.throws(
+      () => buildTodoistCreatePlan({ content: "Call dad", description: 42 }),
+      /description must be a string/,
+    );
+  });
+
+  it("refuses unsupported internal fields instead of forwarding them to Todoist", () => {
+    assert.throws(
+      () => buildTodoistCreatePlan({ content: "Call dad", action: "format-description" }),
+      /Unsupported Todoist task field: action/,
+    );
+    assert.throws(
+      () => buildTodoistCreatePlan({ content: "Call dad", matchContent: "Call dad" }),
+      /Unsupported Todoist task field: matchContent/,
+    );
+  });
+
+  it("validates priority and labels", () => {
+    assert.throws(
+      () => buildTodoistCreatePlan({ content: "Call dad", priority: 9 }),
+      /priority must be an integer between 1 and 4/,
+    );
+    assert.throws(
+      () => buildTodoistCreatePlan({ content: "Call dad", priority: Number("high") }),
+      /priority must be an integer between 1 and 4/,
+    );
+    assert.throws(
+      () => buildTodoistCreatePlan({ content: "Call dad", labels: "food" }),
+      /labels must be an array of strings/,
+    );
+  });
+
+  it("enforces Todoist length limits", () => {
+    assert.throws(
+      () => buildTodoistCreatePlan({ content: "x".repeat(501) }),
+      /content must be 500 characters or fewer/,
+    );
+    assert.throws(
+      () => buildTodoistCreatePlan({ content: "Call dad", description: "x".repeat(16385) }),
+      /description must be 16384 characters or fewer/,
+    );
+  });
+
+  it("refuses a multiline title on update instead of dropping or overwriting text", () => {
+    assert.throws(
+      () => buildTodoistUpdatePlan("task-1", { content: "New title\nExtra line" }),
+      /content must be one line/,
+    );
+    assert.throws(
+      () => buildTodoistUpdatePlan("", { content: "New title" }),
+      /task id is required/,
+    );
+  });
+
+  it("uses the same normalization for updates as for creation", () => {
+    const plan = buildTodoistUpdatePlan("task-1", {
+      description: "Goal:\\nShip it.",
+      dueString: "friday",
+    });
+
+    assert.deepEqual(plan.payload, {
+      description: "Goal:\nShip it.",
+      due_string: "friday",
+    });
+    assert.equal(plan.taskId, "task-1");
+  });
+});
+
+describe("Todoist multiline transport", () => {
+  it("decodes escaped newlines only when the text has no real line breaks", () => {
+    assert.equal(decodeTransportEscapes("a\\nb"), "a\nb");
+    assert.equal(decodeTransportEscapes("a\\r\\nb"), "a\nb");
+    assert.equal(decodeTransportEscapes("real\nbreak with \\n text"), "real\nbreak with \\n text");
+    assert.equal(decodeTransportEscapes("no escapes here"), "no escapes here");
+  });
+
+  it("turns escaped newlines from a --description shell argument into real line breaks", async () => {
+    const result = await runTodoistCli([
+      "add",
+      "--content",
+      "Lunch plan",
+      "--description",
+      "Lunch plan:\\n- Sausages\\n\\nPrep:\\n1. Cook potatoes",
+      "--dry-run",
+    ], { client: refusingClient });
+
+    assert.equal(result.payload.description, "- Sausages\n\nPrep:\n1. Cook potatoes");
+    assert.ok(!result.payload.description.includes("\\n"));
+    assert.ok(
+      result.adjustments.includes("Converted escaped newline sequences into real line breaks."),
+    );
+  });
+
+  it("parses --task-json so escaped newlines reach Todoist as real line breaks", async () => {
+    const calls = [];
+    const args = [
+      "add",
+      "--task-json",
+      '{"content":"Review AI research updates","description":"Goal:\\nFind 1-3 updates.\\n\\nSources:\\n- Hugging Face","dueString":"tomorrow"}',
+    ];
+
+    const result = await runTodoistCli(args, { client: recordingClient(calls) });
+
+    assert.equal(calls[0].body.content, "Review AI research updates");
+    assert.equal(
+      calls[0].body.description,
+      "Goal:\nFind 1-3 updates.\n\nSources:\n- Hugging Face",
+    );
+    assert.equal(calls[0].body.due_string, "tomorrow");
+    assert.ok(!JSON.stringify(calls[0].body).includes("\\\\n"));
+    assert.equal(result.dryRun, false);
+    assert.equal(result.confirmation, 'Created the Todoist task "Review AI research updates".');
+  });
+
+  it("never sends a literal backslash-n where a line break was intended", async () => {
+    const calls = [];
+
+    await runTodoistCli([
+      "add",
+      "--content",
+      "Lunch plan",
+      "--description",
+      "Step one\\nStep two",
+    ], { client: recordingClient(calls) });
+
+    const sent = calls[0].body.description;
+    assert.equal(sent, "Step one\nStep two");
+    assert.ok(!sent.includes("\\n"));
+    assert.equal(sent.split("\n").length, 2);
+  });
+
+  it("leaves a real backslash-n inside a fenced code block alone", () => {
+    const description = ["```js", 'process.stdout.write("a\\nb");', "```"].join("\n");
+    const plan = buildTodoistCreatePlan({ content: "Fix logging", description });
+
+    assert.equal(plan.payload.description, description);
+    assert.ok(plan.payload.description.includes("\\n"));
+    assert.deepEqual(plan.adjustments, []);
+  });
+
+  it("merges --task-json with individual flags and lets explicit flags win", () => {
+    const parsed = parseTodoistArgs([
+      "add",
+      "--task-json",
+      '{"content":"From JSON","dueString":"tomorrow","labels":["ai"]}',
+      "--content",
+      "From flag",
+    ]);
+
+    assert.deepEqual(parsed.options, {
+      content: "From flag",
+      dueString: "tomorrow",
+      labels: ["ai"],
+    });
+  });
+
+  it("rejects invalid or unsupported --task-json input", () => {
+    assert.throws(
+      () => parseTodoistArgs(["add", "--task-json", "{not json"]),
+      /--task-json must be valid JSON/,
+    );
+    assert.throws(
+      () => parseTodoistArgs(["add", "--task-json", '{"content":"x","taskId":"1"}']),
+      /Unsupported Todoist task field: taskId/,
+    );
+    assert.throws(
+      () => parseTodoistArgs(["add", "--task-json", '["content"]']),
+      /must be a JSON object/,
+    );
+  });
+
+  it("accepts snake_case and short aliases in --task-json", () => {
+    const parsed = parseTodoistArgs([
+      "add",
+      "--task-json",
+      '{"content":"Buy oats","due":"tomorrow","project_id":"p1"}',
+    ]);
+
+    assert.deepEqual(parsed.options, {
+      content: "Buy oats",
+      dueString: "tomorrow",
+      projectId: "p1",
+    });
+  });
+});
+
+describe("Todoist creation dry run", () => {
+  const args = [
+    "add",
+    "--task-json",
+    '{"content":"## Prepare Tobias meeting\\n- Time estimate","description":"Prepare Tobias meeting\\n\\nTopics:\\n-  Time estimate\\n\\n\\n\\nOutcome:\\nAgree the next step.","dueString":"tomorrow","priority":2}',
+    "--label",
+    "admin",
+  ];
+
+  it("sends exactly the payload the dry run showed", async () => {
+    const dryRun = await runTodoistCli([...args, "--dry-run"], { client: refusingClient });
+    const calls = [];
+    await runTodoistCli(args, { client: recordingClient(calls) });
+
+    assert.deepEqual(calls[0].body, dryRun.payload);
+    assert.deepEqual(dryRun.payload, {
+      content: "Prepare Tobias meeting",
+      description: "- Time estimate\n\nTopics:\n- Time estimate\n\nOutcome:\nAgree the next step.",
+      due_string: "tomorrow",
+      priority: 2,
+      labels: ["admin"],
+    });
+  });
+
+  it("makes no Todoist call on a dry run", async () => {
+    const calls = [];
+    const result = await runTodoistCli([...args, "--dry-run"], {
+      client: recordingClient(calls),
+    });
+
+    assert.equal(calls.length, 0);
+    assert.equal(result.dryRun, true);
+    assert.match(result.confirmation, /^Dry run only\. No Todoist task was created/);
+  });
+
+  it("makes no Todoist call on a dry-run update or completion", async () => {
+    const calls = [];
+    const update = await runTodoistCli([
+      "update",
+      "--task-id",
+      "task-1",
+      "--content",
+      "Renamed task",
+      "--dry-run",
+    ], { client: recordingClient(calls) });
+    const close = await runTodoistCli([
+      "close",
+      "--task-id",
+      "task-1",
+      "--dry-run",
+    ], { client: recordingClient(calls) });
+
+    assert.equal(calls.length, 0);
+    assert.deepEqual(update.payload, { content: "Renamed task" });
+    assert.equal(update.dryRun, true);
+    assert.equal(close.dryRun, true);
+    assert.match(close.confirmation, /was not changed/);
+  });
+
+  it("shows the description line by line so line breaks are inspectable", async () => {
+    const dryRun = await runTodoistCli([...args, "--dry-run"], { client: refusingClient });
+    const text = formatTodoistTaskPlan(dryRun, { dryRun: true });
+
+    assert.deepEqual(dryRun.descriptionLines, [
+      "- Time estimate",
+      "",
+      "Topics:",
+      "- Time estimate",
+      "",
+      "Outcome:",
+      "Agree the next step.",
+    ]);
+    assert.match(text, /^Todoist add dry run\. Nothing was sent to Todoist\./);
+    assert.match(text, /- Title: Prepare Tobias meeting/);
+    assert.match(text, /\| Outcome:/);
+    assert.match(text, /- Due: tomorrow/);
+    assert.match(text, /- Labels: admin/);
+    assert.match(text, /- Adjusted: Moved extra task title lines into the description\./);
+  });
+});
+
+describe("shared Todoist formatting primitives", () => {
+  it("uses one normalization implementation for creation and exact updates", () => {
+    const messy = "  Goal:  \n\n\n-  Ship it  \n\n";
+
+    assert.equal(
+      cleanupTodoistDescriptionFormatting(messy),
+      normalizeTodoistDescription(messy),
+    );
+    assert.equal(
+      buildTodoistCreatePlan({ content: "Task", description: messy }).payload.description,
+      cleanupTodoistDescriptionFormatting(messy),
+    );
+  });
+
+  it("keeps formatting-only exact updates free of substantive changes", () => {
+    const original = [
+      "# Goal",
+      "Ship **v1** and [read the docs](https://example.com).",
+      "",
+      "```python",
+      "def run():",
+      "    return 1",
+      "```",
+    ].join("\n");
+
+    assert.equal(cleanupTodoistDescriptionFormatting(original), original);
+  });
+
+  it("splits a title into one line plus overflow", () => {
+    assert.deepEqual(splitTodoistTitle("Call dad"), { title: "Call dad", overflow: "" });
+    assert.deepEqual(splitTodoistTitle("# Title\n\nBody line\n"), {
+      title: "Title",
+      overflow: "Body line",
+    });
+    assert.deepEqual(splitTodoistTitle("   \n"), { title: "", overflow: "" });
+  });
+});
+
+describe("Todoist documentation", () => {
+  const setup = readFileSync("docs/setup/todoist.md", "utf8");
+  const operation = readFileSync("docs/operations/daily-operation.md", "utf8");
+
+  it("documents the canonical structured creation command", () => {
+    for (const doc of [setup, operation]) {
+      assert.match(doc, /npm run todoist -- add --task-json/);
+      assert.match(doc, /real line break/i);
+      assert.match(doc, /--dry-run --text/);
+    }
+
+    assert.match(setup, /canonical command for anything with a multiline description/i);
+    assert.match(setup, /use one backslash/i);
+    assert.match(setup, /byte-for-byte what a real `add` sends/i);
+  });
+
+  it("documents the formatting policy and the supported task fields", () => {
+    assert.match(setup, /## Task Formatting/);
+    assert.match(setup, /One short actionable line naming the task/i);
+    assert.match(setup, /Extra title lines are moved into the description rather than dropped/i);
+    assert.match(setup, /fenced code blocks are preserved exactly/i);
+    assert.match(setup, /only repeats the title is dropped/i);
+    assert.match(setup, /Validation rejects empty content/i);
+
+    for (const field of supportedTaskFields) {
+      assert.match(setup, new RegExp(`\`${field}\``));
+    }
+  });
+
+  it("keeps the documented Todoist approval boundary unchanged", () => {
+    assert.match(
+      setup,
+      /Reopening, deleting, moving between projects\/sections, bulk editing, shared\/project-wide changes, ambiguous task targets, sensitive content, inferred update content, and changes affecting other people require explicit Telegram approval/,
+    );
+    assert.match(
+      setup,
+      /Creating a task is allowed without a second approval only when the user explicitly asks/,
+    );
   });
 });

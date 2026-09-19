@@ -101,6 +101,15 @@ npm run inbox:debug -- --source screenshot --exact-task-target --complete-detail
 npm run inbox:debug -- --complete-details --target-calendar-clear "Create calendar event Gym on 2026-07-09 at 17:30 for 60 minutes"
 ```
 
+Create a Todoist task. Use `--content` for a one-line task, and `--task-json` as the canonical command whenever the description has more than one line:
+
+```bash
+npm run todoist -- add --content "Call dad" --due tomorrow --dry-run
+npm run todoist -- add --task-json '{"content":"Prepare Tobias meeting","description":"Topics:\n- Time estimate\n- MVP to production path\n\nOutcome:\nAgree the next concrete development step.","dueString":"tomorrow"}' --dry-run --text
+```
+
+The CLI parses `--task-json`, so `\n` becomes a real line break instead of literal text in Todoist. `--dry-run` prints the exact payload without calling Todoist, and `--text` shows the description line by line. Task titles and descriptions are normalized through one pipeline, so the same task looks the same whichever form of the command was used. See `docs/setup/todoist.md` for the formatting policy.
+
 Preview or run exact Todoist updates after one task has been resolved:
 
 ```bash

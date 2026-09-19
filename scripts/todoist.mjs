@@ -4,6 +4,12 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createTodoistClient } from "./lib/todoist.mjs";
 import {
+  buildTodoistCreatePlan,
+  buildTodoistUpdatePlan,
+  formatTodoistTaskPlan,
+  normalizeTaskFieldKeys,
+} from "./lib/todoist-create.mjs";
+import {
   buildExactTodoistUpdatePlan,
   resolveExactTodoistTask,
 } from "./lib/todoist-exact-update.mjs";
@@ -18,12 +24,18 @@ const writeCommands = new Set(["add", "update", "close", "reopen", "delete"]);
 export function parseTodoistArgs(argv) {
   const [command = "help", ...rest] = argv;
   const options = {};
+  let taskJson = null;
   let dryRun = false;
+  let text = false;
 
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
     if (arg === "--dry-run") {
       dryRun = true;
+      continue;
+    }
+    if (arg === "--text") {
+      text = true;
       continue;
     }
 
@@ -34,6 +46,9 @@ export function parseTodoistArgs(argv) {
     index += 1;
 
     switch (arg) {
+      case "--task-json":
+        taskJson = parseTaskJson(value);
+        break;
       case "--filter":
         options.filter = value;
         break;
@@ -81,20 +96,23 @@ export function parseTodoistArgs(argv) {
     }
   }
 
-  if (["close", "reopen", "delete", "update"].includes(command) && !options.taskId) {
+  const parsed = { command, options: mergeTaskJson(taskJson, options), dryRun };
+  if (text) parsed.text = true;
+
+  if (["close", "reopen", "delete", "update"].includes(command) && !parsed.options.taskId) {
     throw new Error("--task-id is required.");
   }
 
   if (command === "exact-update") {
-    if (!options.taskId && !options.matchContent) {
+    if (!parsed.options.taskId && !parsed.options.matchContent) {
       throw new Error("--task-id or --match-content is required.");
     }
-    if (!options.action) {
+    if (!parsed.options.action) {
       throw new Error("--action is required.");
     }
   }
 
-  return { command, options, dryRun };
+  return parsed;
 }
 
 export async function runTodoistCli(argv, {
@@ -109,6 +127,7 @@ export async function runTodoistCli(argv, {
       examples: [
         "npm run todoist -- tasks --filter today",
         "npm run todoist -- add --content \"Buy oats\" --due tomorrow --dry-run",
+        "npm run todoist -- add --task-json '{\"content\":\"Review AI research updates\",\"description\":\"Goal:\\\\nFind 1-3 updates.\",\"dueString\":\"tomorrow\"}' --dry-run --text",
         "npm run todoist -- exact-update --task-id TASK_ID --action format-description --dry-run",
       ],
     };
@@ -124,12 +143,18 @@ export async function runTodoistCli(argv, {
       return todoist.getProjects();
     case "tasks":
       return todoist.getTasks(parsed.options);
-    case "add":
-      return todoist.addTask(taskInput(parsed.options), { requestId: randomUUID() });
-    case "update":
-      return todoist.updateTask(parsed.options.taskId, taskInput(parsed.options, false), {
+    case "add": {
+      const plan = buildTodoistCreatePlan(taskInput(parsed.options));
+      const task = await todoist.addTask(plan.payload, { requestId: randomUUID() });
+      return { dryRun: false, ...plan, task };
+    }
+    case "update": {
+      const plan = buildTodoistUpdatePlan(parsed.options.taskId, taskInput(parsed.options));
+      const task = await todoist.updateTask(plan.taskId, plan.payload, {
         requestId: randomUUID(),
       });
+      return { dryRun: false, ...plan, task };
+    }
     case "exact-update":
       return runExactUpdate(todoist, parsed);
     case "close":
@@ -144,15 +169,34 @@ export async function runTodoistCli(argv, {
 }
 
 function dryRunResult(parsed) {
+  if (parsed.command === "add") {
+    const plan = buildTodoistCreatePlan(taskInput(parsed.options));
+    return {
+      ...plan,
+      dryRun: true,
+      confirmation: `Dry run only. No Todoist task was created for "${plan.payload.content}".`,
+    };
+  }
+
+  if (parsed.command === "update") {
+    const plan = buildTodoistUpdatePlan(parsed.options.taskId, taskInput(parsed.options));
+    return {
+      ...plan,
+      dryRun: true,
+      confirmation: `Dry run only. Todoist task ${plan.taskId} was not changed.`,
+    };
+  }
+
   return {
     dryRun: true,
     command: parsed.command,
     target: parsed.options.taskId ?? null,
-    payload: taskInput(parsed.options, parsed.command === "add"),
+    payload: null,
+    confirmation: `Dry run only. Todoist task ${parsed.options.taskId} was not changed.`,
   };
 }
 
-function taskInput(options, includeContent = true) {
+function taskInput(options) {
   const {
     taskId: _taskId,
     filter: _filter,
@@ -163,11 +207,23 @@ function taskInput(options, includeContent = true) {
     ...input
   } = options;
 
-  if (!includeContent && input.content === undefined) {
-    delete input.content;
+  return input;
+}
+
+function parseTaskJson(value) {
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch (error) {
+    throw new Error(`--task-json must be valid JSON: ${error.message}`);
   }
 
-  return input;
+  return normalizeTaskFieldKeys(parsed);
+}
+
+function mergeTaskJson(taskJson, options) {
+  if (!taskJson) return options;
+  return { ...taskJson, ...options };
 }
 
 async function runExactUpdate(client, parsed) {
@@ -214,8 +270,14 @@ async function runExactUpdate(client, parsed) {
 
 if (process.argv[1] && currentFile === resolve(process.argv[1])) {
   try {
+    const parsed = parseTodoistArgs(process.argv.slice(2));
     const result = await runTodoistCli(process.argv.slice(2));
-    console.log(JSON.stringify(result, null, 2));
+    const printable = parsed.text && result?.descriptionLines !== undefined;
+    console.log(
+      printable
+        ? formatTodoistTaskPlan(result, { dryRun: Boolean(result.dryRun) })
+        : JSON.stringify(result, null, 2),
+    );
   } catch (error) {
     console.error(error.message);
     process.exit(1);

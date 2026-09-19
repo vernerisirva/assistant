@@ -98,6 +98,33 @@ describe("agent configuration", () => {
     assert.match(prompt, /keep the content the same/i);
   });
 
+  it("teaches both task-facing agents one Todoist task-writing convention", () => {
+    const adminPrompt = readFileSync(
+      `${agents.find((agent) => agent.id === "admin").promptDir}/AGENTS.md`,
+      "utf8",
+    );
+    const personalPrompt = readFileSync(
+      `${agents.find((agent) => agent.id === "personal").promptDir}/AGENTS.md`,
+      "utf8",
+    );
+
+    for (const prompt of [adminPrompt, personalPrompt]) {
+      assert.match(prompt, /Todoist task writing/);
+      assert.match(prompt, /--task-json/);
+      assert.match(prompt, /real line break/i);
+      assert.match(prompt, /one short actionable line/i);
+      assert.match(prompt, /URLs out of the title/i);
+      assert.match(prompt, /Markdown links?/i);
+      assert.match(prompt, /user's own language|user's own wording/i);
+      assert.match(prompt, /Call dad/);
+    }
+
+    assert.match(adminPrompt, /Do not repeat the due date in the title/i);
+    assert.match(adminPrompt, /Scale formatting to the amount of information/i);
+    assert.match(adminPrompt, /Prepare Tobias meeting/);
+    assert.match(personalPrompt, /Do not invent goals, sections, or checklist items/i);
+  });
+
   it("teaches the admin agent read-only calendar planning boundaries", () => {
     const adminAgent = agents.find((agent) => agent.id === "admin");
     const prompt = readFileSync(`${adminAgent.promptDir}/AGENTS.md`, "utf8");

@@ -1,3 +1,5 @@
+import { normalizeTodoistDescription } from "./todoist-format.mjs";
+
 const approvalRequiredActions = new Set([
   "delete",
   "bulk-edit",
@@ -29,14 +31,13 @@ export function resolveExactTodoistTask(tasks = [], { taskId, content } = {}) {
   };
 }
 
+/**
+ * Formatting-only cleanup for an existing Todoist description. This shares the
+ * creation pipeline's normalization so add and update cannot drift apart, and
+ * it never changes substantive text.
+ */
 export function cleanupTodoistDescriptionFormatting(description = "") {
-  return String(description)
-    .replace(/\r\n/g, "\n")
-    .split("\n")
-    .map((line) => cleanupDescriptionLine(line))
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  return normalizeTodoistDescription(description);
 }
 
 export function appendExplicitTodoistDetail(description = "", detail = "") {
@@ -166,11 +167,11 @@ function clarify(reason) {
   };
 }
 
-function cleanupDescriptionLine(line) {
-  const trimmed = String(line).trim();
-  return trimmed.replace(/^([-*])\s+/, "$1 ").replace(/\s{2,}/g, " ");
-}
-
+/**
+ * Exact task-target matching stays strict on purpose: only surrounding and
+ * repeated whitespace plus letter case are ignored. Markdown markers and
+ * punctuation still have to match so task targeting never becomes fuzzy.
+ */
 function normalizeComparableText(value = "") {
   return String(value).trim().replace(/\s+/g, " ").toLowerCase();
 }

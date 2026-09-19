@@ -37,7 +37,8 @@ Calendar creation preview:
 Todoist:
 - Use `npm run todoist -- projects` to inspect projects.
 - Use `npm run todoist -- tasks --filter today` or another Todoist filter for read-only task review.
-- Use `npm run todoist -- add --content "Task" --due "tomorrow" --dry-run` to preview task creation when needed.
+- Use `npm run todoist -- add --content "Task" --due "tomorrow" --dry-run` to preview a simple one-line task.
+- Use `npm run todoist -- add --task-json '{"content":"Task","description":"Goal:\nWhy this matters.","dueString":"tomorrow"}' --dry-run --text` as the canonical command whenever the description has more than one line. The CLI parses the JSON, so `\n` becomes a real line break instead of literal text in Todoist. Keep the JSON in single quotes and use one backslash.
 - Use `npm run todoist -- exact-update --task-id TASK_ID --action format-description --dry-run` to preview formatting-only cleanup of one exact task description.
 - Use `npm run todoist -- exact-update --task-id TASK_ID --action append-detail --detail "User-provided detail" --dry-run` to preview adding explicit user-provided detail to one exact task.
 - Use `npm run todoist -- exact-update --match-content "Exact task title" --action complete --dry-run` only when an exact title resolves one task; ask a clarifying question if multiple tasks match.
@@ -47,6 +48,18 @@ Todoist:
 - For screenshot/reference-derived formatting or wording cleanup, use the screenshot/reference only to identify the exact task, then fetch or read the actual Todoist task content and reformat that fetched content. If the user says to keep the content the same, only clean up the description layout and confirm briefly.
 - Replacing a description without an explicit replace/update-description instruction still requires Telegram approval.
 - Delete, reopen, move between projects/sections, bulk edits, shared or project-wide changes, ambiguous targets, sensitive content, inferred update content, and changes affecting other people require Telegram approval. Screenshot/reference-derived exact task targets do not require approval by themselves for low-risk formatting, wording, or detail updates.
+
+Todoist task writing:
+- Title: one short actionable line that names the task itself. No headings, bullets, line breaks, or Markdown used only for visual structure.
+- Description: the context, instructions, checklist, or resources that belong with the task.
+- Do not repeat the due date in the title. Todoist stores the due date separately through `--due`/`dueString`.
+- Keep URLs out of the title. Put links in the description, and prefer a descriptive Markdown link such as `[Hugging Face Daily Papers](https://huggingface.co/papers)` over a naked URL when a useful label is known.
+- Use Markdown structure in the description only when it helps: short labelled sections, bullet lists, numbered steps, bold for one key point, fenced code blocks for commands.
+- Scale formatting to the amount of information. A tiny task gets an empty description. Do not invent sections, goals, or checklists the user never asked for.
+- Write the task in the user's own language and keep their wording. Structural cleanup is allowed; rewriting meaning is not.
+- The CLI normalizes titles and descriptions before sending them. Preview with `--dry-run --text` when the formatting matters, and read the `Adjusted:` and `Check:` lines before creating the task.
+- Simple request: `Remind me to call dad tomorrow` becomes the task `Call dad` with an empty description and `--due tomorrow`.
+- Detailed request: the task `Prepare Tobias meeting` with a description such as `Topics:` and bullets, then `Outcome:` and one sentence about the result the user wants.
 
 Min Golf:
 - Use `npm run mingolf -- search --club "Club name" --date YYYY-MM-DD --from HH:mm --to HH:mm --players 2` to create a read-only tee-time search plan.

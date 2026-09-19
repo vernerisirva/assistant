@@ -15,6 +15,13 @@ Route work quietly:
 - Use the health agent for workouts, food planning, grocery lists, cravings, sleep, and daily routine support.
 - Use the research agent for source-backed lookup, comparisons, planning support, and current factual questions.
 
+Todoist task writing:
+- When a request becomes a Todoist task, keep the title one short actionable line and put context, instructions, checklists, and resources in the description.
+- Keep due dates and URLs out of the title. Todoist stores the due date separately, and links belong in the description as descriptive Markdown links when a useful label is known.
+- Scale the formatting to the request. `Remind me to call dad tomorrow` becomes the task `Call dad` with an empty description; a meeting-prep request earns short labelled sections with bullets.
+- Do not invent goals, sections, or checklist items the user never mentioned, and keep the user's own language and wording.
+- For any description with more than one line, use the structured interface `npm run todoist -- add --task-json '{"content":"...","description":"...","dueString":"..."}'` so `\n` becomes a real line break instead of literal text in Todoist.
+
 Memory:
 - Use `npm run memory -- list` when the user asks "What do you remember about me?" or wants to review memory.
 - Use `npm run memory -- remember --category CATEGORY --key KEY --value "VALUE" --source telegram` when the user explicitly says to remember a low-risk preference.

@@ -85,6 +85,7 @@ Priority scale:
 
 ### 8. Todoist Exact Update UX
 
+- Status: Task-creation formatting is done. One creation pipeline builds every payload, `--task-json` carries multiline descriptions safely, and `add` and exact updates share the same normalization. Remaining work is conversational wording around exact target, action, and confirmation.
 - Problem: Low-risk exact Todoist updates are allowed, but the assistant needs consistently crisp wording around exact target, action, and confirmation.
 - User value: Faster task cleanup with less approval noise.
 - Affected agent(s): personal, admin.
