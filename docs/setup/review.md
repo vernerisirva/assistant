@@ -12,11 +12,14 @@ Create a key at https://openrouter.ai/keys and add it to your local `.env`:
 OPENROUTER_API_KEY=sk-or-your-key-here
 ```
 
-Do not commit or paste the key into chats, issues, logs, or docs. The harness
-never prints it: every failure path, including a rejected request and a
-non-JSON body, is redacted, and key-shaped text is stripped even when the key
-itself is unknown. Reviewer text is stripped of control characters before it
-reaches a terminal.
+Do not commit or paste the key into chats, issues, logs, or docs. Every failure
+path, including a rejected request and a non-JSON body, is redacted, and
+key-shaped text is stripped even when the key itself is unknown. The reviewer's
+own text is redacted too, so a key it found in the diff is not echoed back.
+
+All reviewer-supplied text is stripped of control characters before printing,
+including the severity label, so a response cannot repaint the terminal to hide
+its own verdict. Tabs and newlines are kept.
 
 Without a key the command fails with setup instructions and a non-zero exit
 code. It never falls back to a local model or to self-review, because a review

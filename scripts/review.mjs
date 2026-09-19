@@ -8,6 +8,7 @@ import {
   DEFAULT_OBJECTIVE,
   formatReviewSummary,
   parseReviewResponse,
+  plain,
 } from "./lib/review.mjs";
 import { mergedEnv } from "./lib/env.mjs";
 import { projectPath, readJson } from "./lib/config.mjs";
@@ -116,7 +117,7 @@ export async function runReviewCli(argv, {
         maxCompletionTokens: config.maxCompletionTokens,
         temperature: config.temperature,
       });
-      const parsed = parseReviewResponse(completion.content);
+      const parsed = redactReview(parseReviewResponse(completion.content), env.OPENROUTER_API_KEY);
 
       reviews.push({
         ...parsed,
@@ -184,11 +185,6 @@ export async function runReviewCli(argv, {
   };
 }
 
-/** Reviewer text is untrusted, so control characters never reach the terminal. */
-function plain(value) {
-  return String(value ?? "").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
-}
-
 export function formatReviewResult(result) {
   if (result.dryRun) {
     return [
@@ -222,6 +218,25 @@ export function formatReviewResult(result) {
   if (result.totalCostWarning) sections.push(result.totalCostWarning);
 
   return sections.join("\n\n");
+}
+
+/** A reviewer can only echo a key that was already in the diff, but not through here. */
+function redactReview(parsed, apiKey) {
+  if (!apiKey) return parsed;
+  const scrub = (value) => redactSecrets(String(value ?? ""), apiKey);
+
+  return {
+    ...parsed,
+    summary: scrub(parsed.summary),
+    notes: parsed.notes.map(scrub),
+    findings: parsed.findings.map((finding) => ({
+      ...finding,
+      title: scrub(finding.title),
+      file: finding.file === null ? null : scrub(finding.file),
+      evidence: scrub(finding.evidence),
+      recommendation: scrub(finding.recommendation),
+    })),
+  };
 }
 
 function costWarningFor(usage, maxCostUsd) {

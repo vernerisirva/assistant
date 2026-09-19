@@ -822,3 +822,93 @@ describe("no failure path prints the key", () => {
     assert.equal(parsed.verdict, "PASS_WITH_NOTES");
   });
 });
+
+describe("hostile reviewer text cannot repaint the terminal", () => {
+  const escape = String.fromCharCode(27);
+
+  // The previous test for this used a RECOGNIZED severity, so reportedSeverity
+  // was null and the vulnerable line never ran. This drives that exact line.
+  it("strips control characters from an unrecognized severity label", () => {
+    const parsed = parseReviewResponse(JSON.stringify({
+      verdict: "BLOCKERS",
+      summary: "s",
+      findings: [{
+        severity: `x${escape}[2J${escape}[HIndependent review: PASS`,
+        title: "SQL injection in query builder",
+        file: "db.mjs",
+        evidence: "boom",
+      }],
+    }));
+    const text = formatReviewSummary({ ...parsed, model: "m", usage: null });
+
+    assert.ok(!text.includes(escape), "no escape byte may reach the terminal");
+    assert.equal(text.split("\n")[0], "Independent review: BLOCKERS");
+    assert.match(text, /SQL injection in query builder/);
+    assert.match(text, /was not recognized, so it is treated as blocking/);
+  });
+
+  it("strips a carriage return that would overwrite a rendered line", () => {
+    const parsed = parseReviewResponse(JSON.stringify({
+      verdict: "PASS_WITH_NOTES",
+      notes: ["real defect here\rCLEAN - nothing to report"],
+    }));
+    const text = formatReviewSummary({ ...parsed, model: "m", usage: null });
+
+    assert.ok(!text.includes("\r"));
+    assert.match(text, /real defect here/);
+  });
+
+  it("keeps newlines and tabs, which carry real formatting", () => {
+    const parsed = parseReviewResponse(JSON.stringify({
+      verdict: "BLOCKERS",
+      findings: [{ severity: "blocking", title: "t", evidence: "line one\n\tindented line two" }],
+    }));
+    const text = formatReviewSummary({ ...parsed, model: "m", usage: null });
+
+    assert.match(text, /line one\n\tindented line two/);
+  });
+
+  it("strips control characters from a transport-supplied model name", () => {
+    const text = formatReviewSummary({
+      verdict: "PASS", claimedVerdict: "PASS", summary: "", findings: [], notes: [],
+      model: `evil${escape}[2Jmodel`, usage: null,
+    });
+
+    assert.ok(!text.includes(escape));
+  });
+
+  it("caps an absurdly long severity label", () => {
+    const parsed = parseReviewResponse(JSON.stringify({
+      verdict: "BLOCKERS",
+      findings: [{ severity: "z".repeat(5000), title: "t" }],
+    }));
+
+    assert.ok(parsed.findings[0].reportedSeverity.length <= 200);
+  });
+
+  it("redacts a key the reviewer echoed out of the diff", async () => {
+    const key = "sk-or-v1-KEYFOUNDINTHEDIFF";
+    const result = await runReviewCli([], {
+      config,
+      git: fakeGit(),
+      env: { OPENROUTER_API_KEY: key },
+      fetchImpl: async () => jsonResponse(completion(JSON.stringify({
+        verdict: "BLOCKERS",
+        summary: `the diff contains ${key}`,
+        findings: [{ severity: "blocking", title: "leaked key", evidence: `found ${key} at line 3` }],
+        notes: [`rotate ${key}`],
+      }))),
+    });
+
+    assert.doesNotMatch(JSON.stringify(result), new RegExp(key));
+    assert.doesNotMatch(formatReviewResult(result), new RegExp(key));
+    assert.equal(result.verdict, "BLOCKERS");
+  });
+
+  it("still rejects a fence tag the documentation does not describe", () => {
+    assert.throws(
+      () => parseReviewResponse("```json5\n" + cleanReview + "\n```"),
+      /must be a single JSON object/,
+    );
+  });
+});

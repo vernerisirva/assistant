@@ -157,7 +157,7 @@ export function reconcileVerdict(claimed, findings, notes) {
 }
 
 export function formatReviewSummary(result) {
-  const lines = [`Independent review: ${result.verdict}`, `- Model: ${result.model}`];
+  const lines = [`Independent review: ${result.verdict}`, `- Model: ${plain(result.model)}`];
 
   if (result.usage) {
     const { promptTokens, completionTokens, costUsd } = result.usage;
@@ -194,14 +194,21 @@ export function formatReviewSummary(result) {
   return lines.join("\n");
 }
 
-function plain(value) {
-  return String(value ?? "").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "");
+/**
+ * Reviewer text is untrusted. Control characters are removed before anything is
+ * printed, so a response cannot repaint the terminal and hide its own verdict.
+ * Tabs and newlines are kept because they carry real formatting.
+ */
+export function plain(value) {
+  return String(value ?? "").replace(/[\u0000-\u0008\u000B-\u000D\u001B-\u001F\u007F]/g, "");
 }
 
 function formatFinding(finding, index) {
   const lines = [`${index + 1}. ${plain(finding.title)}${finding.file ? ` (${plain(finding.file)})` : ""}`];
   if (finding.reportedSeverity) {
-    lines.push(`   Severity "${finding.reportedSeverity}" was not recognized, so it is treated as blocking.`);
+    lines.push(
+      `   Severity "${plain(finding.reportedSeverity)}" was not recognized, so it is treated as blocking.`,
+    );
   }
   if (finding.evidence) lines.push(`   Evidence: ${plain(finding.evidence)}`);
   if (finding.recommendation) lines.push(`   Fix: ${plain(finding.recommendation)}`);
@@ -236,7 +243,9 @@ function normalizeFindings(findings) {
         // must never be downgraded into a note just because its label was not
         // one this harness knows.
         severity: NOTE_WORDS.has(reported) ? "note" : "blocking",
-        reportedSeverity: recognized ? null : String(finding.severity ?? "").trim() || "(none)",
+        reportedSeverity: recognized
+          ? null
+          : String(finding.severity ?? "").trim().slice(0, 200) || "(none)",
         title: text(finding.title) || "Untitled finding",
         file: text(finding.file) || null,
         evidence: text(finding.evidence),
@@ -279,7 +288,7 @@ function extractJson(content) {
   // Only the whole response, or a response that is exactly one fenced block,
   // is accepted. Scanning for a JSON object inside prose would let a reviewer
   // quoting an injected payload from the diff supply the verdict.
-  const fenced = raw.match(/^```(?:json5?)?[ \t]*\r?\n([\s\S]*?)\r?\n?```$/i);
+  const fenced = raw.match(/^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n?```$/i);
   const candidates = fenced ? [raw, fenced[1]] : [raw];
 
   for (const candidate of candidates) {
