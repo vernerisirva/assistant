@@ -70,7 +70,7 @@ JSON
 
 The task text never enters a shell argument, so nothing in it can break the quoting. The quoted `<<'JSON'` delimiter passes the body literally, so `$HOME`, `$(command)`, and backticks stay literal. `\n` in the JSON becomes a real line break before the payload reaches Todoist.
 
-`--task-json '{...}'` is kept for backwards compatibility and is fine for simple text, but a single apostrophe such as `Call O'Connor` breaks the surrounding single-quoted argument, so prefer stdin for anything user-supplied. Never hand-escape multiline Markdown into a plain `--description` argument; Todoist must never receive a literal `\n`.
+`--task-json '{...}'` is kept for backwards compatibility and is fine for simple text, but a single apostrophe such as `Call O'Connor` breaks the surrounding single-quoted argument, so prefer stdin for anything user-supplied. Never hand-escape multiline Markdown into a plain `--description` argument: the command refuses a literal `\n` there and tells you to use stdin.
 
 Individual flags, `--task-json`, and `--task-json-stdin` all feed the same normalization and plan builder, and an explicit flag wins over the same field in the JSON. `--task-json` and `--task-json-stdin` cannot be combined. Invalid or empty stdin fails with a clear error and sends nothing.
 
@@ -99,7 +99,8 @@ Description:
 - Trailing whitespace is removed outside fenced code blocks. Todoist renders real line breaks as line breaks, so a trailing double space is not a hard break there. Inside a fence, whitespace is untouched.
 - Markdown links, bold, italic, headings, numbered lists, tables, indented code, and fenced code blocks are preserved exactly, including whitespace inside fences.
 - A first description line that only repeats the title is dropped; a first line that adds information is kept. A list item is never dropped, even when its text matches the title, so the first step of a checklist survives.
-- Backslashes are never rewritten. A Windows path such as `C:\notes\log.txt`, or a `\n` inside a code block, reaches Todoist exactly as written. Escaped newlines are repaired only for text arriving through the plain `--content` / `--description` / `--detail` shell arguments, and only when every backslash in the value is part of a newline escape. JSON input, stdin input, and text read back from Todoist are never decoded.
+- Backslashes are never rewritten, anywhere. A Windows path such as `C:\notes\log.txt`, a regex, or a `\n` inside a code block reaches Todoist exactly as written, whether it came from JSON, from stdin, or was read back from Todoist.
+- A literal `\n` in a plain `--content` / `--description` / `--detail` / `--replacement-description` shell argument is ambiguous: it is either multiline text that lost its line breaks in quoting, or a backslash the user actually wrote. The command refuses the value and names the stdin interface rather than guessing, so Todoist never receives a literal `\n` meant as a line break and never loses a backslash meant literally. Pass such text as JSON on stdin.
 
 A dry run distinguishes a description that is being set, one being explicitly cleared (`(empty)`), and one an update leaves alone (`(unchanged)`). Labels being cleared show as `(cleared)`. The preview never says a field changes unless that field is in the wire payload, and an explicit clear really does reach Todoist as `""`.
 

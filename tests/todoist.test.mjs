@@ -21,7 +21,7 @@ import {
   supportedTaskFields,
 } from "../scripts/lib/todoist-create.mjs";
 import {
-  decodeTransportEscapes,
+  hasTransportEscapes,
   normalizeTodoistDescription,
   splitTodoistTitle,
 } from "../scripts/lib/todoist-format.mjs";
@@ -759,28 +759,26 @@ describe("Todoist creation payload validation", () => {
 });
 
 describe("Todoist multiline transport", () => {
-  it("decodes escaped newlines only when the text has no real line breaks", () => {
-    assert.equal(decodeTransportEscapes("a\\nb"), "a\nb");
-    assert.equal(decodeTransportEscapes("a\\r\\nb"), "a\nb");
-    assert.equal(decodeTransportEscapes("real\nbreak with \\n text"), "real\nbreak with \\n text");
-    assert.equal(decodeTransportEscapes("no escapes here"), "no escapes here");
+  it("detects an escaped newline only when the text has no real line break", () => {
+    assert.equal(hasTransportEscapes("a\\nb"), true);
+    assert.equal(hasTransportEscapes("real\nbreak with \\n text"), false);
+    assert.equal(hasTransportEscapes("no escapes here"), false);
   });
 
-  it("turns escaped newlines from a --description shell argument into real line breaks", async () => {
-    const result = await runTodoistCli([
-      "add",
-      "--content",
-      "Lunch plan",
-      "--description",
-      "Lunch plan:\\n- Sausages\\n\\nPrep:\\n1. Cook potatoes",
-      "--dry-run",
-    ], { client: refusingClient });
-
-    assert.equal(result.payload.description, "- Sausages\n\nPrep:\n1. Cook potatoes");
-    assert.ok(!result.payload.description.includes("\\n"));
-    assert.ok(
-      result.adjustments.includes("Converted escaped newline sequences into real line breaks."),
-    );
+  it("refuses an escaped newline in a shell argument instead of guessing", async () => {
+    for (const flag of ["--content", "--description"]) {
+      await assert.rejects(
+        () => runTodoistCli(
+          ["add", "--content", "Lunch plan", flag, "Prep:\\n- Sausages", "--dry-run"],
+          { client: refusingClient },
+        ),
+        (error) => {
+          assert.match(error.message, new RegExp(`\\${flag} contains a literal`));
+          assert.match(error.message, /--task-json-stdin/);
+          return true;
+        },
+      );
+    }
   });
 
   it("parses --task-json so escaped newlines reach Todoist as real line breaks", async () => {
@@ -807,18 +805,23 @@ describe("Todoist multiline transport", () => {
   it("never sends a literal backslash-n where a line break was intended", async () => {
     const calls = [];
 
-    await runTodoistCli([
-      "add",
-      "--content",
-      "Lunch plan",
-      "--description",
-      "Step one\\nStep two",
-    ], { client: recordingClient(calls) });
+    await assert.rejects(
+      () => runTodoistCli(
+        ["add", "--content", "Lunch plan", "--description", "Step one\\nStep two"],
+        { client: recordingClient(calls) },
+      ),
+      /contains a literal/,
+    );
+    assert.equal(calls.length, 0);
+
+    await runTodoistCli(["add", "--task-json-stdin"], {
+      client: recordingClient(calls),
+      stdin: stdinOf({ content: "Lunch plan", description: "Step one\nStep two" }),
+    });
 
     const sent = calls[0].body.description;
     assert.equal(sent, "Step one\nStep two");
     assert.ok(!sent.includes("\\n"));
-    assert.equal(sent.split("\n").length, 2);
   });
 
   it("leaves a real backslash-n inside a fenced code block alone", () => {
@@ -1410,27 +1413,43 @@ describe("literal backslashes survive every path", () => {
     assert.equal(fromStdin.payload.description, windowsPath);
     assert.equal(fromJsonFlag.payload.description, windowsPath);
     assert.deepEqual(fromStdin.adjustments, []);
+    assert.equal(hasTransportEscapes(windowsPath), true);
   });
 
-  it("keeps mixed backslashes intact even on the plain --description flag", async () => {
+  it("keeps a backslash that cannot be a newline escape on the plain flag", async () => {
     const result = await runTodoistCli(
-      ["add", "--content", "Restore backup", "--description", windowsPath, "--dry-run"],
+      ["add", "--content", "Restore backup", "--description", "Copy from C:\\temp\\log.txt", "--dry-run"],
       { client: refusingClient },
     );
 
-    assert.equal(result.payload.description, windowsPath);
-    assert.deepEqual(result.adjustments, []);
+    assert.equal(result.payload.description, "Copy from C:\\temp\\log.txt");
   });
 
-  it("still repairs a shell argument whose only backslashes are newline escapes", async () => {
-    const result = await runTodoistCli(
-      ["add", "--content", "Lunch plan", "--description", "Prep:\\n- Sausages\\n\\n1. Cook potatoes", "--dry-run"],
-      { client: refusingClient },
+  it("refuses an ambiguous backslash-n path rather than rewriting the title", async () => {
+    await assert.rejects(
+      () => runTodoistCli(["add", "--content", "Clean up C:\\notes", "--dry-run"], {
+        client: refusingClient,
+      }),
+      /--content contains a literal/,
     );
 
-    assert.equal(result.payload.description, "Prep:\n- Sausages\n\n1. Cook potatoes");
-    assert.ok(!result.payload.description.includes("\\n"));
-    assert.ok(result.adjustments.includes("Converted escaped newline sequences into real line breaks."));
+    const viaStdin = await runTodoistCli(["add", "--task-json-stdin", "--dry-run"], {
+      client: refusingClient,
+      stdin: stdinOf({ content: "Clean up C:\\notes" }),
+    });
+
+    assert.equal(viaStdin.payload.content, "Clean up C:\\notes");
+    assert.equal(viaStdin.payload.description, undefined);
+  });
+
+  it("refuses an ambiguous escape on the exact-update detail flags too", async () => {
+    await assert.rejects(
+      () => runTodoistCli(
+        ["exact-update", "--task-id", "t1", "--action", "append-detail", "--detail", "See C:\\notes"],
+        { client: refusingClient },
+      ),
+      /--detail contains a literal/,
+    );
   });
 
   it("keeps a Windows path intact end to end through the real CLI", async () => {
@@ -1506,15 +1525,25 @@ describe("normalization never deletes user content", () => {
     assert.equal(normalizeTodoistDescription(description), description);
   });
 
-  it("removes stray indentation from an orphan first bullet only", () => {
-    assert.equal(
-      normalizeTodoistDescription("  - Orphan bullet\n- Top item"),
-      "- Orphan bullet\n- Top item",
-    );
+  it("never re-nests a uniformly indented list by flattening only its first item", () => {
+    for (const list of [
+      "  1. Buy milk\n  2. Buy oats\n  3. Buy bread",
+      "  - a\n  - b\n  - c",
+      "    - name: foo\n    - name: bar",
+    ]) {
+      assert.equal(normalizeTodoistDescription(list), list);
+    }
+
     assert.equal(
       normalizeTodoistDescription("- Top item\n  - Nested item"),
       "- Top item\n  - Nested item",
     );
+  });
+
+  it("keeps an indented list unchanged through formatting-only exact updates", () => {
+    const stored = "  1. Buy milk\n  2. Buy oats\n  3. Buy bread";
+
+    assert.equal(cleanupTodoistDescriptionFormatting(stored), stored);
   });
 
   it("rejects a non-string title instead of stringifying it", () => {

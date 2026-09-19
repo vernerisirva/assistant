@@ -50,7 +50,7 @@ npm run todoist -- add --task-json-stdin --dry-run --text <<'JSON'
 JSON
 ```
 
-- `--task-json '{...}'` still works for simple cases, but prefer `--task-json-stdin`: a single apostrophe in the task text breaks a single-quoted shell argument. Never hand-escape task text into a quoted argument.
+- `--task-json '{...}'` still works for simple cases, but prefer `--task-json-stdin`: a single apostrophe in the task text breaks a single-quoted shell argument. Never hand-escape task text into a quoted argument. Writing a literal `\n` in `--content`, `--description`, or `--detail` is refused, because it cannot be told apart from a backslash the user wrote; use stdin for that text.
 - Use `npm run todoist -- exact-update --task-id TASK_ID --action format-description --dry-run` to preview formatting-only cleanup of one exact task description.
 - Use `npm run todoist -- exact-update --task-id TASK_ID --action append-detail --detail "User-provided detail" --dry-run` to preview adding explicit user-provided detail to one exact task.
 - Use `npm run todoist -- exact-update --match-content "Exact task title" --action complete --dry-run` only when an exact title resolves one task; ask a clarifying question if multiple tasks match.

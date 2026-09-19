@@ -21,10 +21,11 @@ export function buildTodoistTaskPayload(input = {}, { requireContent = true } = 
 
   const payload = {};
   for (const [key, value] of Object.entries(input)) {
-    // Only an absent value is dropped. An empty string is a real instruction to
-    // clear a field, and dropping it would make a preview promise a change the
-    // request never performs.
+    // An absent value is dropped. An empty description is kept, because it is a
+    // real instruction to clear the field and dropping it would make a preview
+    // promise a change the request never performs. No other field is clearable.
     if (value === undefined || value === null) continue;
+    if (value === "" && key !== "description") continue;
     payload[taskFieldMap[key] ?? key] = value;
   }
 

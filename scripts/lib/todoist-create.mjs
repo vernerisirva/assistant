@@ -61,12 +61,8 @@ export function normalizeTaskFieldKeys(input = {}) {
   return normalized;
 }
 
-export function buildTodoistCreatePlan(input = {}, { transportDecoded = false } = {}) {
-  const fields = buildTaskFields(input, {
-    requireContent: true,
-    allowTitleOverflow: true,
-    transportDecoded,
-  });
+export function buildTodoistCreatePlan(input = {}) {
+  const fields = buildTaskFields(input, { requireContent: true, allowTitleOverflow: true });
 
   return {
     mode: "execute_then_confirm",
@@ -81,16 +77,12 @@ export function buildTodoistCreatePlan(input = {}, { transportDecoded = false } 
   };
 }
 
-export function buildTodoistUpdatePlan(taskId, input = {}, { transportDecoded = false } = {}) {
+export function buildTodoistUpdatePlan(taskId, input = {}) {
   if (!String(taskId ?? "").trim()) {
     throw new Error("Todoist task id is required.");
   }
 
-  const fields = buildTaskFields(input, {
-    requireContent: false,
-    allowTitleOverflow: false,
-    transportDecoded,
-  });
+  const fields = buildTaskFields(input, { requireContent: false, allowTitleOverflow: false });
   const descriptionState = describeUpdateDescription(input, fields.task);
   const payload = buildTodoistTaskPayload(fields.task, { requireContent: false });
 
@@ -152,7 +144,7 @@ export function formatTodoistTaskPlan(plan, { dryRun = false } = {}) {
   return lines.join("\n");
 }
 
-function buildTaskFields(rawInput, { requireContent, allowTitleOverflow, transportDecoded }) {
+function buildTaskFields(rawInput, { requireContent, allowTitleOverflow }) {
   const input = normalizeTaskFieldKeys(rawInput);
   const adjustments = [];
   const warnings = [];
@@ -202,7 +194,7 @@ function buildTaskFields(rawInput, { requireContent, allowTitleOverflow, transpo
   }
 
   assignOptionalFields(task, input);
-  recordTitleAdjustments({ input, title, overflow, transportDecoded, adjustments });
+  recordTitleAdjustments({ input, title, overflow, adjustments });
   recordWarnings({ task, warnings });
 
   return { task, adjustments, warnings };
@@ -245,11 +237,7 @@ function assignOptionalFields(task, input) {
   if (input.labels !== undefined) task.labels = requireLabels(input.labels);
 }
 
-function recordTitleAdjustments({ input, title, overflow, transportDecoded, adjustments }) {
-  if (transportDecoded) {
-    adjustments.push("Converted escaped newline sequences into real line breaks.");
-  }
-
+function recordTitleAdjustments({ input, title, overflow, adjustments }) {
   if (overflow) {
     adjustments.push("Moved extra task title lines into the description.");
   } else if (input.content !== undefined && String(input.content).trim() !== title) {

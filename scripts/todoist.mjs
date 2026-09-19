@@ -13,7 +13,7 @@ import {
   buildExactTodoistUpdatePlan,
   resolveExactTodoistTask,
 } from "./lib/todoist-exact-update.mjs";
-import { normalizeTransportText } from "./lib/todoist-format.mjs";
+import { hasTransportEscapes, normalizeLineEndings } from "./lib/todoist-format.mjs";
 import { mergedEnv } from "./lib/env.mjs";
 import { projectPath } from "./lib/config.mjs";
 
@@ -29,17 +29,22 @@ export function parseTodoistArgs(argv) {
   let taskJsonStdin = false;
   let dryRun = false;
   let text = false;
-  let transportDecoded = false;
-
   /**
-   * Text arriving as a shell argument is the only place an escaped newline is a
-   * quoting artifact rather than a literal the user wrote. Decoding here keeps
-   * JSON input, stdin input, and text read back from Todoist byte-for-byte.
+   * A shell argument holding a literal `\n` is ambiguous: it is either multiline
+   * text that lost its line breaks in quoting, or a backslash the user wrote,
+   * as in `C:\notes`. Guessing would silently rewrite one of the two, so the
+   * command stops and points at the structured interface that cannot be
+   * ambiguous. Todoist therefore never receives a literal `\n` meant as a break,
+   * and never loses a backslash meant literally.
    */
-  const fromShellArgument = (value) => {
-    const decoded = normalizeTransportText(value);
-    if (decoded !== value) transportDecoded = true;
-    return decoded;
+  const fromShellArgument = (flag, value) => {
+    if (hasTransportEscapes(value)) {
+      throw new Error(
+        `${flag} contains a literal \\n. Pass multiline text as JSON on stdin instead: ` +
+          "npm run todoist -- add --task-json-stdin <<'JSON' ... JSON",
+      );
+    }
+    return normalizeLineEndings(value);
   };
 
   for (let index = 0; index < rest.length; index += 1) {
@@ -71,10 +76,10 @@ export function parseTodoistArgs(argv) {
         options.filter = value;
         break;
       case "--content":
-        options.content = fromShellArgument(value);
+        options.content = fromShellArgument("--content", value);
         break;
       case "--description":
-        options.description = fromShellArgument(value);
+        options.description = fromShellArgument("--description", value);
         break;
       case "--due":
         options.dueString = value;
@@ -101,10 +106,10 @@ export function parseTodoistArgs(argv) {
         options.action = value;
         break;
       case "--detail":
-        options.detail = fromShellArgument(value);
+        options.detail = fromShellArgument("--detail", value);
         break;
       case "--replacement-description":
-        options.replacementDescription = fromShellArgument(value);
+        options.replacementDescription = fromShellArgument("--replacement-description", value);
         break;
       case "--label":
         options.labels = [...(options.labels ?? []), value];
@@ -121,7 +126,6 @@ export function parseTodoistArgs(argv) {
   const parsed = { command, options: mergeTaskJson(taskJson, options), dryRun };
   if (text) parsed.text = true;
   if (taskJsonStdin) parsed.taskJsonStdin = true;
-  if (transportDecoded) parsed.transportDecoded = true;
 
   if (["close", "reopen", "delete", "update"].includes(command) && !parsed.options.taskId) {
     throw new Error("--task-id is required.");
@@ -173,16 +177,12 @@ export async function runTodoistCli(argv, {
     case "tasks":
       return todoist.getTasks(parsed.options);
     case "add": {
-      const plan = buildTodoistCreatePlan(taskInput(parsed.options), planOptions(parsed));
+      const plan = buildTodoistCreatePlan(taskInput(parsed.options));
       const task = await todoist.addTask(plan.payload, { requestId: randomUUID() });
       return { dryRun: false, ...plan, task };
     }
     case "update": {
-      const plan = buildTodoistUpdatePlan(
-        parsed.options.taskId,
-        taskInput(parsed.options),
-        planOptions(parsed),
-      );
+      const plan = buildTodoistUpdatePlan(parsed.options.taskId, taskInput(parsed.options));
       const task = await todoist.updateTask(plan.taskId, plan.payload, {
         requestId: randomUUID(),
       });
@@ -203,7 +203,7 @@ export async function runTodoistCli(argv, {
 
 function dryRunResult(parsed) {
   if (parsed.command === "add") {
-    const plan = buildTodoistCreatePlan(taskInput(parsed.options), planOptions(parsed));
+    const plan = buildTodoistCreatePlan(taskInput(parsed.options));
     return {
       ...plan,
       dryRun: true,
@@ -212,11 +212,7 @@ function dryRunResult(parsed) {
   }
 
   if (parsed.command === "update") {
-    const plan = buildTodoistUpdatePlan(
-      parsed.options.taskId,
-      taskInput(parsed.options),
-      planOptions(parsed),
-    );
+    const plan = buildTodoistUpdatePlan(parsed.options.taskId, taskInput(parsed.options));
     return {
       ...plan,
       dryRun: true,
@@ -231,10 +227,6 @@ function dryRunResult(parsed) {
     payload: null,
     confirmation: `Dry run only. Todoist task ${parsed.options.taskId} was not changed.`,
   };
-}
-
-function planOptions(parsed) {
-  return { transportDecoded: Boolean(parsed.transportDecoded) };
 }
 
 function taskInput(options) {

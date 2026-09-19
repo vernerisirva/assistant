@@ -29,35 +29,16 @@ export function normalizeLineEndings(value = "") {
 }
 
 /**
- * Multiline text passed through a single shell argument can arrive with literal
- * `\n` two-character sequences instead of real line breaks. Decoding is limited
- * to values that contain no real line break at all, so a genuine backslash in a
- * multiline description or fenced code block is never touched.
+ * Multiline text squeezed into a single shell argument arrives with literal
+ * `\n` two-character sequences instead of real line breaks. Nothing in the
+ * value says whether the user meant a line break or wrote a backslash, as in
+ * `C:\notes`, so this only reports the ambiguity. Callers refuse the value and
+ * point at the structured stdin interface instead of guessing, and no
+ * backslash is ever rewritten anywhere in the pipeline.
  */
 export function hasTransportEscapes(value = "") {
   const text = String(value);
-  if (text.includes("\n") || !text.includes("\\n")) return false;
-
-  // Every backslash must belong to a newline escape. A string that also carries
-  // other backslashes is literal text the user wrote, such as a Windows path
-  // like `C:\notes\todo.txt`, and must not be rewritten.
-  return !text.replace(/\\r\\n/g, "").replace(/\\n/g, "").includes("\\");
-}
-
-export function decodeTransportEscapes(value = "") {
-  const text = String(value);
-  if (!hasTransportEscapes(text)) return text;
-  return text.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n");
-}
-
-/**
- * Applied only at the shell-argument boundary, where an escaped newline is a
- * quoting artifact. Text from JSON, from stdin, or read back from the Todoist
- * API keeps every backslash it has, so a path such as `C:\notes\log.txt`
- * survives normalization unchanged.
- */
-export function normalizeTransportText(value = "") {
-  return decodeTransportEscapes(normalizeLineEndings(value));
+  return !text.includes("\n") && text.includes("\\n");
 }
 
 /**
@@ -187,8 +168,8 @@ function normalizeDescriptionLine(rawLine, { firstContentLine = false } = {}) {
   const listMatch = body.match(LIST_LINE);
 
   if (listMatch) {
-    const nested = indentWidth(indent) >= NESTED_LIST_INDENT_WIDTH && !firstContentLine;
-    return `${nested ? indent : ""}${listMatch[1]} ${listMatch[2]}`;
+    const keptIndent = indentWidth(indent) >= NESTED_LIST_INDENT_WIDTH ? indent : "";
+    return `${keptIndent}${listMatch[1]} ${listMatch[2]}`;
   }
 
   if (firstContentLine && indentWidth(indent) < CODE_INDENT_WIDTH) return body;
