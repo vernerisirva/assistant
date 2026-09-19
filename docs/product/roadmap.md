@@ -13,7 +13,7 @@ Hilla currently has:
 - Risk-tiered approval policy and natural approval language tests.
 - Local OpenClaw config rendering from `.env`, `config/*.json`, and `agents/*/AGENTS.md`.
 - Status, doctor, config-render, and env-validation commands.
-- Todoist helper for projects, task reads, task completion, and one normalized task-creation pipeline with a structured `--task-json` interface for multiline descriptions.
+- Todoist helper for projects, task reads, task completion, and one normalized task-creation pipeline with a shell-safe structured `--task-json-stdin` interface for multiline descriptions.
 - Min Golf read-only search planning and approval-gated booking-request drafting.
 - Memory helper for explicit local preferences and sensitive-memory approval flow.
 - Routine helpers for morning brief, midday check-in, workout window, evening review, weekly review, routine skips, and scheduled routine cron jobs.

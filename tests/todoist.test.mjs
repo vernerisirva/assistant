@@ -298,10 +298,13 @@ describe("exact Todoist update helpers", () => {
     );
   });
 
-  it("converts escaped newline sequences in Todoist descriptions to real line breaks", () => {
+  it("leaves literal backslashes in a fetched Todoist description alone", () => {
+    const stored = "Run split('\\n') on C:\\notes\\log.txt";
+
+    assert.equal(cleanupTodoistDescriptionFormatting(stored), stored);
     assert.equal(
-      cleanupTodoistDescriptionFormatting("Lunch plan:\\n- Sausages\\n\\nPrep:\\n1. Cook potatoes"),
-      "Lunch plan:\n- Sausages\n\nPrep:\n1. Cook potatoes",
+      cleanupTodoistDescriptionFormatting("Lunch plan:\\n- Sausages"),
+      "Lunch plan:\\n- Sausages",
     );
   });
 
@@ -736,15 +739,22 @@ describe("Todoist creation payload validation", () => {
 
   it("uses the same normalization for updates as for creation", () => {
     const plan = buildTodoistUpdatePlan("task-1", {
-      description: "Goal:\\nShip it.",
+      description: "  Goal:  \n\n\n-  Ship it  ",
       dueString: "friday",
     });
 
     assert.deepEqual(plan.payload, {
-      description: "Goal:\nShip it.",
+      description: "Goal:\n\n- Ship it",
       due_string: "friday",
     });
     assert.equal(plan.taskId, "task-1");
+  });
+
+  it("rejects an update that would change nothing", () => {
+    assert.throws(
+      () => buildTodoistUpdatePlan("task-1", {}),
+      /needs at least one field to change/,
+    );
   });
 });
 
@@ -1305,5 +1315,216 @@ describe("Todoist update preview honesty", () => {
         assert.match(preview, new RegExp(`- ${label}:`));
       }
     }
+  });
+});
+
+describe("preview and wire payload agree on clearing fields", () => {
+  it("actually sends an explicit description clear to Todoist", async () => {
+    const calls = [];
+    const dryRun = await runTodoistCli(
+      ["update", "--task-id", "task-1", "--task-json", '{"description":""}', "--dry-run"],
+      { client: refusingClient },
+    );
+    await runTodoistCli(
+      ["update", "--task-id", "task-1", "--task-json", '{"description":""}'],
+      { client: recordingClient(calls) },
+    );
+
+    assert.deepEqual(dryRun.payload, { description: "" });
+    assert.deepEqual(calls[0].body, dryRun.payload);
+    assert.equal(calls[0].body.description, "");
+  });
+
+  it("sends exactly the update payload the dry run showed", async () => {
+    const args = [
+      "update",
+      "--task-id",
+      "task-1",
+      "--task-json",
+      '{"content":"Renamed","description":"","dueString":"friday","labels":["admin"]}',
+    ];
+    const dryRun = await runTodoistCli([...args, "--dry-run"], { client: refusingClient });
+    const calls = [];
+    await runTodoistCli(args, { client: recordingClient(calls) });
+
+    assert.deepEqual(calls[0].body, dryRun.payload);
+    assert.deepEqual(dryRun.payload, {
+      content: "Renamed",
+      description: "",
+      due_string: "friday",
+      labels: ["admin"],
+    });
+  });
+
+  it("clears a whitespace-only description on the exact-update path", async () => {
+    const calls = [];
+    const client = {
+      async getTask(taskId) {
+        return { id: taskId, content: "AI video", description: "   \n  " };
+      },
+      async updateTask(taskId, payload) {
+        calls.push({ taskId, payload });
+        return true;
+      },
+    };
+
+    const result = await runTodoistCli(
+      ["exact-update", "--task-id", "task-1", "--action", "format-description"],
+      { client },
+    );
+
+    assert.deepEqual(result.payload, { description: "" });
+    assert.deepEqual(calls[0].payload, { description: "" });
+  });
+
+  it("shows cleared labels instead of implying they are unchanged", async () => {
+    const plan = await runTodoistCli(
+      ["update", "--task-id", "task-1", "--task-json", '{"labels":[]}', "--dry-run"],
+      { client: refusingClient },
+    );
+    const calls = [];
+    await runTodoistCli(
+      ["update", "--task-id", "task-1", "--task-json", '{"labels":[]}'],
+      { client: recordingClient(calls) },
+    );
+
+    assert.deepEqual(plan.payload, { labels: [] });
+    assert.deepEqual(calls[0].body, { labels: [] });
+    assert.match(formatTodoistTaskPlan(plan, { dryRun: true }), /- Labels: \(cleared\)/);
+  });
+});
+
+describe("literal backslashes survive every path", () => {
+  const windowsPath = "Copy from C:\\notes\\todo.txt";
+
+  it("keeps a Windows path intact through structured JSON input", async () => {
+    const fromStdin = await runTodoistCli(["add", "--task-json-stdin", "--dry-run"], {
+      client: refusingClient,
+      stdin: stdinOf({ content: "Restore backup", description: windowsPath }),
+    });
+    const fromJsonFlag = await runTodoistCli(
+      ["add", "--task-json", JSON.stringify({ content: "Restore backup", description: windowsPath }), "--dry-run"],
+      { client: refusingClient },
+    );
+
+    assert.equal(fromStdin.payload.description, windowsPath);
+    assert.equal(fromJsonFlag.payload.description, windowsPath);
+    assert.deepEqual(fromStdin.adjustments, []);
+  });
+
+  it("keeps mixed backslashes intact even on the plain --description flag", async () => {
+    const result = await runTodoistCli(
+      ["add", "--content", "Restore backup", "--description", windowsPath, "--dry-run"],
+      { client: refusingClient },
+    );
+
+    assert.equal(result.payload.description, windowsPath);
+    assert.deepEqual(result.adjustments, []);
+  });
+
+  it("still repairs a shell argument whose only backslashes are newline escapes", async () => {
+    const result = await runTodoistCli(
+      ["add", "--content", "Lunch plan", "--description", "Prep:\\n- Sausages\\n\\n1. Cook potatoes", "--dry-run"],
+      { client: refusingClient },
+    );
+
+    assert.equal(result.payload.description, "Prep:\n- Sausages\n\n1. Cook potatoes");
+    assert.ok(!result.payload.description.includes("\\n"));
+    assert.ok(result.adjustments.includes("Converted escaped newline sequences into real line breaks."));
+  });
+
+  it("keeps a Windows path intact end to end through the real CLI", async () => {
+    const { stdout } = await runCliInShell(
+      heredocScript({ content: "Restore backup", description: windowsPath }),
+    );
+
+    assert.equal(JSON.parse(stdout).payload.description, windowsPath);
+  });
+});
+
+describe("normalization never deletes user content", () => {
+  it("keeps a numbered first list item that matches the task title", () => {
+    const plan = buildTodoistCreatePlan({
+      content: "Deploy the release",
+      description: "1. Deploy the release\n2. Verify metrics\n3. Announce in Slack",
+    });
+
+    assert.equal(
+      plan.payload.description,
+      "1. Deploy the release\n2. Verify metrics\n3. Announce in Slack",
+    );
+    assert.deepEqual(plan.adjustments, []);
+  });
+
+  it("keeps a bullet checklist whose first item matches the title", () => {
+    const plan = buildTodoistCreatePlan({
+      content: "Buy milk",
+      description: "- Buy milk\n- Buy oats",
+    });
+
+    assert.equal(plan.payload.description, "- Buy milk\n- Buy oats");
+  });
+
+  it("still drops a plain repeated title line and a repeated heading", () => {
+    assert.equal(
+      buildTodoistCreatePlan({
+        content: "Review updates",
+        description: "Review updates\n\nGoal:\nFind one paper.",
+      }).payload.description,
+      "Goal:\nFind one paper.",
+    );
+    assert.equal(
+      buildTodoistCreatePlan({
+        content: "Review updates",
+        description: "## Review updates\n\nGoal:\nFind one paper.",
+      }).payload.description,
+      "Goal:\nFind one paper.",
+    );
+  });
+
+  it("keeps a first line whose punctuation changes its intent", () => {
+    const plan = buildTodoistCreatePlan({
+      content: "Call dad",
+      description: "Call dad?\n\nHe asked for a ring.",
+    });
+
+    assert.equal(plan.payload.description, "Call dad?\n\nHe asked for a ring.");
+  });
+
+  it("keeps a leading number in a task title", () => {
+    for (const title of ["2024. Review the year", "99. Luftballons", "3) Third item"]) {
+      assert.equal(buildTodoistCreatePlan({ content: title }).payload.content, title);
+    }
+
+    assert.equal(buildTodoistCreatePlan({ content: "- Call dad" }).payload.content, "Call dad");
+    assert.equal(buildTodoistCreatePlan({ content: "***Important***" }).payload.content, "Important");
+  });
+
+  it("does not let an inner fence with an info string end a code block", () => {
+    const description = "```markdown\n```js\n -  bullet   \n\n\ntext   \n```";
+
+    assert.equal(normalizeTodoistDescription(description), description);
+  });
+
+  it("removes stray indentation from an orphan first bullet only", () => {
+    assert.equal(
+      normalizeTodoistDescription("  - Orphan bullet\n- Top item"),
+      "- Orphan bullet\n- Top item",
+    );
+    assert.equal(
+      normalizeTodoistDescription("- Top item\n  - Nested item"),
+      "- Top item\n  - Nested item",
+    );
+  });
+
+  it("rejects a non-string title instead of stringifying it", () => {
+    assert.throws(
+      () => buildTodoistCreatePlan({ content: { a: 1 } }),
+      /content must be a string/,
+    );
+    assert.throws(
+      () => buildTodoistCreatePlan({ content: ["x", "y"] }),
+      /content must be a string/,
+    );
   });
 });

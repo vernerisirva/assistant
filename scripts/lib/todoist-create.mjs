@@ -9,7 +9,6 @@ import { buildTodoistTaskPayload } from "./todoist.mjs";
 import {
   containsUrl,
   dropDuplicateTitleLine,
-  hasTransportEscapes,
   normalizeTodoistDescription,
   splitTodoistTitle,
 } from "./todoist-format.mjs";
@@ -62,8 +61,12 @@ export function normalizeTaskFieldKeys(input = {}) {
   return normalized;
 }
 
-export function buildTodoistCreatePlan(input = {}) {
-  const fields = buildTaskFields(input, { requireContent: true, allowTitleOverflow: true });
+export function buildTodoistCreatePlan(input = {}, { transportDecoded = false } = {}) {
+  const fields = buildTaskFields(input, {
+    requireContent: true,
+    allowTitleOverflow: true,
+    transportDecoded,
+  });
 
   return {
     mode: "execute_then_confirm",
@@ -78,19 +81,22 @@ export function buildTodoistCreatePlan(input = {}) {
   };
 }
 
-export function buildTodoistUpdatePlan(taskId, input = {}) {
+export function buildTodoistUpdatePlan(taskId, input = {}, { transportDecoded = false } = {}) {
   if (!String(taskId ?? "").trim()) {
     throw new Error("Todoist task id is required.");
   }
 
-  const fields = buildTaskFields(input, { requireContent: false, allowTitleOverflow: false });
+  const fields = buildTaskFields(input, {
+    requireContent: false,
+    allowTitleOverflow: false,
+    transportDecoded,
+  });
   const descriptionState = describeUpdateDescription(input, fields.task);
   const payload = buildTodoistTaskPayload(fields.task, { requireContent: false });
 
-  // buildTodoistTaskPayload drops empty values, so an explicit request to clear
-  // the description is re-added here. The preview may only say a field changes
-  // when that field is actually in the wire payload.
-  if (descriptionState === "empty") payload.description = "";
+  if (Object.keys(payload).length === 0) {
+    throw new Error("A Todoist update needs at least one field to change.");
+  }
 
   return {
     mode: "execute_then_confirm",
@@ -107,6 +113,7 @@ export function buildTodoistUpdatePlan(taskId, input = {}) {
 
 export function formatTodoistTaskPlan(plan, { dryRun = false } = {}) {
   const payload = plan.payload ?? {};
+  const descriptionLines = plan.descriptionLines ?? [];
   const lines = [
     dryRun
       ? `Todoist ${plan.command} dry run. Nothing was sent to Todoist.`
@@ -114,9 +121,9 @@ export function formatTodoistTaskPlan(plan, { dryRun = false } = {}) {
     `- Title: ${payload.content ?? "(unchanged)"}`,
   ];
 
-  if (plan.descriptionLines.length > 0) {
+  if (descriptionLines.length > 0) {
     lines.push("- Description:");
-    for (const line of plan.descriptionLines) lines.push(`  | ${line}`);
+    for (const line of descriptionLines) lines.push(`  | ${line}`);
   } else if (plan.descriptionState === "unchanged") {
     lines.push("- Description: (unchanged)");
   } else {
@@ -135,24 +142,23 @@ export function formatTodoistTaskPlan(plan, { dryRun = false } = {}) {
     if (payload[key] !== undefined) lines.push(`- ${label}: ${payload[key]}`);
   }
 
-  if (Array.isArray(payload.labels) && payload.labels.length > 0) {
-    lines.push(`- Labels: ${payload.labels.join(", ")}`);
+  if (Array.isArray(payload.labels)) {
+    lines.push(`- Labels: ${payload.labels.length > 0 ? payload.labels.join(", ") : "(cleared)"}`);
   }
 
-  for (const adjustment of plan.adjustments) lines.push(`- Adjusted: ${adjustment}`);
-  for (const warning of plan.warnings) lines.push(`- Check: ${warning}`);
+  for (const adjustment of plan.adjustments ?? []) lines.push(`- Adjusted: ${adjustment}`);
+  for (const warning of plan.warnings ?? []) lines.push(`- Check: ${warning}`);
 
   return lines.join("\n");
 }
 
-function buildTaskFields(rawInput, { requireContent, allowTitleOverflow }) {
+function buildTaskFields(rawInput, { requireContent, allowTitleOverflow, transportDecoded }) {
   const input = normalizeTaskFieldKeys(rawInput);
   const adjustments = [];
   const warnings = [];
 
-  assertDescriptionType(input.description);
-  const escapedNewlines =
-    hasTransportEscapes(input.content ?? "") || hasTransportEscapes(input.description ?? "");
+  assertStringField(input.description, "description");
+  assertStringField(input.content, "content");
 
   const { title, overflow } = splitTodoistTitle(input.content ?? "");
   if (requireContent && !title) {
@@ -196,7 +202,7 @@ function buildTaskFields(rawInput, { requireContent, allowTitleOverflow }) {
   }
 
   assignOptionalFields(task, input);
-  recordTitleAdjustments({ input, title, overflow, escapedNewlines, adjustments });
+  recordTitleAdjustments({ input, title, overflow, transportDecoded, adjustments });
   recordWarnings({ task, warnings });
 
   return { task, adjustments, warnings };
@@ -239,8 +245,8 @@ function assignOptionalFields(task, input) {
   if (input.labels !== undefined) task.labels = requireLabels(input.labels);
 }
 
-function recordTitleAdjustments({ input, title, overflow, escapedNewlines, adjustments }) {
-  if (escapedNewlines) {
+function recordTitleAdjustments({ input, title, overflow, transportDecoded, adjustments }) {
+  if (transportDecoded) {
     adjustments.push("Converted escaped newline sequences into real line breaks.");
   }
 
@@ -279,10 +285,10 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function assertDescriptionType(description) {
-  if (description === undefined || description === null) return;
-  if (typeof description !== "string") {
-    throw new Error("Todoist task description must be a string.");
+function assertStringField(value, field) {
+  if (value === undefined || value === null) return;
+  if (typeof value !== "string") {
+    throw new Error(`Todoist task ${field} must be a string.`);
   }
 }
 

@@ -21,7 +21,10 @@ export function buildTodoistTaskPayload(input = {}, { requireContent = true } = 
 
   const payload = {};
   for (const [key, value] of Object.entries(input)) {
-    if (value === undefined || value === null || value === "") continue;
+    // Only an absent value is dropped. An empty string is a real instruction to
+    // clear a field, and dropping it would make a preview promise a change the
+    // request never performs.
+    if (value === undefined || value === null) continue;
     payload[taskFieldMap[key] ?? key] = value;
   }
 

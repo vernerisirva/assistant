@@ -13,6 +13,7 @@ import {
   buildExactTodoistUpdatePlan,
   resolveExactTodoistTask,
 } from "./lib/todoist-exact-update.mjs";
+import { normalizeTransportText } from "./lib/todoist-format.mjs";
 import { mergedEnv } from "./lib/env.mjs";
 import { projectPath } from "./lib/config.mjs";
 
@@ -28,6 +29,18 @@ export function parseTodoistArgs(argv) {
   let taskJsonStdin = false;
   let dryRun = false;
   let text = false;
+  let transportDecoded = false;
+
+  /**
+   * Text arriving as a shell argument is the only place an escaped newline is a
+   * quoting artifact rather than a literal the user wrote. Decoding here keeps
+   * JSON input, stdin input, and text read back from Todoist byte-for-byte.
+   */
+  const fromShellArgument = (value) => {
+    const decoded = normalizeTransportText(value);
+    if (decoded !== value) transportDecoded = true;
+    return decoded;
+  };
 
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
@@ -58,10 +71,10 @@ export function parseTodoistArgs(argv) {
         options.filter = value;
         break;
       case "--content":
-        options.content = value;
+        options.content = fromShellArgument(value);
         break;
       case "--description":
-        options.description = value;
+        options.description = fromShellArgument(value);
         break;
       case "--due":
         options.dueString = value;
@@ -88,10 +101,10 @@ export function parseTodoistArgs(argv) {
         options.action = value;
         break;
       case "--detail":
-        options.detail = value;
+        options.detail = fromShellArgument(value);
         break;
       case "--replacement-description":
-        options.replacementDescription = value;
+        options.replacementDescription = fromShellArgument(value);
         break;
       case "--label":
         options.labels = [...(options.labels ?? []), value];
@@ -108,6 +121,7 @@ export function parseTodoistArgs(argv) {
   const parsed = { command, options: mergeTaskJson(taskJson, options), dryRun };
   if (text) parsed.text = true;
   if (taskJsonStdin) parsed.taskJsonStdin = true;
+  if (transportDecoded) parsed.transportDecoded = true;
 
   if (["close", "reopen", "delete", "update"].includes(command) && !parsed.options.taskId) {
     throw new Error("--task-id is required.");
@@ -159,12 +173,16 @@ export async function runTodoistCli(argv, {
     case "tasks":
       return todoist.getTasks(parsed.options);
     case "add": {
-      const plan = buildTodoistCreatePlan(taskInput(parsed.options));
+      const plan = buildTodoistCreatePlan(taskInput(parsed.options), planOptions(parsed));
       const task = await todoist.addTask(plan.payload, { requestId: randomUUID() });
       return { dryRun: false, ...plan, task };
     }
     case "update": {
-      const plan = buildTodoistUpdatePlan(parsed.options.taskId, taskInput(parsed.options));
+      const plan = buildTodoistUpdatePlan(
+        parsed.options.taskId,
+        taskInput(parsed.options),
+        planOptions(parsed),
+      );
       const task = await todoist.updateTask(plan.taskId, plan.payload, {
         requestId: randomUUID(),
       });
@@ -185,7 +203,7 @@ export async function runTodoistCli(argv, {
 
 function dryRunResult(parsed) {
   if (parsed.command === "add") {
-    const plan = buildTodoistCreatePlan(taskInput(parsed.options));
+    const plan = buildTodoistCreatePlan(taskInput(parsed.options), planOptions(parsed));
     return {
       ...plan,
       dryRun: true,
@@ -194,7 +212,11 @@ function dryRunResult(parsed) {
   }
 
   if (parsed.command === "update") {
-    const plan = buildTodoistUpdatePlan(parsed.options.taskId, taskInput(parsed.options));
+    const plan = buildTodoistUpdatePlan(
+      parsed.options.taskId,
+      taskInput(parsed.options),
+      planOptions(parsed),
+    );
     return {
       ...plan,
       dryRun: true,
@@ -209,6 +231,10 @@ function dryRunResult(parsed) {
     payload: null,
     confirmation: `Dry run only. Todoist task ${parsed.options.taskId} was not changed.`,
   };
+}
+
+function planOptions(parsed) {
+  return { transportDecoded: Boolean(parsed.transportDecoded) };
 }
 
 function taskInput(options) {

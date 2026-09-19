@@ -92,17 +92,20 @@ Title (`content`):
 
 Description:
 
-- CRLF becomes LF, escaped newlines from shell transport become real line breaks, and leading/trailing blank lines are removed.
-- Three or more blank lines collapse to one blank line between sections.
+- CRLF becomes LF and leading/trailing blank lines are removed.
+- A run of blank lines collapses to one blank line between sections.
 - Malformed bullet and numbered-list spacing is normalized.
 - Indentation is preserved. List continuation text, nested list content, intentionally indented text, and indented code keep their indentation. The one exception is the first line of a description, where leading whitespace cannot relate to anything above it and is treated as a quoting artifact.
 - Trailing whitespace is removed outside fenced code blocks. Todoist renders real line breaks as line breaks, so a trailing double space is not a hard break there. Inside a fence, whitespace is untouched.
 - Markdown links, bold, italic, headings, numbered lists, tables, indented code, and fenced code blocks are preserved exactly, including whitespace inside fences.
-- A first description line that only repeats the title is dropped; a first line that adds information is kept.
+- A first description line that only repeats the title is dropped; a first line that adds information is kept. A list item is never dropped, even when its text matches the title, so the first step of a checklist survives.
+- Backslashes are never rewritten. A Windows path such as `C:\notes\log.txt`, or a `\n` inside a code block, reaches Todoist exactly as written. Escaped newlines are repaired only for text arriving through the plain `--content` / `--description` / `--detail` shell arguments, and only when every backslash in the value is part of a newline escape. JSON input, stdin input, and text read back from Todoist are never decoded.
 
-A dry run distinguishes a description that is being set, one being explicitly cleared (`(empty)`), and one an update leaves alone (`(unchanged)`). The preview never says a field changes unless that field is in the wire payload.
+A dry run distinguishes a description that is being set, one being explicitly cleared (`(empty)`), and one an update leaves alone (`(unchanged)`). Labels being cleared show as `(cleared)`. The preview never says a field changes unless that field is in the wire payload, and an explicit clear really does reach Todoist as `""`.
 
-Validation rejects empty content, a non-string description, an out-of-range priority, non-string labels, unsupported fields, a title longer than 500 characters, and a description longer than 16384 characters. A multiline title is rejected on `update`, where there is no fetched description to merge it into.
+Title normalization removes heading markers, a leading bullet, and Markdown that wraps the whole title. A leading number is left alone, because `2024. Review the year` is text rather than list syntax.
+
+Validation rejects empty content, a non-string title or description, an out-of-range priority, non-string labels, unsupported fields, a title longer than 500 characters, and a description longer than 16384 characters. A multiline title is rejected on `update`, where there is no fetched description to merge it into, and an update that would change no field at all is rejected too.
 
 ## Approval Rule
 

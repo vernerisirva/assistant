@@ -101,7 +101,7 @@ npm run inbox:debug -- --source screenshot --exact-task-target --complete-detail
 npm run inbox:debug -- --complete-details --target-calendar-clear "Create calendar event Gym on 2026-07-09 at 17:30 for 60 minutes"
 ```
 
-Create a Todoist task. Use `--content` for a one-line task, and `--task-json` as the canonical command whenever the description has more than one line:
+Create a Todoist task. Use `--content` for a one-line task, and `--task-json-stdin` as the canonical command whenever the description has more than one line or the text contains apostrophes or quotes:
 
 ```bash
 npm run todoist -- add --content "Call dad" --due tomorrow --dry-run

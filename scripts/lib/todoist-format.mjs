@@ -7,10 +7,12 @@
  * content, and never removes substantive text.
  */
 
-const FENCE_LINE = /^[ \t]*(`{3,}|~{3,})/;
+const FENCE_LINE = /^[ \t]*(`{3,}|~{3,})(.*)$/;
 const LIST_LINE = /^([-*+]|\d+[.)])[ \t]+(.+)$/;
-const HEADING_MARKER = /^#{1,6}[ \t]+/;
-const LEADING_LIST_MARKER = /^([-*+]|\d+[.)])[ \t]+/;
+// Only bullet markers are stripped from a title. A leading number is usually
+// real text ("2024. Review the year"), so removing it would delete content.
+const LEADING_BULLET_MARKER = /^[-*+][ \t]+/;
+const WRAPPING_BOLD_ITALIC = /^\*\*\*([^*]+)\*\*\*$/;
 const WRAPPING_BOLD = /^\*\*((?:(?!\*\*).)+)\*\*$/;
 const WRAPPING_BOLD_UNDERSCORE = /^__((?:(?!__).)+)__$/;
 const WRAPPING_ITALIC = /^\*([^*]+)\*$/;
@@ -34,7 +36,12 @@ export function normalizeLineEndings(value = "") {
  */
 export function hasTransportEscapes(value = "") {
   const text = String(value);
-  return !text.includes("\n") && text.includes("\\n");
+  if (text.includes("\n") || !text.includes("\\n")) return false;
+
+  // Every backslash must belong to a newline escape. A string that also carries
+  // other backslashes is literal text the user wrote, such as a Windows path
+  // like `C:\notes\todo.txt`, and must not be rewritten.
+  return !text.replace(/\\r\\n/g, "").replace(/\\n/g, "").includes("\\");
 }
 
 export function decodeTransportEscapes(value = "") {
@@ -43,6 +50,12 @@ export function decodeTransportEscapes(value = "") {
   return text.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n");
 }
 
+/**
+ * Applied only at the shell-argument boundary, where an escaped newline is a
+ * quoting artifact. Text from JSON, from stdin, or read back from the Todoist
+ * API keeps every backslash it has, so a path such as `C:\notes\log.txt`
+ * survives normalization unchanged.
+ */
 export function normalizeTransportText(value = "") {
   return decodeTransportEscapes(normalizeLineEndings(value));
 }
@@ -53,7 +66,7 @@ export function normalizeTransportText(value = "") {
  * including their exact whitespace.
  */
 export function normalizeTodoistDescription(description = "") {
-  const lines = normalizeTransportText(description).split("\n");
+  const lines = normalizeLineEndings(description).split("\n");
   const output = [];
   let fence = null;
   let pendingBlankLine = false;
@@ -63,7 +76,7 @@ export function normalizeTodoistDescription(description = "") {
     const fenceMatch = rawLine.match(FENCE_LINE);
 
     if (fence) {
-      if (fenceMatch && closesFence(fence, fenceMatch[1])) fence = null;
+      if (fenceMatch && closesFence(fence, fenceMatch[1], fenceMatch[2])) fence = null;
       output.push(rawLine);
       continue;
     }
@@ -98,7 +111,7 @@ export function normalizeTodoistDescription(description = "") {
  * of dropping text the user wrote.
  */
 export function splitTodoistTitle(content = "") {
-  const lines = normalizeTransportText(content).split("\n");
+  const lines = normalizeLineEndings(content).split("\n");
   const firstIndex = lines.findIndex((line) => line.trim() !== "");
 
   if (firstIndex === -1) return { title: "", overflow: "" };
@@ -113,8 +126,8 @@ export function splitTodoistTitle(content = "") {
 export function normalizeTodoistTitleLine(line = "") {
   const withoutMarkers = String(line)
     .trim()
-    .replace(HEADING_MARKER, "")
-    .replace(LEADING_LIST_MARKER, "")
+    .replace(/^#{1,6}(?:[ \t]+|$)/, "")
+    .replace(LEADING_BULLET_MARKER, "")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -130,6 +143,9 @@ export function dropDuplicateTitleLine(title = "", description = "") {
   const firstIndex = lines.findIndex((line) => line.trim() !== "");
 
   if (firstIndex === -1) return String(description);
+  // A list item is content, even when its text matches the title. Dropping it
+  // would delete the first step of a checklist and misnumber the rest.
+  if (LIST_LINE.test(lines[firstIndex].trimStart())) return String(description);
   if (!isSameStructuralText(title, lines[firstIndex])) return String(description);
 
   return trimBlankEdges(lines.slice(firstIndex + 1)).join("\n");
@@ -145,7 +161,7 @@ export function comparableStructuralText(value = "") {
     .replace(/^\s*([-*+]|\d+[.)])[ \t]+/, "")
     .replace(/[*_`]/g, "")
     .replace(/\s+/g, " ")
-    .replace(/[:.!?]+$/, "")
+    .replace(/[:.]+$/, "")
     .trim()
     .toLowerCase();
 }
@@ -171,8 +187,8 @@ function normalizeDescriptionLine(rawLine, { firstContentLine = false } = {}) {
   const listMatch = body.match(LIST_LINE);
 
   if (listMatch) {
-    const keptIndent = indentWidth(indent) >= NESTED_LIST_INDENT_WIDTH ? indent : "";
-    return `${keptIndent}${listMatch[1]} ${listMatch[2]}`;
+    const nested = indentWidth(indent) >= NESTED_LIST_INDENT_WIDTH && !firstContentLine;
+    return `${nested ? indent : ""}${listMatch[1]} ${listMatch[2]}`;
   }
 
   if (firstContentLine && indentWidth(indent) < CODE_INDENT_WIDTH) return body;
@@ -180,8 +196,12 @@ function normalizeDescriptionLine(rawLine, { firstContentLine = false } = {}) {
   return line;
 }
 
-function closesFence(openFence, candidate) {
-  return candidate[0] === openFence[0] && candidate.length >= openFence.length;
+function closesFence(openFence, candidate, rest) {
+  return (
+    candidate[0] === openFence[0] &&
+    candidate.length >= openFence.length &&
+    String(rest ?? "").trim() === ""
+  );
 }
 
 function trimLineEnd(line) {
@@ -204,6 +224,7 @@ function stripWrappingEmphasis(value) {
 
   for (let pass = 0; pass < 3; pass += 1) {
     const match =
+      current.match(WRAPPING_BOLD_ITALIC) ??
       current.match(WRAPPING_BOLD) ??
       current.match(WRAPPING_BOLD_UNDERSCORE) ??
       current.match(WRAPPING_ITALIC) ??
