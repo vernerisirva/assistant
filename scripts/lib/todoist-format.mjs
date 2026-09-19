@@ -155,9 +155,10 @@ function isSameStructuralText(title, line) {
 /**
  * Leading whitespace only carries meaning relative to a line above it: list
  * continuation text, nested list content, and indented code all depend on it.
- * The first line of a description is the one place where indentation cannot
- * mean any of those things, so that is the only place stray indentation is
- * removed. Everywhere else indentation is preserved as written.
+ * Stray indentation is therefore removed in exactly one place, the first line
+ * of a description, and only when that line is neither a list item nor indented
+ * code. A list line keeps whatever indentation it was written with, because
+ * flattening only the first item would re-nest the rest of the list.
  */
 function normalizeDescriptionLine(rawLine, { firstContentLine = false } = {}) {
   const line = trimLineEnd(rawLine);

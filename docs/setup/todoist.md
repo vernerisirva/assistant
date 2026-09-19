@@ -95,7 +95,7 @@ Description:
 - CRLF becomes LF and leading/trailing blank lines are removed.
 - A run of blank lines collapses to one blank line between sections.
 - Malformed bullet and numbered-list spacing is normalized.
-- Indentation is preserved. List continuation text, nested list content, intentionally indented text, and indented code keep their indentation. The one exception is the first line of a description, where leading whitespace cannot relate to anything above it and is treated as a quoting artifact.
+- Indentation is preserved. List items, list continuation text, nested list content, intentionally indented text, and indented code all keep their indentation. The one exception is the first line of a description when it is ordinary text, where leading whitespace cannot relate to anything above it and is treated as a quoting artifact.
 - Trailing whitespace is removed outside fenced code blocks. Todoist renders real line breaks as line breaks, so a trailing double space is not a hard break there. Inside a fence, whitespace is untouched.
 - Markdown links, bold, italic, headings, numbered lists, tables, indented code, and fenced code blocks are preserved exactly, including whitespace inside fences.
 - A first description line that only repeats the title is dropped; a first line that adds information is kept. A list item is never dropped, even when its text matches the title, so the first step of a checklist survives.
