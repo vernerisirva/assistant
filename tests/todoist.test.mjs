@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
+import { homedir, userInfo } from "node:os";
 import { Readable } from "node:stream";
 import {
   buildTodoistTaskPayload,
@@ -1082,8 +1083,10 @@ describe("shell-safe structured task input", () => {
     assert.ok(payload.description.includes("$HOME"));
     assert.ok(payload.description.includes("$(whoami)"));
     assert.ok(payload.description.includes("`date`"));
-    assert.ok(!payload.description.includes(process.env.HOME));
-    assert.doesNotMatch(payload.description, /\/Users\//);
+    // Compare against values that always exist, so these cannot quietly become
+    // vacuous on a runner where HOME is unset or paths look different.
+    assert.ok(!payload.description.includes(homedir()));
+    assert.ok(!payload.description.includes(userInfo().username));
   });
 
   it("carries multiline text and a code block containing a literal backslash-n", async () => {

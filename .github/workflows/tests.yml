@@ -1,0 +1,50 @@
+name: Tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  # Superseded pull request runs are worth cancelling; a run on a main commit
+  # is not, so two quick merges cannot leave main without a completed run.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: npm test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # npm test runs pull-request-authored code; it has no use for the
+          # checkout token, so it is not left behind in .git/config.
+          persist-credentials: false
+
+      # Matches the "node": ">=24.0.0" engines field in package.json.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      # The project has no dependencies today, so there is nothing to install.
+      # If dependencies are added, committing the lockfile alongside them makes
+      # this step install them. Without a lockfile the import fails loudly in
+      # the test step rather than passing vacuously.
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            echo "No lockfile and no declared dependencies; nothing to install."
+          fi
+
+      # Deterministic gate only. Env validation, config rendering, and the
+      # doctor need real local runtime configuration, and inventing secrets to
+      # make them pass here would make the gate meaningless.
+      - name: Run tests
+        run: npm test
