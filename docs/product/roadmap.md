@@ -13,7 +13,7 @@ Hilla currently has:
 - Risk-tiered approval policy and natural approval language tests.
 - Local OpenClaw config rendering from `.env`, `config/*.json`, and `agents/*/AGENTS.md`.
 - Status, doctor, config-render, and env-validation commands.
-- Todoist helper for projects, task reads, task creation, and task completion.
+- Todoist helper for projects, task reads, task completion, and one normalized task-creation pipeline with a shell-safe structured `--task-json-stdin` interface for multiline descriptions.
 - Min Golf read-only search planning and approval-gated booking-request drafting.
 - Memory helper for explicit local preferences and sensitive-memory approval flow.
 - Routine helpers for morning brief, midday check-in, workout window, evening review, weekly review, routine skips, and scheduled routine cron jobs.
@@ -42,7 +42,7 @@ Focus: make existing routines and task flows more helpful without adding risk.
 
 - Tune routine prompts based on ignored/used check-ins, but do not silently store inferred preferences.
 - Improve weekly review output so it connects Calendar pressure, Todoist pressure, groceries, workouts, and admin follow-ups.
-- Make Todoist read/update flows easier for exact low-risk task changes.
+- Make Todoist read/update flows easier for exact low-risk task changes. Creation formatting is done; conversational target/confirmation wording is the remaining part.
 - Improve memory review and cleanup so preferences stay useful and small.
 - Add better research handoffs for nutrition lookup, product/travel comparisons, and local errands while preserving citations.
 

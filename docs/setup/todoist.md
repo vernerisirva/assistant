@@ -52,6 +52,62 @@ npm run todoist -- close --task-id TASK_ID
 
 `exact-update` first resolves exactly one task by `--task-id` or exact `--match-content`. If more than one task matches, it returns `clarification_needed` instead of guessing.
 
+## Creating A Task
+
+`--content` plus optional `--due`, `--label`, `--priority`, `--project-id`, and `--section-id` is enough for a one-line task.
+
+The canonical command for anything with a multiline description, an apostrophe, or quotes is `--task-json-stdin` with a quoted heredoc:
+
+```bash
+npm run todoist -- add --task-json-stdin --dry-run --text <<'JSON'
+{
+  "content": "Review AI research updates",
+  "description": "Goal:\nFind 1-3 AI/LLM updates worth reading or testing.\n\nSources:\n- [Hugging Face Daily Papers](https://huggingface.co/papers)\n- [arXiv cs.CL](https://arxiv.org/list/cs.CL/recent)\n\nDone when:\n- One useful paper is identified.",
+  "dueString": "tomorrow"
+}
+JSON
+```
+
+The task text never enters a shell argument, so nothing in it can break the quoting. The quoted `<<'JSON'` delimiter passes the body literally, so `$HOME`, `$(command)`, and backticks stay literal. `\n` in the JSON becomes a real line break before the payload reaches Todoist.
+
+`--task-json '{...}'` is kept for backwards compatibility and is fine for simple text, but a single apostrophe such as `Call O'Connor` breaks the surrounding single-quoted argument, so prefer stdin for anything user-supplied. Never hand-escape multiline Markdown into a plain `--description` argument: the command refuses a literal `\n` there and tells you to use stdin.
+
+Individual flags, `--task-json`, and `--task-json-stdin` all feed the same normalization and plan builder, and an explicit flag wins over the same field in the JSON. `--task-json` and `--task-json-stdin` cannot be combined. Invalid or empty stdin fails with a clear error and sends nothing.
+
+`--dry-run` prints the exact payload without calling Todoist. Add `--text` for a readable preview that shows the description line by line plus any `Adjusted:` and `Check:` notes. The dry-run payload is byte-for-byte what a real `add` sends.
+
+Supported `--task-json` fields: `content`, `description`, `dueString`, `dueLang`, `priority`, `projectId`, `sectionId`, `parentId`, `labels`, `deadlineDate`. Common aliases such as `due`, `due_string`, and `project_id` are accepted. Anything else is rejected instead of being forwarded to Todoist.
+
+## Task Formatting
+
+One pipeline in `scripts/lib/todoist-create.mjs` builds every creation payload, using the shared primitives in `scripts/lib/todoist-format.mjs`. The exact-update formatting cleanup uses the same primitives, so `add` and `update` cannot drift apart.
+
+Title (`content`):
+
+- One short actionable line naming the task.
+- Headings, leading bullets, and Markdown that only wraps the whole title are removed.
+- Extra title lines are moved into the description rather than dropped.
+- Whitespace is collapsed; wording is never rewritten.
+- A URL in the title, a title repeating the due date, and a very long title produce a `Check:` warning, not a silent edit.
+
+Description:
+
+- CRLF becomes LF and leading/trailing blank lines are removed.
+- A run of blank lines collapses to one blank line between sections.
+- Malformed bullet and numbered-list spacing is normalized.
+- Indentation is preserved. List items, list continuation text, nested list content, intentionally indented text, and indented code all keep their indentation. The one exception is the first line of a description when it is ordinary text, where leading whitespace cannot relate to anything above it and is treated as a quoting artifact.
+- Trailing whitespace is removed outside fenced code blocks. Todoist renders real line breaks as line breaks, so a trailing double space is not a hard break there. Inside a fence, whitespace is untouched.
+- Markdown links, bold, italic, headings, numbered lists, tables, indented code, and fenced code blocks are preserved exactly, including whitespace inside fences.
+- A first description line that only repeats the title is dropped; a first line that adds information is kept. A list item is never dropped, even when its text matches the title, so the first step of a checklist survives.
+- Backslashes are never rewritten, anywhere. A Windows path such as `C:\notes\log.txt`, a regex, or a `\n` inside a code block reaches Todoist exactly as written, whether it came from JSON, from stdin, or was read back from Todoist.
+- A literal `\n` in a plain `--content` / `--description` / `--detail` / `--replacement-description` shell argument is ambiguous: it is either multiline text that lost its line breaks in quoting, or a backslash the user actually wrote. The command refuses the value and names the stdin interface rather than guessing, so Todoist never receives a literal `\n` meant as a line break and never loses a backslash meant literally. Pass such text as JSON on stdin.
+
+A dry run distinguishes a description that is being set, one being explicitly cleared (`(empty)`), and one an update leaves alone (`(unchanged)`). Labels being cleared show as `(cleared)`. The preview never says a field changes unless that field is in the wire payload, and an explicit clear really does reach Todoist as `""`.
+
+Title normalization removes heading markers, a leading bullet, and Markdown that wraps the whole title. A leading number is left alone, because `2024. Review the year` is text rather than list syntax.
+
+Validation rejects empty content, a non-string title or description, an out-of-range priority, non-string labels, unsupported fields, a title longer than 500 characters, and a description longer than 16384 characters. A multiline title is rejected on `update`, where there is no fetched description to merge it into, and an update that would change no field at all is rejected too.
+
 ## Approval Rule
 
 Reading configured Todoist tasks and projects is allowed. Creating a task is allowed without a second approval only when the user explicitly asks, task content and due date/project are complete and unambiguous, the action is additive, and the task is easy to undo.
