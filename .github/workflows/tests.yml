@@ -1,0 +1,42 @@
+name: Tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: npm test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Matches the "node": ">=24.0.0" engines field in package.json.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      # The project has no dependencies today, so there is nothing to install.
+      # The lockfile branch keeps this correct if dependencies are added later.
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            echo "No lockfile and no declared dependencies; nothing to install."
+          fi
+
+      # Deterministic gate only. Env validation, config rendering, and the
+      # doctor need real local runtime configuration, and inventing secrets to
+      # make them pass here would make the gate meaningless.
+      - name: Run tests
+        run: npm test

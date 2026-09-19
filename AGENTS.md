@@ -30,6 +30,11 @@ npm run render:config
 npm run doctor
 ```
 
+`npm test` also runs in GitHub Actions on every pull request targeting `main`
+and on every push to `main`. That workflow is the deterministic gate; the env,
+config, and doctor checks stay local because they need real runtime
+configuration and must not be faked in CI.
+
 Useful read-only runtime checks:
 
 ```bash
