@@ -68,8 +68,13 @@ function compareField(field, value, task) {
       return comparableTaskTitle(value) === comparableTaskTitle(stored) ? "equal" : "different";
     }
 
-    case "due_lang":
-      return String(value) === String(task.due?.lang ?? "") ? "equal" : "different";
+    case "due_lang": {
+      // Same rule as the due text: a language the task never reported is not
+      // an empty one.
+      const stored = task.due?.lang;
+      if (typeof stored !== "string") return "undetermined";
+      return String(value) === stored ? "equal" : "different";
+    }
 
     default:
       return "undetermined";

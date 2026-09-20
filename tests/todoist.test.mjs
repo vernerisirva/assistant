@@ -2889,6 +2889,31 @@ describe("Todoist no-op updates", () => {
     );
   });
 
+  it("claims equality from no absent field at all", () => {
+    // Every field in compareField follows one rule: a value the task did not
+    // report cannot be compared, so the update is sent.
+    const bare = { id: "t" };
+
+    for (const payload of [
+      { content: "x" },
+      { description: "x" },
+      { priority: 2 },
+      { project_id: null },
+      { section_id: null },
+      { parent_id: null },
+      { labels: ["a"] },
+      { due_string: "tomorrow" },
+      { due_lang: "en" },
+      { deadline: "2026-09-21" },
+    ]) {
+      assert.equal(
+        detectTodoistNoop(payload, bare).noop,
+        false,
+        `${Object.keys(payload)[0]} must not be called equal on a task that never reported it`,
+      );
+    }
+  });
+
   it("keeps every other outcome distinguishable", () => {
     const messy = { id: "t", content: "AI video", description: "  messy  " };
 
