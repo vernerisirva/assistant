@@ -1,4 +1,4 @@
-import { normalizeTodoistDescription } from "./todoist-format.mjs";
+import { comparableTaskTitle, normalizeTodoistDescription } from "./todoist-format.mjs";
 
 const approvalRequiredActions = new Set([
   "delete",
@@ -167,11 +167,7 @@ function clarify(reason) {
   };
 }
 
-/**
- * Exact task-target matching stays strict on purpose: only surrounding and
- * repeated whitespace plus letter case are ignored. Markdown markers and
- * punctuation still have to match so task targeting never becomes fuzzy.
- */
+/** Exact task-target matching uses the shared strict title comparator. */
 function normalizeComparableText(value = "") {
-  return String(value).trim().replace(/\s+/g, " ").toLowerCase();
+  return comparableTaskTitle(value);
 }

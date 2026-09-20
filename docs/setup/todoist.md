@@ -78,6 +78,87 @@ Individual flags, `--task-json`, and `--task-json-stdin` all feed the same norma
 
 Supported `--task-json` fields: `content`, `description`, `dueString`, `dueLang`, `priority`, `projectId`, `sectionId`, `parentId`, `labels`, `deadlineDate`. Common aliases such as `due`, `due_string`, and `project_id` are accepted. Anything else is rejected instead of being forwarded to Todoist.
 
+## Duplicate Detection
+
+Every `add` reads the open tasks first and refuses to create a second copy of a
+task that already exists. The read always happens before the create; a create is
+only sent once the check passes.
+
+What counts as a duplicate is deliberately narrow. The normalized title from the
+creation plan must match an open task's title exactly, ignoring only letter case
+and repeated whitespace. Punctuation, wording and Markdown all still have to
+match, and there is no fuzzy distance, no embedding and no model judgement:
+wrongly blocking a genuinely new task is worse than missing a vague duplicate.
+Completed and deleted tasks are ignored.
+
+Due dates are compared only as faithfully as the API allows. A new task carries
+a natural-language `due_string`, while Todoist stores the resolved `due.date`
+and the original `due.string`. Comparing those two strings reflects what was
+asked for without inventing date equivalence, so `tomorrow` is never treated as
+equal to the date it happens to resolve to.
+
+| Request | Existing task with the same title | Result |
+| --- | --- | --- |
+| no due date | no due date | duplicate, nothing created |
+| same due text | same due text | duplicate, nothing created |
+| has a due date | no due date | uncertain, nothing created |
+| no due date | has a due date | uncertain, nothing created |
+| different due text | different due text | uncertain, nothing created |
+| carries a deadline | any | uncertain, nothing created |
+
+A recurring task never silently blocks a one-off request with the same title.
+Because the request's natural-language due date is not resolved locally, timing
+overlap cannot be determined, so a recurring match is reported as uncertain
+unless the due text is identical, in which case it is the same request and
+counts as a duplicate.
+
+Uncertainty and failure both fail closed. An uncertain match returns a
+clarification naming the existing tasks rather than guessing either way, and a
+failed read reports that the check could not run. A read failure never becomes
+"no duplicate found", and nothing is created in either case.
+
+Duplicate handling never writes. It cannot update, complete, reopen, delete,
+move or reschedule an existing task; the only possible outcomes are creating the
+new task or creating nothing.
+
+On a dry run the read-only check still runs when a token is configured, and
+still never posts. Without a token the output says
+`Duplicate check not performed in dry-run mode.` rather than implying a
+duplicate was ruled out.
+
+A finished task never blocks a new one. Completion is read from every field the
+Todoist API family uses, so `checked`, `is_completed` and `completed_at` all
+count. A read that is not a list of tasks is a failed check rather than an empty
+one, and if individual entries in an otherwise valid list cannot be read, the
+result is uncertain rather than "no duplicate", because the unreadable part
+could have held the match.
+
+When the result is uncertain, the message names the actual cause: differing due
+text, a due date on only one side, a recurring existing task, or a deadline that
+cannot be compared. It never blames the due date for something else.
+
+### Known limitation: the check is not atomic
+
+The read and the create are two separate requests, so two creates issued
+genuinely concurrently can both pass the check and both succeed. This is not
+fixed in v1, deliberately: Todoist's REST API offers no idempotency key to build
+on, and a local lock would introduce a stale-lock failure mode that blocks
+legitimate task creation, which is worse than the duplicate it prevents. The
+failure this guard is built for is sequential — the same request arriving twice,
+or a retry after uncertainty — and Hilla processes Telegram messages one at a
+time. If concurrent creation ever becomes real, the fix belongs at the point
+where requests are dispatched, not here.
+
+### Duplicate detection is not API idempotency
+
+Each create sends a fresh `X-Request-Id`. Todoist's REST API does not document
+that header as an idempotency key — the Sync API has per-command UUIDs instead —
+and a freshly generated id could not deduplicate a retry even if it did. Request
+ids are therefore not a duplicate defence, and duplicate detection is not a
+substitute for transport-level retry safety. The title-and-due check above is
+what prevents a second copy of a task, across separate requests as well as
+retries.
+
 ## Task Formatting
 
 One pipeline in `scripts/lib/todoist-create.mjs` builds every creation payload, using the shared primitives in `scripts/lib/todoist-format.mjs`. The exact-update formatting cleanup uses the same primitives, so `add` and `update` cannot drift apart.

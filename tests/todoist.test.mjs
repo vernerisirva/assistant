@@ -26,16 +26,26 @@ import {
   normalizeTodoistDescription,
   splitTodoistTitle,
 } from "../scripts/lib/todoist-format.mjs";
+import {
+  describeDuplicateOutcome,
+  findTodoistDuplicates,
+} from "../scripts/lib/todoist-duplicates.mjs";
 import { parseTodoistArgs, runTodoistCli } from "../scripts/todoist.mjs";
 
-function recordingClient(calls, response = { id: "task-new", content: "Created" }) {
+function recordingClient(calls, response = { id: "task-new", content: "Created" }, openTasks = []) {
   return createTodoistClient({
     token: "todoist-secret",
     fetchImpl: async (url, options) => {
-      calls.push({ url, options, body: JSON.parse(options.body ?? "null") });
-      return jsonResponse(response);
+      const method = options.method ?? "GET";
+      calls.push({ url, options, method, body: JSON.parse(options.body ?? "null") });
+      return jsonResponse(method === "GET" ? { results: openTasks } : response);
     },
   });
+}
+
+/** The create POST, so a test cannot accidentally assert on the duplicate-check read. */
+function postCalls(calls) {
+  return calls.filter((call) => call.method === "POST");
 }
 
 function stdinOf(value) {
@@ -792,13 +802,13 @@ describe("Todoist multiline transport", () => {
 
     const result = await runTodoistCli(args, { client: recordingClient(calls) });
 
-    assert.equal(calls[0].body.content, "Review AI research updates");
+    assert.equal(postCalls(calls)[0].body.content, "Review AI research updates");
     assert.equal(
-      calls[0].body.description,
+      postCalls(calls)[0].body.description,
       "Goal:\nFind 1-3 updates.\n\nSources:\n- Hugging Face",
     );
-    assert.equal(calls[0].body.due_string, "tomorrow");
-    assert.ok(!JSON.stringify(calls[0].body).includes("\\\\n"));
+    assert.equal(postCalls(calls)[0].body.due_string, "tomorrow");
+    assert.ok(!JSON.stringify(postCalls(calls)[0].body).includes("\\\\n"));
     assert.equal(result.dryRun, false);
     assert.equal(result.confirmation, 'Created the Todoist task "Review AI research updates".');
   });
@@ -820,7 +830,7 @@ describe("Todoist multiline transport", () => {
       stdin: stdinOf({ content: "Lunch plan", description: "Step one\nStep two" }),
     });
 
-    const sent = calls[0].body.description;
+    const sent = postCalls(calls)[0].body.description;
     assert.equal(sent, "Step one\nStep two");
     assert.ok(!sent.includes("\\n"));
   });
@@ -894,7 +904,7 @@ describe("Todoist creation dry run", () => {
     const calls = [];
     await runTodoistCli(args, { client: recordingClient(calls) });
 
-    assert.deepEqual(calls[0].body, dryRun.payload);
+    assert.deepEqual(postCalls(calls)[0].body, dryRun.payload);
     assert.deepEqual(dryRun.payload, {
       content: "Prepare Tobias meeting",
       description: "- Time estimate\n\nTopics:\n- Time estimate\n\nOutcome:\nAgree the next step.",
@@ -904,15 +914,19 @@ describe("Todoist creation dry run", () => {
     });
   });
 
-  it("makes no Todoist call on a dry run", async () => {
+  it("never posts on a dry run, and performs the read-only duplicate check", async () => {
     const calls = [];
     const result = await runTodoistCli([...args, "--dry-run"], {
       client: recordingClient(calls),
     });
 
-    assert.equal(calls.length, 0);
+    assert.deepEqual(postCalls(calls), []);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, "GET");
     assert.equal(result.dryRun, true);
+    assert.equal(result.duplicateCheck.status, "none");
     assert.match(result.confirmation, /^Dry run only\. No Todoist task was created/);
+    assert.match(result.confirmation, /No matching open task was found\./);
   });
 
   it("makes no Todoist call on a dry-run update or completion", async () => {
@@ -1161,9 +1175,9 @@ describe("shell-safe structured task input", () => {
       stdin: stdinOf(task),
     });
 
-    assert.deepEqual(calls[0].body, dryRun.payload);
-    assert.equal(calls[0].body.content, "Call O'Connor");
-    assert.ok(calls[0].body.description.includes("$HOME"));
+    assert.deepEqual(postCalls(calls)[0].body, dryRun.payload);
+    assert.equal(postCalls(calls)[0].body.content, "Call O'Connor");
+    assert.ok(postCalls(calls)[0].body.description.includes("$HOME"));
   });
 
   it("lets explicit flags override stdin input", async () => {
@@ -1558,5 +1572,520 @@ describe("normalization never deletes user content", () => {
       () => buildTodoistCreatePlan({ content: ["x", "y"] }),
       /content must be a string/,
     );
+  });
+});
+
+describe("Todoist duplicate guard", () => {
+  /** Shaped like the real API response: due is an object or null. */
+  function openTask(content, due = null, extra = {}) {
+    return {
+      id: extra.id ?? "task-" + content.length,
+      content,
+      description: "",
+      due,
+      deadline: null,
+      labels: [],
+      priority: 1,
+      project_id: "project-1",
+      section_id: null,
+      checked: false,
+      is_deleted: false,
+      ...extra,
+    };
+  }
+
+  function due(string, date, isRecurring = false) {
+    return { date, string, lang: "en", is_recurring: isRecurring, timezone: null };
+  }
+
+  const payload = (content, dueString) => {
+    const built = { content };
+    if (dueString) built.due_string = dueString;
+    return built;
+  };
+
+  it("finds nothing when no open task shares the title", () => {
+    const result = findTodoistDuplicates(payload("Call dad"), [
+      openTask("Buy oats"),
+      openTask("Call mum"),
+    ]);
+
+    assert.equal(result.status, "none");
+    assert.deepEqual(result.matches, []);
+  });
+
+  it("treats a case-only difference as the same title", () => {
+    assert.equal(findTodoistDuplicates(payload("call DAD"), [openTask("Call dad")]).status, "duplicate");
+  });
+
+  it("treats a whitespace-only difference as the same title", () => {
+    assert.equal(
+      findTodoistDuplicates(payload("  Call   dad "), [openTask("Call dad")]).status,
+      "duplicate",
+    );
+  });
+
+  it("keeps a punctuation difference distinct, because it can change meaning", () => {
+    for (const existing of ["Call dad?", "Call dad!", "Call dad."]) {
+      assert.equal(
+        findTodoistDuplicates(payload("Call dad"), [openTask(existing)]).status,
+        "none",
+        existing,
+      );
+    }
+  });
+
+  it("ignores completed and deleted tasks", () => {
+    const result = findTodoistDuplicates(payload("Call dad"), [
+      openTask("Call dad", null, { checked: true, id: "done" }),
+      openTask("Call dad", null, { is_deleted: true, id: "gone" }),
+    ]);
+
+    assert.equal(result.status, "none");
+  });
+
+  describe("due date semantics", () => {
+    it("same title and same due text is a duplicate", () => {
+      const result = findTodoistDuplicates(
+        payload("Call dad", "tomorrow"),
+        [openTask("Call dad", due("tomorrow", "2026-09-21"))],
+      );
+
+      assert.equal(result.status, "duplicate");
+      assert.equal(result.matches[0].dueComparison, "same");
+      assert.equal(result.matches[0].dueDate, "2026-09-21");
+      assert.equal(result.matches[0].dueString, "tomorrow");
+    });
+
+    it("same title and neither has a due date is a duplicate", () => {
+      const result = findTodoistDuplicates(payload("Call dad"), [openTask("Call dad", null)]);
+
+      assert.equal(result.status, "duplicate");
+      assert.equal(result.matches[0].dueComparison, "same");
+      assert.equal(result.matches[0].dueDate, null);
+    });
+
+    it("same title with one due date missing is uncertain, not a duplicate", () => {
+      const requestHasDue = findTodoistDuplicates(
+        payload("Call dad", "tomorrow"),
+        [openTask("Call dad", null)],
+      );
+      const existingHasDue = findTodoistDuplicates(
+        payload("Call dad"),
+        [openTask("Call dad", due("friday", "2026-09-25"))],
+      );
+
+      assert.equal(requestHasDue.status, "uncertain");
+      assert.equal(existingHasDue.status, "uncertain");
+    });
+
+    it("same title with clearly different due text is uncertain, not a duplicate", () => {
+      const result = findTodoistDuplicates(
+        payload("Call dad", "tomorrow"),
+        [openTask("Call dad", due("next monday", "2026-09-28"))],
+      );
+
+      assert.equal(result.status, "uncertain");
+      assert.equal(result.matches[0].dueComparison, "due_text_differs");
+    });
+
+    it("never resolves natural language into a date comparison", () => {
+      // "tomorrow" and the date it resolves to are not treated as equal, because
+      // the harness must not invent date equivalence.
+      const result = findTodoistDuplicates(
+        payload("Call dad", "tomorrow"),
+        [openTask("Call dad", due("2026-09-21", "2026-09-21"))],
+      );
+
+      assert.equal(result.status, "uncertain");
+    });
+
+    it("does not treat a request carrying a deadline as plainly matching", () => {
+      const result = findTodoistDuplicates(
+        { content: "Call dad", deadline_date: "2026-09-30" },
+        [openTask("Call dad", null)],
+      );
+
+      assert.equal(result.status, "uncertain");
+    });
+  });
+
+  describe("recurring tasks", () => {
+    it("does not let a recurring task block a one-off request with the same title", () => {
+      const result = findTodoistDuplicates(
+        payload("Water the plants", "tomorrow"),
+        [openTask("Water the plants", due("every day", "2026-09-21", true))],
+      );
+
+      assert.equal(result.status, "uncertain");
+      assert.equal(result.matches[0].recurring, true);
+    });
+
+    it("does not let a recurring task block a request with no due date", () => {
+      const result = findTodoistDuplicates(
+        payload("Water the plants"),
+        [openTask("Water the plants", due("every day", "2026-09-21", true))],
+      );
+
+      assert.equal(result.status, "uncertain");
+    });
+
+    it("treats an identical recurring request as a duplicate", () => {
+      const result = findTodoistDuplicates(
+        payload("Water the plants", "every day"),
+        [openTask("Water the plants", due("every day", "2026-09-21", true))],
+      );
+
+      assert.equal(result.status, "duplicate");
+    });
+  });
+
+  it("reports every match when several tasks share the title", () => {
+    const result = findTodoistDuplicates(payload("Call dad"), [
+      openTask("Call dad", null, { id: "a" }),
+      openTask("call dad", null, { id: "b" }),
+    ]);
+
+    assert.equal(result.status, "duplicate");
+    assert.equal(result.matches.length, 2);
+    assert.deepEqual(result.matches.map((match) => match.id), ["a", "b"]);
+    assert.match(describeDuplicateOutcome(result), /2 matching Todoist tasks already exist/);
+  });
+
+  it("describes each outcome in one concise sentence, naming the real cause", () => {
+    assert.match(
+      describeDuplicateOutcome({ status: "duplicate", matches: [{}] }),
+      /already exists, so nothing was created/,
+    );
+
+    const causes = {
+      due_text_differs: /its due date differs/,
+      request_due_missing: /existing task has a due date and this request does not/,
+      existing_due_missing: /this request has a due date and the existing task does not/,
+      deadline_unsupported: /carries a deadline, which cannot be compared/,
+      recurring_existing: /existing task recurs, so the timing may not overlap/,
+    };
+
+    for (const [dueComparison, pattern] of Object.entries(causes)) {
+      const message = describeDuplicateOutcome({
+        status: "uncertain",
+        matches: [{ dueComparison }],
+      });
+
+      assert.match(message, pattern, dueComparison);
+      assert.match(message, /Confirm whether you want another one/);
+    }
+
+    // A deadline mismatch must not be described as a due-date difference.
+    assert.doesNotMatch(
+      describeDuplicateOutcome({ status: "uncertain", matches: [{ dueComparison: "deadline_unsupported" }] }),
+      /due date differs/,
+    );
+  });
+});
+
+describe("Todoist duplicate guard through the CLI", () => {
+  const args = ["add", "--content", "Call dad"];
+
+  function clientWith(openTasks, calls, response = { id: "new", content: "Call dad" }) {
+    return recordingClient(calls, response, openTasks);
+  }
+
+  function existing(content, due = null, id = "existing-1") {
+    return { id, content, due, checked: false, is_deleted: false, project_id: "p1", labels: [] };
+  }
+
+  it("reads before it writes, and creates when nothing matches", async () => {
+    const calls = [];
+    const result = await runTodoistCli(args, { client: clientWith([existing("Buy oats")], calls) });
+
+    assert.equal(calls[0].method, "GET", "the duplicate check must happen first");
+    assert.equal(calls[1].method, "POST", "the create must come second");
+    assert.equal(result.duplicateCheck.status, "none");
+    assert.equal(result.task.id, "new");
+    assert.match(result.confirmation, /^Created the Todoist task/);
+  });
+
+  it("does not post when an exact duplicate exists", async () => {
+    const calls = [];
+    const result = await runTodoistCli(args, { client: clientWith([existing("Call dad")], calls) });
+
+    assert.deepEqual(postCalls(calls), [], "no task may be created");
+    assert.equal(result.mode, "clarify");
+    assert.equal(result.task, null);
+    assert.match(result.reason, /already exists, so nothing was created/);
+    assert.equal(result.matches[0].id, "existing-1");
+    assert.equal(result.matches[0].content, "Call dad");
+  });
+
+  it("does not post when several duplicates exist, and names them all", async () => {
+    const calls = [];
+    const result = await runTodoistCli(args, {
+      client: clientWith([existing("Call dad", null, "a"), existing("CALL DAD", null, "b")], calls),
+    });
+
+    assert.deepEqual(postCalls(calls), []);
+    assert.deepEqual(result.matches.map((match) => match.id), ["a", "b"]);
+  });
+
+  it("does not post when the due comparison is uncertain", async () => {
+    const calls = [];
+    const result = await runTodoistCli(["add", "--content", "Call dad", "--due", "tomorrow"], {
+      client: clientWith(
+        [existing("Call dad", { date: "2026-09-28", string: "next monday", is_recurring: false })],
+        calls,
+      ),
+    });
+
+    assert.deepEqual(postCalls(calls), []);
+    assert.equal(result.duplicateCheck.status, "uncertain");
+    assert.match(result.reason, /Confirm whether you want another one/);
+  });
+
+  it("never touches an existing task while handling a duplicate", async () => {
+    const forbidden = [];
+    const client = {
+      async getTasks() { return [existing("Call dad")]; },
+      async addTask() { forbidden.push("addTask"); return {}; },
+      async updateTask() { forbidden.push("updateTask"); return {}; },
+      async closeTask() { forbidden.push("closeTask"); return true; },
+      async reopenTask() { forbidden.push("reopenTask"); return true; },
+      async deleteTask() { forbidden.push("deleteTask"); return true; },
+    };
+
+    const result = await runTodoistCli(args, { client });
+
+    assert.deepEqual(forbidden, [], "duplicate handling must not write anything");
+    assert.equal(result.mode, "clarify");
+  });
+
+  it("fails closed when the duplicate-check read fails", async () => {
+    const calls = [];
+    const client = {
+      async getTasks() { throw new Error("Todoist API request failed: 503"); },
+      async addTask() { calls.push("addTask"); return {}; },
+    };
+
+    const result = await runTodoistCli(args, { client });
+
+    assert.deepEqual(calls, [], "a failed read must never become a create");
+    assert.equal(result.duplicateCheck.status, "read_failed");
+    assert.equal(result.mode, "clarify");
+    assert.match(result.reason, /Could not check for existing Todoist tasks, so nothing was created/);
+    assert.doesNotMatch(result.reason, /No matching/);
+  });
+
+  it("reports a duplicate on a dry run without posting", async () => {
+    const calls = [];
+    const result = await runTodoistCli([...args, "--dry-run"], {
+      client: clientWith([existing("Call dad")], calls),
+    });
+
+    assert.deepEqual(postCalls(calls), []);
+    assert.equal(result.dryRun, true);
+    assert.equal(result.duplicateCheck.status, "duplicate");
+    assert.match(result.reason, /already exists/);
+  });
+
+  it("says plainly when a dry run could not check for duplicates", async () => {
+    const result = await runTodoistCli([...args, "--dry-run"], { env: {} });
+
+    assert.equal(result.dryRun, true);
+    assert.equal(result.duplicateCheck.status, "unchecked");
+    assert.match(result.confirmation, /Duplicate check not performed in dry-run mode\./);
+    assert.doesNotMatch(result.confirmation, /No matching open task was found/);
+  });
+
+  it("sends a fresh request id per create, which cannot dedupe across requests", async () => {
+    const seen = [];
+    const client = {
+      async getTasks() { return []; },
+      async addTask(_payload, options) { seen.push(options.requestId); return { id: "x" }; },
+    };
+
+    await runTodoistCli(args, { client });
+    await runTodoistCli(args, { client });
+
+    assert.equal(seen.length, 2);
+    assert.notEqual(seen[0], seen[1], "request ids are per call, so they are not a duplicate defence");
+  });
+});
+
+describe("duplicate status in the readable preview", () => {
+  const plan = { command: "add", payload: { content: "Call dad" }, descriptionLines: [], adjustments: [], warnings: [], confirmation: "c" };
+
+  it("says when no matching task was found", () => {
+    const text = formatTodoistTaskPlan({ ...plan, duplicateCheck: { status: "none", matches: [] } }, { dryRun: true });
+    assert.match(text, /- Duplicate check: no matching open task found/);
+  });
+
+  it("says when the check was not performed, never that it passed", () => {
+    const text = formatTodoistTaskPlan({ ...plan, duplicateCheck: { status: "unchecked", matches: [] } }, { dryRun: true });
+    assert.match(text, /- Duplicate check: not performed in dry-run mode/);
+    assert.doesNotMatch(text, /no matching open task found/);
+  });
+
+  it("says when the check failed, never that it passed", () => {
+    const text = formatTodoistTaskPlan({ ...plan, duplicateCheck: { status: "read_failed", matches: [] } }, { dryRun: true });
+    assert.match(text, /could not be performed, so nothing was created/);
+    assert.doesNotMatch(text, /no matching open task found/);
+  });
+
+  it("names the matched tasks", () => {
+    const text = formatTodoistTaskPlan({
+      ...plan,
+      duplicateCheck: { status: "duplicate", matches: [{ id: "a", content: "Call dad", dueString: "tomorrow" }] },
+    }, { dryRun: true });
+
+    assert.match(text, /matched 1 existing task: Call dad \(due tomorrow\)/);
+  });
+
+  it("distinguishes an uncertain due-date match", () => {
+    const text = formatTodoistTaskPlan({
+      ...plan,
+      duplicateCheck: { status: "uncertain", matches: [{ id: "a", content: "Call dad", dueString: "friday" }] },
+    }, { dryRun: true });
+
+    assert.match(text, /different due date: Call dad \(due friday\)/);
+  });
+
+  it("omits the line entirely when there was no check to report", () => {
+    assert.doesNotMatch(formatTodoistTaskPlan(plan, { dryRun: true }), /Duplicate check/);
+  });
+});
+
+describe("duplicate guard fails closed on bad reads and finished tasks", () => {
+  const args = ["add", "--content", "Call dad"];
+
+  it("ignores a completed task whichever completion field the API uses", () => {
+    for (const finished of [
+      { checked: true },
+      { is_completed: true },
+      { completed_at: "2026-09-19T10:00:00Z" },
+      { is_deleted: true },
+    ]) {
+      const result = findTodoistDuplicates({ content: "Call dad" }, [
+        { id: "x", content: "Call dad", due: null, ...finished },
+      ]);
+
+      assert.equal(result.status, "none", JSON.stringify(finished));
+    }
+  });
+
+  it("still matches an open task that carries the completion fields as false", () => {
+    const result = findTodoistDuplicates({ content: "Call dad" }, [
+      { id: "x", content: "Call dad", due: null, checked: false, is_completed: false, completed_at: null },
+    ]);
+
+    assert.equal(result.status, "duplicate");
+  });
+
+  it("refuses to judge a read that is not a list of tasks", () => {
+    for (const bad of [undefined, null, {}, { results: [] }, "tasks", 7]) {
+      assert.throws(
+        () => findTodoistDuplicates({ content: "Call dad" }, bad),
+        /needs a list of tasks/,
+        JSON.stringify(bad) ?? "undefined",
+      );
+    }
+  });
+
+  it("treats a malformed read as a failed check and never creates", async () => {
+    for (const malformed of [undefined, null, { unexpected: true }]) {
+      const posted = [];
+      const client = {
+        async getTasks() { return malformed; },
+        async addTask() { posted.push("addTask"); return { id: "x" }; },
+      };
+
+      const result = await runTodoistCli(args, { client });
+
+      assert.deepEqual(posted, [], "a malformed read must never become a create");
+      assert.equal(result.duplicateCheck.status, "read_failed");
+      assert.equal(result.mode, "clarify");
+      assert.match(result.reason, /Could not check for existing Todoist tasks/);
+    }
+  });
+
+  it("reports a malformed read as unusable in the readable preview", async () => {
+    const result = await runTodoistCli([...args, "--dry-run"], {
+      client: { async getTasks() { return null; } },
+    });
+
+    const text = formatTodoistTaskPlan(result, { dryRun: true });
+    assert.match(text, /could not be performed, so nothing was created/);
+    assert.doesNotMatch(text, /no matching open task found/);
+  });
+});
+
+describe("unreadable entries and honest uncertainty reasons", () => {
+  const args = ["add", "--content", "Call dad"];
+
+  it("does not claim no duplicate when part of the list was unreadable", () => {
+    for (const bad of [null, {}, "task", 7, []]) {
+      const result = findTodoistDuplicates({ content: "Call dad" }, [
+        { id: "a", content: "Buy oats", due: null },
+        bad,
+      ]);
+
+      assert.equal(result.status, "uncertain", JSON.stringify(bad));
+      assert.equal(result.unreadableEntries, 1);
+      assert.deepEqual(result.matches, []);
+      assert.match(describeDuplicateOutcome(result), /could not be read \(1 unreadable entry\)/);
+    }
+  });
+
+  it("does not create when part of the list was unreadable", async () => {
+    const posted = [];
+    const client = {
+      async getTasks() { return [{ id: "a", content: "Buy oats", due: null }, null]; },
+      async addTask() { posted.push("addTask"); return { id: "x" }; },
+    };
+
+    const result = await runTodoistCli(args, { client });
+
+    assert.deepEqual(posted, []);
+    assert.equal(result.mode, "clarify");
+    assert.match(result.reason, /could not be read/);
+  });
+
+  it("still reports a clean none for a fully readable list", () => {
+    const result = findTodoistDuplicates({ content: "Call dad" }, [
+      { id: "a", content: "Buy oats", due: null },
+    ]);
+
+    assert.equal(result.status, "none");
+    assert.equal(result.unreadableEntries, 0);
+  });
+
+  it("still reports a clear duplicate even alongside an unreadable entry", () => {
+    const result = findTodoistDuplicates({ content: "Call dad" }, [
+      { id: "a", content: "Call dad", due: null },
+      null,
+    ]);
+
+    assert.equal(result.status, "duplicate");
+    assert.equal(result.matches.length, 1);
+  });
+
+  it("names a recurring mismatch as recurrence, not as a due-date difference", () => {
+    const result = findTodoistDuplicates(
+      { content: "Water the plants", due_string: "tomorrow" },
+      [{ id: "r", content: "Water the plants", due: { date: "2026-09-21", string: "every day", is_recurring: true } }],
+    );
+
+    assert.equal(result.matches[0].dueComparison, "recurring_existing");
+    assert.match(describeDuplicateOutcome(result), /recurs, so the timing may not overlap/);
+  });
+
+  it("names a deadline as the cause rather than blaming the due date", async () => {
+    const result = await runTodoistCli(
+      ["add", "--task-json", '{"content":"Call dad","deadlineDate":"2026-09-30"}'],
+      { client: { async getTasks() { return [{ id: "a", content: "Call dad", due: null }]; } } },
+    );
+
+    assert.equal(result.duplicateCheck.status, "uncertain");
+    assert.match(result.reason, /carries a deadline, which cannot be compared/);
+    assert.doesNotMatch(result.reason, /due date differs/);
   });
 });

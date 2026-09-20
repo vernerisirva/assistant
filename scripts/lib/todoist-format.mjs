@@ -132,6 +132,15 @@ export function dropDuplicateTitleLine(title = "", description = "") {
   return trimBlankEdges(lines.slice(firstIndex + 1)).join("\n");
 }
 
+/**
+ * Strict title comparison for matching an existing task: only surrounding and
+ * repeated whitespace plus letter case are ignored. Punctuation, Markdown and
+ * wording all still have to match, so task matching never becomes fuzzy.
+ */
+export function comparableTaskTitle(value = "") {
+  return String(value).trim().replace(/\s+/g, " ").toLowerCase();
+}
+
 export function containsUrl(value = "") {
   return URL_PATTERN.test(String(value));
 }

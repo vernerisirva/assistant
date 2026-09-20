@@ -138,6 +138,8 @@ export function formatTodoistTaskPlan(plan, { dryRun = false } = {}) {
     lines.push(`- Labels: ${payload.labels.length > 0 ? payload.labels.join(", ") : "(cleared)"}`);
   }
 
+  if (plan.duplicateCheck) lines.push(`- Duplicate check: ${describeDuplicateCheck(plan)}`);
+
   for (const adjustment of plan.adjustments ?? []) lines.push(`- Adjusted: ${adjustment}`);
   for (const warning of plan.warnings ?? []) lines.push(`- Check: ${warning}`);
 
@@ -204,6 +206,23 @@ function buildTaskFields(rawInput, { requireContent, allowTitleOverflow }) {
  * An update that carries no description field leaves the existing description
  * alone. Only an explicitly supplied empty description clears it.
  */
+/** The preview must never imply a duplicate was ruled out when no read happened. */
+function describeDuplicateCheck(plan) {
+  const { status, matches = [] } = plan.duplicateCheck;
+
+  if (status === "unchecked") return "not performed in dry-run mode";
+  if (status === "read_failed") return "could not be performed, so nothing was created";
+  if (status === "none") return "no matching open task found";
+
+  const names = matches
+    .map((match) => `${match.content}${match.dueString ? ` (due ${match.dueString})` : ""}`)
+    .join("; ");
+
+  return status === "duplicate"
+    ? `matched ${matches.length} existing task${matches.length === 1 ? "" : "s"}: ${names}`
+    : `found ${matches.length} task${matches.length === 1 ? "" : "s"} with this title but a different due date: ${names}`;
+}
+
 function describeUpdateDescription(input, task) {
   if (task.description) return "set";
   if (input.description === undefined || input.description === null) return "unchanged";
