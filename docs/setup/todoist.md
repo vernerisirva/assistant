@@ -230,6 +230,41 @@ Title normalization removes heading markers, a leading bullet, and Markdown that
 
 Validation rejects empty content, a non-string title or description, an out-of-range priority, non-string labels, unsupported fields, a title longer than 500 characters, and a description longer than 16384 characters. A multiline title is rejected on `update`, where there is no fetched description to merge it into, and an update that would change no field at all is rejected too.
 
+## Comments
+
+One comment, on one exact task, from text the user supplied:
+
+```bash
+npm run todoist -- exact-update --task-id TASK_ID --action comment --detail "waiting for Tobias"
+
+npm run todoist -- exact-update --task-id TASK_ID --action comment --detail-stdin <<'TEXT'
+Topics:
+- pricing
+- timing
+TEXT
+```
+
+The comment action uses the same exact-target rules as every other
+`exact-update` action: the task is resolved by `--task-id` or an exact
+`--match-content`, and an ambiguous title returns `clarification_needed` without
+writing anything. Missing comment text clarifies rather than writing an empty
+comment. The approval gates that already apply to exact updates apply here too,
+so sensitive content, anything affecting other people, and inferred content all
+require approval first.
+
+`--detail-stdin` reads the text verbatim from stdin, so apostrophes, quotes,
+backslashes and real line breaks all arrive exactly as written with no quoting
+at all. A literal `\n` in a plain `--detail` argument is refused and points
+here, the same rule task descriptions follow. The text is normalized only
+structurally; wording is never rewritten.
+
+Commenting cannot edit, complete, reopen, delete, move or reschedule a task.
+
+The request shape sent is `POST /comments` with `task_id` and `content`. The
+read side of that endpoint was verified against a live account; the write has
+only been exercised against a mocked client, since posting a real comment would
+have written to the owner's tasks.
+
 ## Approval Rule
 
 Reading configured Todoist tasks and projects is allowed. Creating a task is allowed without a second approval only when the user explicitly asks, task content and due date/project are complete and unambiguous, the action is additive, and the task is easy to undo.
