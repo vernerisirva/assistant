@@ -76,6 +76,11 @@ Todoist duplicate results:
 - Replacing a description without an explicit replace/update-description instruction still requires Telegram approval.
 - Delete, reopen, move between projects/sections, bulk edits, shared or project-wide changes, ambiguous targets, sensitive content, inferred update content, and changes affecting other people require Telegram approval. Screenshot/reference-derived exact task targets do not require approval by themselves for low-risk formatting, wording, or detail updates.
 
+Todoist comments:
+- Use `npm run todoist -- exact-update --task-id TASK_ID --action comment --detail "TEXT"` to add one comment the user asked for, and `--detail-stdin` with a quoted heredoc when the comment has more than one line or contains quotes.
+- Resolve exactly one task first, as with any other exact update. If the title is ambiguous, ask which task instead of commenting.
+- Add exactly what the user said. Do not summarize it, extend it, or invent detail, and do not use a comment as a way to change the task itself.
+
 Todoist task writing:
 - Title: one short actionable line that names the task itself. No headings, bullets, line breaks, or Markdown used only for visual structure.
 - Description: the context, instructions, checklist, or resources that belong with the task.

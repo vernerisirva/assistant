@@ -2468,3 +2468,199 @@ describe("name targeting through the CLI", () => {
     assert.deepEqual(forbidden, []);
   });
 });
+
+describe("Todoist comments", () => {
+  const task = { id: "task-1", content: "Prepare meeting", description: "" };
+
+  function commentClient(calls, response = { id: "c1" }) {
+    return {
+      async getTask(taskId) { calls.push(["getTask", taskId]); return task; },
+      async getTasks() { calls.push(["getTasks"]); return [task]; },
+      async addComment(input, options) {
+        calls.push(["addComment", input, options?.requestId ? "has-request-id" : "none"]);
+        return response;
+      },
+      async updateTask() { calls.push(["updateTask"]); return {}; },
+      async closeTask() { calls.push(["closeTask"]); return true; },
+      async deleteTask() { calls.push(["deleteTask"]); return true; },
+    };
+  }
+
+  it("appends one comment to one exact task", async () => {
+    const calls = [];
+    const result = await runTodoistCli(
+      ["exact-update", "--task-id", "task-1", "--action", "comment", "--detail", "waiting for Tobias"],
+      { client: commentClient(calls) },
+    );
+
+    assert.deepEqual(calls.map((call) => call[0]), ["getTask", "addComment"]);
+    assert.deepEqual(calls[1][1], { taskId: "task-1", content: "waiting for Tobias" });
+    assert.equal(calls[1][2], "has-request-id");
+    assert.equal(result.command, "comment");
+    assert.equal(result.confirmation, "Added your comment to the Todoist task.");
+  });
+
+  it("writes nothing when the task target is ambiguous", async () => {
+    const calls = [];
+    const client = {
+      async getTasks() { calls.push(["getTasks"]); return [
+        { id: "a", content: "Prepare meeting" },
+        { id: "b", content: "Prepare meeting" },
+      ]; },
+      async addComment() { calls.push(["addComment"]); return {}; },
+    };
+
+    const result = await runTodoistCli(
+      ["exact-update", "--match-content", "Prepare meeting", "--action", "comment", "--detail", "ask Nina"],
+      { client },
+    );
+
+    assert.deepEqual(calls.map((call) => call[0]), ["getTasks"]);
+    assert.equal(result.status, "clarification_needed");
+  });
+
+  it("writes nothing when the comment text is missing", async () => {
+    const calls = [];
+    const result = await runTodoistCli(
+      ["exact-update", "--task-id", "task-1", "--action", "comment", "--detail", "   "],
+      { client: commentClient(calls) },
+    );
+
+    assert.deepEqual(calls.map((call) => call[0]), ["getTask"]);
+    assert.equal(result.mode, "clarify");
+    assert.match(result.reason, /needs the text to add/);
+  });
+
+  it("carries a multiline comment as real line breaks", async () => {
+    const calls = [];
+    const { Readable } = await import("node:stream");
+    await runTodoistCli(
+      ["exact-update", "--task-id", "task-1", "--action", "comment", "--detail-stdin"],
+      { client: commentClient(calls), stdin: Readable.from(["Topics:\n- pricing\n- timing\n"]) },
+    );
+
+    const sent = calls.find((call) => call[0] === "addComment")[1].content;
+    assert.equal(sent, "Topics:\n- pricing\n- timing");
+    assert.ok(!sent.includes("\\n"));
+  });
+
+  it("carries apostrophes, quotes and backslashes through stdin untouched", async () => {
+    const calls = [];
+    const { Readable } = await import("node:stream");
+    const text = "Don't forget: \"quoted\" and C:\\notes\\log.txt";
+    await runTodoistCli(
+      ["exact-update", "--task-id", "task-1", "--action", "comment", "--detail-stdin"],
+      { client: commentClient(calls), stdin: Readable.from([text]) },
+    );
+
+    assert.equal(calls.find((call) => call[0] === "addComment")[1].content, text);
+  });
+
+  it("refuses an ambiguous escaped newline in the --detail argument", async () => {
+    await assert.rejects(
+      () => runTodoistCli(
+        ["exact-update", "--task-id", "task-1", "--action", "comment", "--detail", "a\\nb"],
+        { client: commentClient([]) },
+      ),
+      /--detail contains a literal/,
+    );
+  });
+
+  it("refuses both detail routes at once, and empty stdin", async () => {
+    assert.throws(
+      () => parseTodoistArgs([
+        "exact-update", "--task-id", "t", "--action", "comment", "--detail", "x", "--detail-stdin",
+      ]),
+      /Use either --detail or --detail-stdin, not both/,
+    );
+
+    const { Readable } = await import("node:stream");
+    await assert.rejects(
+      () => runTodoistCli(
+        ["exact-update", "--task-id", "task-1", "--action", "comment", "--detail-stdin"],
+        { client: commentClient([]), stdin: Readable.from(["   "]) },
+      ),
+      /received empty stdin/,
+    );
+  });
+
+  it("previews a comment on a dry run without writing", async () => {
+    const calls = [];
+    const result = await runTodoistCli(
+      ["exact-update", "--task-id", "task-1", "--action", "comment", "--detail", "waiting", "--dry-run"],
+      { client: commentClient(calls) },
+    );
+
+    assert.deepEqual(calls.map((call) => call[0]), ["getTask"]);
+    assert.equal(result.dryRun, true);
+    assert.equal(result.command, "comment");
+    assert.deepEqual(result.payload, { content: "waiting" });
+  });
+
+  it("surfaces an API failure instead of reporting success", async () => {
+    const client = {
+      async getTask() { return task; },
+      async addComment() { throw new Error("Todoist API request failed: 500"); },
+    };
+
+    await assert.rejects(
+      () => runTodoistCli(
+        ["exact-update", "--task-id", "task-1", "--action", "comment", "--detail", "waiting"],
+        { client },
+      ),
+      /Todoist API request failed: 500/,
+    );
+  });
+
+  it("keeps the approval gates the exact-update path already applies", () => {
+    for (const flag of ["sensitiveContent", "affectsOtherPeople", "inferredUpdateContent"]) {
+      const plan = buildExactTodoistUpdatePlan(task, {
+        action: "comment",
+        detail: "waiting",
+        [flag]: true,
+      });
+
+      assert.equal(plan.mode, "approval_required", flag);
+      assert.equal(plan.payload, null);
+    }
+  });
+
+  it("never edits, completes or deletes while commenting", async () => {
+    const calls = [];
+    await runTodoistCli(
+      ["exact-update", "--task-id", "task-1", "--action", "comment", "--detail", "waiting"],
+      { client: commentClient(calls) },
+    );
+
+    for (const forbidden of ["updateTask", "closeTask", "deleteTask"]) {
+      assert.ok(!calls.some((call) => call[0] === forbidden), forbidden);
+    }
+  });
+
+  it("builds the wire payload the comments endpoint expects", async () => {
+    const wire = [];
+    const client = createTodoistClient({
+      token: "todoist-secret",
+      fetchImpl: async (url, options) => {
+        wire.push({ url, method: options.method, body: JSON.parse(options.body ?? "null"), headers: options.headers });
+        return jsonResponse({ id: "c1" });
+      },
+    });
+
+    await client.addComment({ taskId: "task-1", content: "waiting for Tobias" }, { requestId: "req-9" });
+
+    assert.equal(wire[0].url, "https://api.todoist.com/api/v1/comments");
+    assert.equal(wire[0].method, "POST");
+    assert.deepEqual(wire[0].body, { task_id: "task-1", content: "waiting for Tobias" });
+    assert.equal(wire[0].headers["X-Request-Id"], "req-9");
+  });
+
+  it("requires a task id and content at the client boundary", () => {
+    const client = createTodoistClient({ token: "t", fetchImpl: async () => jsonResponse({}) });
+
+    // Validation throws synchronously, matching every other client method.
+    assert.throws(() => client.addComment({ taskId: "", content: "x" }), /task id is required/);
+    assert.throws(() => client.addComment({ taskId: "t", content: "  " }), /comment content is required/);
+    assert.throws(() => client.addComment({ taskId: "t", content: 42 }), /comment content is required/);
+  });
+});

@@ -164,6 +164,21 @@ describe("agent configuration", () => {
     assert.match(adminPrompt, /recurring existing task, an unreadable list, or a failed check/i);
   });
 
+  it("teaches the admin agent to comment on one exact task only", () => {
+    const prompt = readFileSync(
+      `${agents.find((agent) => agent.id === "admin").promptDir}/AGENTS.md`,
+      "utf8",
+    );
+
+    assert.match(prompt, /Todoist comments:/);
+    assert.match(prompt, /--action comment/);
+    assert.match(prompt, /--detail-stdin/);
+    assert.match(prompt, /Resolve exactly one task first/i);
+    assert.match(prompt, /ask which task instead of commenting/i);
+    assert.match(prompt, /Add exactly what the user said/i);
+    assert.match(prompt, /not use a comment as a way to change the task itself/i);
+  });
+
   it("teaches the admin agent read-only calendar planning boundaries", () => {
     const adminAgent = agents.find((agent) => agent.id === "admin");
     const prompt = readFileSync(`${adminAgent.promptDir}/AGENTS.md`, "utf8");

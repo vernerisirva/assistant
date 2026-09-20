@@ -120,6 +120,18 @@ export function createTodoistClient({
         requestId,
       });
     },
+    addComment({ taskId, content }, { requestId } = {}) {
+      requireTaskId(taskId);
+      if (typeof content !== "string" || content.trim() === "") {
+        throw new Error("Todoist comment content is required.");
+      }
+
+      return request("/comments", {
+        method: "POST",
+        body: { task_id: taskId, content },
+        requestId,
+      });
+    },
     closeTask(taskId) {
       requireTaskId(taskId);
       return request(`/tasks/${encodeURIComponent(taskId)}/close`, { method: "POST" });

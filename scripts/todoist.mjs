@@ -37,6 +37,7 @@ export function parseTodoistArgs(argv) {
   const options = {};
   let taskJson = null;
   let taskJsonStdin = false;
+  let detailStdin = false;
   let dryRun = false;
   let text = false;
   /**
@@ -69,6 +70,10 @@ export function parseTodoistArgs(argv) {
     }
     if (arg === "--task-json-stdin") {
       taskJsonStdin = true;
+      continue;
+    }
+    if (arg === "--detail-stdin") {
+      detailStdin = true;
       continue;
     }
 
@@ -153,6 +158,11 @@ export function parseTodoistArgs(argv) {
   }
   if (text) parsed.text = true;
   if (taskJsonStdin) parsed.taskJsonStdin = true;
+  if (detailStdin) parsed.detailStdin = true;
+
+  if (detailStdin && options.detail !== undefined) {
+    throw new Error("Use either --detail or --detail-stdin, not both.");
+  }
 
   if (["close", "reopen", "delete", "update"].includes(command) && !parsed.options.taskId) {
     throw new Error("--task-id is required.");
@@ -179,6 +189,10 @@ export async function runTodoistCli(argv, {
 
   if (parsed.taskJsonStdin) {
     parsed.options = mergeTaskJson(await readTaskJsonFromStdin(stdin), parsed.options);
+  }
+
+  if (parsed.detailStdin) {
+    parsed.options = { ...parsed.options, detail: await readDetailFromStdin(stdin) };
   }
 
   if (parsed.command === "help") {
@@ -521,6 +535,30 @@ async function readTaskJsonFromStdin(stream) {
   return normalizeTaskFieldKeys(parsed);
 }
 
+/**
+ * Comment and detail text straight from stdin. Nothing is quoted, escaped or
+ * parsed, so apostrophes, quotes, backslashes and real line breaks all arrive
+ * exactly as written. This is the same principle as --task-json-stdin: text the
+ * user wrote never travels through a shell argument.
+ */
+async function readDetailFromStdin(stream) {
+  if (!stream || stream.isTTY) {
+    throw new Error(
+      "--detail-stdin needs text on stdin. Pipe it in, for example with a quoted heredoc.",
+    );
+  }
+
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+  const raw = Buffer.concat(chunks).toString("utf8");
+
+  if (!raw.trim()) {
+    throw new Error("--detail-stdin received empty stdin. Provide the text to add.");
+  }
+
+  return raw;
+}
+
 function mergeTaskJson(taskJson, options) {
   if (!taskJson) return options;
   return { ...taskJson, ...options };
@@ -562,6 +600,14 @@ async function runExactUpdate(client, parsed) {
 
   if (plan.command === "update") {
     await client.updateTask(plan.taskId, plan.payload, { requestId: randomUUID() });
+    return plan;
+  }
+
+  if (plan.command === "comment") {
+    await client.addComment(
+      { taskId: plan.taskId, content: plan.payload.content },
+      { requestId: randomUUID() },
+    );
     return plan;
   }
 

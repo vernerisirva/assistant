@@ -99,6 +99,19 @@ export function buildExactTodoistUpdatePlan(task, {
       } catch (error) {
         return clarify(error.message);
       }
+    case "comment": {
+      const comment = normalizeTodoistDescription(detail ?? "");
+      if (!comment) {
+        return clarify("A comment needs the text to add.");
+      }
+      return {
+        mode: "execute_then_confirm",
+        command: "comment",
+        taskId: task.id,
+        payload: { content: comment },
+        confirmation: "Added your comment to the Todoist task.",
+      };
+    }
     case "complete":
       return {
         mode: "execute_then_confirm",
