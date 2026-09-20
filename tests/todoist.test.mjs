@@ -2243,10 +2243,27 @@ describe("name targeting through the CLI", () => {
       { client: namedClient(calls) },
     );
 
-    assert.deepEqual(calls.map((call) => call[0]), ["getSections"]);
+    assert.deepEqual(calls.map((call) => call[0]), ["getSections", "getProjects"]);
     assert.equal(calls[0][1], null, "an unscoped section read looks across projects");
     assert.equal(result.mode, "clarify");
     assert.equal(result.matches.length, 2);
+    assert.deepEqual(
+      result.matches.map((match) => match.projectName).sort(),
+      ["AI project", "Work"],
+      "asking which project it is in has to name the projects",
+    );
+  });
+
+  it("does not read projects to resolve a section that is not ambiguous", async () => {
+    const calls = [];
+    const result = await runTodoistCli(
+      ["add", "--content", "Buy oats", "--section", "Nowhere"],
+      { client: namedClient(calls) },
+    );
+
+    assert.deepEqual(calls.map((call) => call[0]), ["getSections"]);
+    assert.equal(result.mode, "clarify");
+    assert.equal(result.matches.length, 0);
   });
 
   it("runs the duplicate guard against the name-resolved destination", async () => {

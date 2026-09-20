@@ -144,9 +144,11 @@ describe("agent configuration", () => {
       assert.match(prompt, /name the existing task/i);
       // The create is never retried to force it through.
       assert.match(prompt, /(never|do not) (rerun|retry) the create/i);
-      // A second copy needs the user's explicit word, not a silent override.
+      // A second copy is raised with the user, and the guard's real limit is
+      // stated rather than promising a create that would be refused again.
       assert.match(prompt, /second copy/i);
-      assert.match(prompt, /explicit (creation )?request/i);
+      assert.match(prompt, /identical open title is still refused/i);
+      assert.match(prompt, /tells the two apart/i);
     }
 
     // Duplicate handling must never become a write to the matching task.

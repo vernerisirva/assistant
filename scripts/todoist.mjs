@@ -397,13 +397,34 @@ async function resolveNamedTarget(client, options) {
   if (wantsSection) {
     const projectId = target.projectId ?? options.projectId;
     const sections = await client.getSections(projectId ? { projectId } : {});
-    const resolved = resolveTodoistSection(options.sectionName, sections, { projectId });
+    let resolved = resolveTodoistSection(options.sectionName, sections, { projectId });
+
+    // "Say which project it is in" cannot be answered from raw ids, so the
+    // project names are read only when that question is the one being asked.
+    if (resolved.status !== targetStatuses.resolved && !projectId && resolved.matches.length > 0) {
+      resolved = resolveTodoistSection(options.sectionName, sections, {
+        projectId,
+        projectsById: await projectNamesById(client),
+      });
+    }
+
     if (resolved.status !== targetStatuses.resolved) return { ...resolved, target: null };
     target.sectionId = resolved.sectionId;
     if (!target.projectId && !options.projectId) target.projectId = resolved.projectId;
   }
 
   return { status: targetStatuses.resolved, target };
+}
+
+async function projectNamesById(client) {
+  const projects = await client.getProjects();
+  if (!Array.isArray(projects)) return {};
+
+  return Object.fromEntries(
+    projects
+      .filter((project) => project && typeof project === "object")
+      .map((project) => [project.id, project.name ?? null]),
+  );
 }
 
 /** Names the destination the user asked for, so a refusal says which one. */
