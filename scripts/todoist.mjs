@@ -240,7 +240,18 @@ async function dryRunResult(parsed, { client, env } = {}) {
 
     // Names are resolved before the plan is built, so the preview shows the
     // destination the real create would use.
-    if (parsed.options.projectName || parsed.options.sectionName) {
+    if (parsed.options.projectName !== undefined || parsed.options.sectionName !== undefined) {
+      // A blank name needs no lookup to answer, so it is answered before the
+      // access check rather than being blamed on a missing token.
+      const blank = blankNamedTarget(parsed.options);
+      if (blank) {
+        return targetClarification(
+          buildTodoistCreatePlan(taskInput(parsed.options)),
+          { reason: blank, matches: [] },
+          true,
+        );
+      }
+
       // Without Todoist access there is nothing to resolve the name against.
       // Dropping it and previewing the task anyway would show it going to the
       // Inbox, which is a destination the user did not ask for and the real
@@ -381,8 +392,10 @@ function taskInput(options) {
  * Inbox or to a same-named section in another project.
  */
 async function resolveNamedTarget(client, options) {
-  const wantsProject = Boolean(options.projectName);
-  const wantsSection = Boolean(options.sectionName);
+  // Supplied-but-empty is a destination the user asked for and left blank, not
+  // an absent one. Treating it as absent would send the task to the Inbox.
+  const wantsProject = options.projectName !== undefined;
+  const wantsSection = options.sectionName !== undefined;
   if (!wantsProject && !wantsSection) return { status: targetStatuses.resolved, target: {} };
 
   const target = {};
@@ -425,6 +438,13 @@ async function projectNamesById(client) {
       .filter((project) => project && typeof project === "object")
       .map((project) => [project.id, project.name ?? null]),
   );
+}
+
+/** Matches the wording resolveTodoistProject/Section use for the same case. */
+function blankNamedTarget({ projectName, sectionName } = {}) {
+  if (projectName !== undefined && !String(projectName).trim()) return "A project name is required.";
+  if (sectionName !== undefined && !String(sectionName).trim()) return "A section name is required.";
+  return null;
 }
 
 /** Names the destination the user asked for, so a refusal says which one. */

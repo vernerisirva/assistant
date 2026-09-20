@@ -2332,6 +2332,42 @@ describe("name targeting through the CLI", () => {
     assert.equal(result.duplicateCheck.status, "unchecked");
   });
 
+  it("asks rather than using the Inbox when a named destination is left blank", async () => {
+    const calls = [];
+    const result = await runTodoistCli(
+      ["add", "--content", "Buy oats", "--project", ""],
+      { client: namedClient(calls) },
+    );
+
+    assert.ok(!calls.some((call) => call[0] === "addTask"), "a blank name must not create");
+    assert.equal(result.mode, "clarify");
+    assert.match(result.reason, /A project name is required/);
+    assert.equal(result.payload.project_id, undefined);
+  });
+
+  it("asks when a blank section name is given", async () => {
+    const calls = [];
+    const result = await runTodoistCli(
+      ["add", "--content", "Buy oats", "--section", "   "],
+      { client: namedClient(calls) },
+    );
+
+    assert.ok(!calls.some((call) => call[0] === "addTask"), "a blank name must not create");
+    assert.equal(result.mode, "clarify");
+    assert.match(result.reason, /A section name is required/);
+  });
+
+  it("blames a blank name on the name, not on missing Todoist access", async () => {
+    const result = await runTodoistCli(
+      ["add", "--content", "Buy oats", "--project", "", "--dry-run"],
+      { env: {} },
+    );
+
+    assert.equal(result.mode, "clarify");
+    assert.match(result.reason, /A project name is required/);
+    assert.doesNotMatch(result.reason, /without Todoist access/);
+  });
+
   it("creates, renames, moves or deletes no project or section", async () => {
     const forbidden = [];
     const client = {
