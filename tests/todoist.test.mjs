@@ -1686,7 +1686,7 @@ describe("Todoist duplicate guard", () => {
       );
 
       assert.equal(result.status, "uncertain");
-      assert.equal(result.matches[0].dueComparison, "unknown");
+      assert.equal(result.matches[0].dueComparison, "due_text_differs");
     });
 
     it("never resolves natural language into a date comparison", () => {
@@ -1752,14 +1752,34 @@ describe("Todoist duplicate guard", () => {
     assert.match(describeDuplicateOutcome(result), /2 matching Todoist tasks already exist/);
   });
 
-  it("describes each outcome in one concise sentence", () => {
+  it("describes each outcome in one concise sentence, naming the real cause", () => {
     assert.match(
       describeDuplicateOutcome({ status: "duplicate", matches: [{}] }),
       /already exists, so nothing was created/,
     );
-    assert.match(
-      describeDuplicateOutcome({ status: "uncertain", matches: [{}] }),
-      /due date differs, so nothing was created/,
+
+    const causes = {
+      due_text_differs: /its due date differs/,
+      request_due_missing: /existing task has a due date and this request does not/,
+      existing_due_missing: /this request has a due date and the existing task does not/,
+      deadline_unsupported: /carries a deadline, which cannot be compared/,
+      recurring_existing: /existing task recurs, so the timing may not overlap/,
+    };
+
+    for (const [dueComparison, pattern] of Object.entries(causes)) {
+      const message = describeDuplicateOutcome({
+        status: "uncertain",
+        matches: [{ dueComparison }],
+      });
+
+      assert.match(message, pattern, dueComparison);
+      assert.match(message, /Confirm whether you want another one/);
+    }
+
+    // A deadline mismatch must not be described as a due-date difference.
+    assert.doesNotMatch(
+      describeDuplicateOutcome({ status: "uncertain", matches: [{ dueComparison: "deadline_unsupported" }] }),
+      /due date differs/,
     );
   });
 });
@@ -1995,5 +2015,77 @@ describe("duplicate guard fails closed on bad reads and finished tasks", () => {
     const text = formatTodoistTaskPlan(result, { dryRun: true });
     assert.match(text, /could not be performed, so nothing was created/);
     assert.doesNotMatch(text, /no matching open task found/);
+  });
+});
+
+describe("unreadable entries and honest uncertainty reasons", () => {
+  const args = ["add", "--content", "Call dad"];
+
+  it("does not claim no duplicate when part of the list was unreadable", () => {
+    for (const bad of [null, {}, "task", 7, []]) {
+      const result = findTodoistDuplicates({ content: "Call dad" }, [
+        { id: "a", content: "Buy oats", due: null },
+        bad,
+      ]);
+
+      assert.equal(result.status, "uncertain", JSON.stringify(bad));
+      assert.equal(result.unreadableEntries, 1);
+      assert.deepEqual(result.matches, []);
+      assert.match(describeDuplicateOutcome(result), /could not be read \(1 unreadable entry\)/);
+    }
+  });
+
+  it("does not create when part of the list was unreadable", async () => {
+    const posted = [];
+    const client = {
+      async getTasks() { return [{ id: "a", content: "Buy oats", due: null }, null]; },
+      async addTask() { posted.push("addTask"); return { id: "x" }; },
+    };
+
+    const result = await runTodoistCli(args, { client });
+
+    assert.deepEqual(posted, []);
+    assert.equal(result.mode, "clarify");
+    assert.match(result.reason, /could not be read/);
+  });
+
+  it("still reports a clean none for a fully readable list", () => {
+    const result = findTodoistDuplicates({ content: "Call dad" }, [
+      { id: "a", content: "Buy oats", due: null },
+    ]);
+
+    assert.equal(result.status, "none");
+    assert.equal(result.unreadableEntries, 0);
+  });
+
+  it("still reports a clear duplicate even alongside an unreadable entry", () => {
+    const result = findTodoistDuplicates({ content: "Call dad" }, [
+      { id: "a", content: "Call dad", due: null },
+      null,
+    ]);
+
+    assert.equal(result.status, "duplicate");
+    assert.equal(result.matches.length, 1);
+  });
+
+  it("names a recurring mismatch as recurrence, not as a due-date difference", () => {
+    const result = findTodoistDuplicates(
+      { content: "Water the plants", due_string: "tomorrow" },
+      [{ id: "r", content: "Water the plants", due: { date: "2026-09-21", string: "every day", is_recurring: true } }],
+    );
+
+    assert.equal(result.matches[0].dueComparison, "recurring_existing");
+    assert.match(describeDuplicateOutcome(result), /recurs, so the timing may not overlap/);
+  });
+
+  it("names a deadline as the cause rather than blaming the due date", async () => {
+    const result = await runTodoistCli(
+      ["add", "--task-json", '{"content":"Call dad","deadlineDate":"2026-09-30"}'],
+      { client: { async getTasks() { return [{ id: "a", content: "Call dad", due: null }]; } } },
+    );
+
+    assert.equal(result.duplicateCheck.status, "uncertain");
+    assert.match(result.reason, /carries a deadline, which cannot be compared/);
+    assert.doesNotMatch(result.reason, /due date differs/);
   });
 });

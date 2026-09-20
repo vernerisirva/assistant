@@ -128,8 +128,14 @@ duplicate was ruled out.
 
 A finished task never blocks a new one. Completion is read from every field the
 Todoist API family uses, so `checked`, `is_completed` and `completed_at` all
-count, and a read that is not a list of tasks is treated as a failed check
-rather than an empty one.
+count. A read that is not a list of tasks is a failed check rather than an empty
+one, and if individual entries in an otherwise valid list cannot be read, the
+result is uncertain rather than "no duplicate", because the unreadable part
+could have held the match.
+
+When the result is uncertain, the message names the actual cause: differing due
+text, a due date on only one side, a recurring existing task, or a deadline that
+cannot be compared. It never blames the due date for something else.
 
 ### Known limitation: the check is not atomic
 

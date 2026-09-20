@@ -43,33 +43,54 @@ export function findTodoistDuplicates(payload = {}, tasks) {
   const wantedTitle = comparableTaskTitle(payload.content ?? "");
   if (!wantedTitle) return { status: duplicateStatuses.none, matches: [] };
 
-  const candidates = tasks
-    .filter((task) => task && typeof task === "object")
-    .filter((task) => isOpen(task))
-    .filter((task) => comparableTaskTitle(task.content ?? "") === wantedTitle);
+  // An entry that is not a readable task means part of the list could not be
+  // examined, so the check cannot claim that no duplicate exists there.
+  const usable = tasks.filter((task) => task && typeof task === "object" && typeof task.content === "string");
+  const unreadableEntries = tasks.length - usable.length;
 
-  if (candidates.length === 0) return { status: duplicateStatuses.none, matches: [] };
+  const candidates = usable
+    .filter((task) => isOpen(task))
+    .filter((task) => comparableTaskTitle(task.content) === wantedTitle);
+
+  if (candidates.length === 0) {
+    return unreadableEntries > 0
+      ? { status: duplicateStatuses.uncertain, matches: [], unreadableEntries }
+      : { status: duplicateStatuses.none, matches: [], unreadableEntries: 0 };
+  }
 
   const matches = candidates.map((task) => describeMatch(task, payload));
   const status = matches.every((match) => match.dueComparison === "same")
     ? duplicateStatuses.duplicate
     : duplicateStatuses.uncertain;
 
-  return { status, matches };
+  return { status, matches, unreadableEntries };
 }
 
-export function describeDuplicateOutcome({ status, matches }) {
+const uncertaintyReasons = Object.freeze({
+  due_text_differs: "its due date differs",
+  request_due_missing: "the existing task has a due date and this request does not",
+  existing_due_missing: "this request has a due date and the existing task does not",
+  deadline_unsupported: "this request carries a deadline, which cannot be compared",
+  recurring_existing: "the existing task recurs, so the timing may not overlap",
+});
+
+export function describeDuplicateOutcome({ status, matches = [], unreadableEntries = 0 }) {
   if (status === duplicateStatuses.duplicate) {
     return matches.length === 1
       ? "A matching Todoist task already exists, so nothing was created."
       : `${matches.length} matching Todoist tasks already exist, so nothing was created.`;
   }
 
-  if (status === duplicateStatuses.uncertain) {
-    return "A Todoist task with this title already exists but its due date differs, so nothing was created. Confirm whether you want another one.";
+  if (status !== duplicateStatuses.uncertain) return "No matching Todoist task was found.";
+
+  if (matches.length === 0) {
+    return `Part of the Todoist task list could not be read (${unreadableEntries} unreadable ${unreadableEntries === 1 ? "entry" : "entries"}), so nothing was created.`;
   }
 
-  return "No matching Todoist task was found.";
+  const causes = [...new Set(matches.map((match) => uncertaintyReasons[match.dueComparison]).filter(Boolean))];
+  const because = causes.length > 0 ? causes.join(", and ") : "the comparison is not conclusive";
+
+  return `A Todoist task with this title already exists but ${because}, so nothing was created. Confirm whether you want another one.`;
 }
 
 /**
@@ -105,13 +126,16 @@ function describeMatch(task, payload) {
 function compareDue(payload, existingDue) {
   // A deadline is a separate Todoist concept that the read does not let us
   // compare, so a request carrying one is never treated as plainly matching.
-  if (String(payload.deadline_date ?? "").trim()) return "unknown";
+  if (String(payload.deadline_date ?? "").trim()) return "deadline_unsupported";
 
   const requestedDue = comparableTaskTitle(payload.due_string ?? "");
 
   if (!requestedDue && !existingDue) return "same";
-  if (!requestedDue || !existingDue) return "unknown";
+  if (!requestedDue) return "request_due_missing";
+  if (!existingDue) return "existing_due_missing";
 
   const existingText = comparableTaskTitle(existingDue.string ?? "");
-  return existingText && existingText === requestedDue ? "same" : "unknown";
+  if (existingText && existingText === requestedDue) return "same";
+
+  return existingDue.is_recurring === true ? "recurring_existing" : "due_text_differs";
 }
