@@ -10,6 +10,11 @@ import {
   normalizeTaskFieldKeys,
 } from "./lib/todoist-create.mjs";
 import {
+  resolveTodoistProject,
+  resolveTodoistSection,
+  targetStatuses,
+} from "./lib/todoist-targets.mjs";
+import {
   describeDuplicateOutcome,
   duplicateStatuses,
   findTodoistDuplicates,
@@ -95,6 +100,12 @@ export function parseTodoistArgs(argv) {
       case "--priority":
         options.priority = Number(value);
         break;
+      case "--project":
+        options.projectName = value;
+        break;
+      case "--section":
+        options.sectionName = value;
+        break;
       case "--project-id":
         options.projectId = value;
         break;
@@ -129,6 +140,17 @@ export function parseTodoistArgs(argv) {
   }
 
   const parsed = { command, options: mergeTaskJson(taskJson, options), dryRun };
+
+  // A name and a raw id for the same destination contradict each other. Letting
+  // one quietly win would preview and create somewhere the caller never
+  // unambiguously asked for. Scoping a named section with --project-id is not a
+  // conflict and stays supported.
+  if (parsed.options.projectName !== undefined && parsed.options.projectId !== undefined) {
+    throw new Error("Use either --project or --project-id, not both.");
+  }
+  if (parsed.options.sectionName !== undefined && parsed.options.sectionId !== undefined) {
+    throw new Error("Use either --section or --section-id, not both.");
+  }
   if (text) parsed.text = true;
   if (taskJsonStdin) parsed.taskJsonStdin = true;
 
@@ -165,6 +187,7 @@ export async function runTodoistCli(argv, {
       examples: [
         "npm run todoist -- tasks --filter today",
         "npm run todoist -- add --content \"Buy oats\" --due tomorrow --dry-run",
+        "npm run todoist -- add --content \"Ask about pricing\" --project \"Work\" --section \"Interviews\" --dry-run",
         "npm run todoist -- add --task-json-stdin --dry-run --text <<'JSON'\n{\"content\":\"Review AI research updates\",\"description\":\"Goal:\\nFind 1-3 updates.\"}\nJSON",
         "npm run todoist -- exact-update --task-id TASK_ID --action format-description --dry-run",
       ],
@@ -182,7 +205,16 @@ export async function runTodoistCli(argv, {
     case "tasks":
       return todoist.getTasks(parsed.options);
     case "add": {
-      const plan = buildTodoistCreatePlan(taskInput(parsed.options));
+      const resolution = await resolveNamedTarget(todoist, parsed.options);
+      if (resolution.status !== targetStatuses.resolved) {
+        return targetClarification(
+          buildTodoistCreatePlan(taskInput(parsed.options)),
+          resolution,
+          false,
+        );
+      }
+
+      const plan = buildTodoistCreatePlan({ ...taskInput(parsed.options), ...resolution.target });
       const duplicateCheck = await checkForDuplicates(todoist, plan);
 
       if (duplicateCheck.status !== duplicateStatuses.none) {
@@ -214,8 +246,53 @@ export async function runTodoistCli(argv, {
 
 async function dryRunResult(parsed, { client, env } = {}) {
   if (parsed.command === "add") {
-    const plan = buildTodoistCreatePlan(taskInput(parsed.options));
     const reader = client ?? tryCreateClient(env);
+    let target = {};
+
+    // Names are resolved before the plan is built, so the preview shows the
+    // destination the real create would use.
+    if (parsed.options.projectName !== undefined || parsed.options.sectionName !== undefined) {
+      // A blank name needs no lookup to answer, so it is answered before the
+      // access check rather than being blamed on a missing token.
+      const blank = blankNamedTarget(parsed.options);
+      if (blank) {
+        return targetClarification(
+          buildTodoistCreatePlan(taskInput(parsed.options)),
+          { reason: blank, matches: [] },
+          true,
+        );
+      }
+
+      // Without Todoist access there is nothing to resolve the name against.
+      // Dropping it and previewing the task anyway would show it going to the
+      // Inbox, which is a destination the user did not ask for and the real
+      // create would never pick. A named destination is asked about, never
+      // quietly discarded.
+      if (!reader) {
+        return targetClarification(
+          buildTodoistCreatePlan(taskInput(parsed.options)),
+          {
+            reason:
+              `${namedTargetLabel(parsed.options)} cannot be resolved without Todoist access. ` +
+              "Set TODOIST_API_TOKEN, or give the destination as --project-id or --section-id.",
+            matches: [],
+          },
+          true,
+        );
+      }
+
+      const resolution = await resolveNamedTarget(reader, parsed.options);
+      if (resolution.status !== targetStatuses.resolved) {
+        return targetClarification(
+          buildTodoistCreatePlan(taskInput(parsed.options)),
+          resolution,
+          true,
+        );
+      }
+      target = resolution.target;
+    }
+
+    const plan = buildTodoistCreatePlan({ ...taskInput(parsed.options), ...target });
 
     if (!reader) {
       return {
@@ -311,10 +388,95 @@ function taskInput(options) {
     action: _action,
     detail: _detail,
     replacementDescription: _replacementDescription,
+    projectName: _projectName,
+    sectionName: _sectionName,
     ...input
   } = options;
 
   return input;
+}
+
+/**
+ * Turns a named project or section into ids before anything is created, so the
+ * creation plan and the API layer keep dealing in ids only. A name that matches
+ * nothing or several things stops here and asks; it is never resolved to the
+ * Inbox or to a same-named section in another project.
+ */
+async function resolveNamedTarget(client, options) {
+  // Supplied-but-empty is a destination the user asked for and left blank, not
+  // an absent one. Treating it as absent would send the task to the Inbox.
+  const wantsProject = options.projectName !== undefined;
+  const wantsSection = options.sectionName !== undefined;
+  if (!wantsProject && !wantsSection) return { status: targetStatuses.resolved, target: {} };
+
+  const target = {};
+
+  if (wantsProject) {
+    const projects = await client.getProjects();
+    const resolved = resolveTodoistProject(options.projectName, projects);
+    if (resolved.status !== targetStatuses.resolved) return { ...resolved, target: null };
+    target.projectId = resolved.projectId;
+  }
+
+  if (wantsSection) {
+    const projectId = target.projectId ?? options.projectId;
+    const sections = await client.getSections(projectId ? { projectId } : {});
+    let resolved = resolveTodoistSection(options.sectionName, sections, { projectId });
+
+    // "Say which project it is in" cannot be answered from raw ids, so the
+    // project names are read only when that question is the one being asked.
+    if (resolved.status !== targetStatuses.resolved && !projectId && resolved.matches.length > 0) {
+      resolved = resolveTodoistSection(options.sectionName, sections, {
+        projectId,
+        projectsById: await projectNamesById(client),
+      });
+    }
+
+    if (resolved.status !== targetStatuses.resolved) return { ...resolved, target: null };
+    target.sectionId = resolved.sectionId;
+    if (!target.projectId && !options.projectId) target.projectId = resolved.projectId;
+  }
+
+  return { status: targetStatuses.resolved, target };
+}
+
+async function projectNamesById(client) {
+  const projects = await client.getProjects();
+  if (!Array.isArray(projects)) return {};
+
+  return Object.fromEntries(
+    projects
+      .filter((project) => project && typeof project === "object")
+      .map((project) => [project.id, project.name ?? null]),
+  );
+}
+
+/** Matches the wording resolveTodoistProject/Section use for the same case. */
+function blankNamedTarget({ projectName, sectionName } = {}) {
+  if (projectName !== undefined && !String(projectName).trim()) return "A project name is required.";
+  if (sectionName !== undefined && !String(sectionName).trim()) return "A section name is required.";
+  return null;
+}
+
+/** Names the destination the user asked for, so a refusal says which one. */
+function namedTargetLabel({ projectName, sectionName } = {}) {
+  const parts = [];
+  if (projectName) parts.push(`project "${String(projectName).trim()}"`);
+  if (sectionName) parts.push(`section "${String(sectionName).trim()}"`);
+  return `The named ${parts.join(" and ")}`;
+}
+
+function targetClarification(plan, resolution, dryRun) {
+  return {
+    ...plan,
+    dryRun,
+    mode: "clarify",
+    command: "add",
+    task: null,
+    matches: resolution.matches,
+    reason: resolution.reason,
+    confirmation: null,
+  };
 }
 
 function parseTaskJson(value) {

@@ -30,6 +30,10 @@ import {
   describeDuplicateOutcome,
   findTodoistDuplicates,
 } from "../scripts/lib/todoist-duplicates.mjs";
+import {
+  resolveTodoistProject,
+  resolveTodoistSection,
+} from "../scripts/lib/todoist-targets.mjs";
 import { parseTodoistArgs, runTodoistCli } from "../scripts/todoist.mjs";
 
 function recordingClient(calls, response = { id: "task-new", content: "Created" }, openTasks = []) {
@@ -2087,5 +2091,380 @@ describe("unreadable entries and honest uncertainty reasons", () => {
     assert.equal(result.duplicateCheck.status, "uncertain");
     assert.match(result.reason, /carries a deadline, which cannot be compared/);
     assert.doesNotMatch(result.reason, /due date differs/);
+  });
+});
+
+describe("Todoist project and section targeting by name", () => {
+  const projects = [
+    { id: "p-work", name: "Work" },
+    { id: "p-ai", name: "AI project" },
+    { id: "p-old", name: "Retired", is_archived: true },
+    { id: "p-gone", name: "Removed", is_deleted: true },
+  ];
+  const sections = [
+    { id: "s-work-iv", name: "Interviews", project_id: "p-work" },
+    { id: "s-ai-iv", name: "Interviews", project_id: "p-ai" },
+    { id: "s-work-bl", name: "Backlog", project_id: "p-work" },
+    { id: "s-old", name: "Old", project_id: "p-work", is_archived: true },
+  ];
+
+  it("resolves an exact project name, ignoring case and spacing", () => {
+    for (const name of ["Work", "work", "  WORK  ", "AI   project"]) {
+      const result = resolveTodoistProject(name, projects);
+      assert.equal(result.status, "resolved", name);
+    }
+
+    assert.equal(resolveTodoistProject("work", projects).projectId, "p-work");
+    assert.equal(resolveTodoistProject("ai project", projects).projectId, "p-ai");
+  });
+
+  it("clarifies rather than falling back when a project name matches nothing", () => {
+    const result = resolveTodoistProject("Wrok", projects);
+
+    assert.equal(result.status, "clarify");
+    assert.match(result.reason, /No Todoist project is named "Wrok"/);
+    assert.ok(!("projectId" in result), "no project may be chosen");
+    assert.doesNotMatch(result.reason, /inbox/i);
+  });
+
+  it("does not match an archived or deleted project", () => {
+    assert.equal(resolveTodoistProject("Retired", projects).status, "clarify");
+    assert.equal(resolveTodoistProject("Removed", projects).status, "clarify");
+  });
+
+  it("clarifies and lists the candidates when a project name is ambiguous", () => {
+    const result = resolveTodoistProject("Work", [
+      { id: "a", name: "Work" },
+      { id: "b", name: "work" },
+    ]);
+
+    assert.equal(result.status, "clarify");
+    assert.deepEqual(result.matches, [
+      { id: "a", name: "Work" },
+      { id: "b", name: "work" },
+    ]);
+  });
+
+  it("resolves a section only within the project in hand", () => {
+    const inWork = resolveTodoistSection("interviews", sections, { projectId: "p-work" });
+    const inAi = resolveTodoistSection("Interviews", sections, { projectId: "p-ai" });
+
+    assert.equal(inWork.sectionId, "s-work-iv");
+    assert.equal(inAi.sectionId, "s-ai-iv");
+    assert.equal(inAi.projectId, "p-ai");
+  });
+
+  it("never silently picks a same-named section from another project", () => {
+    const result = resolveTodoistSection("Interviews", sections);
+
+    assert.equal(result.status, "clarify");
+    assert.match(result.reason, /Say which project it is in/);
+    assert.deepEqual(result.matches.map((match) => match.projectId), ["p-work", "p-ai"]);
+  });
+
+  it("clarifies when a section name is absent from the named project", () => {
+    const result = resolveTodoistSection("Backlog", sections, { projectId: "p-ai" });
+
+    assert.equal(result.status, "clarify");
+    assert.match(result.reason, /in that project/);
+  });
+
+  it("refuses to resolve against something that is not a list", () => {
+    assert.throws(() => resolveTodoistProject("Work", null), /must be a list/);
+    assert.throws(() => resolveTodoistSection("Interviews", undefined), /must be a list/);
+  });
+
+  it("requires a name", () => {
+    assert.match(resolveTodoistProject("  ", projects).reason, /project name is required/);
+    assert.match(resolveTodoistSection("", sections).reason, /section name is required/);
+  });
+});
+
+describe("name targeting through the CLI", () => {
+  function namedClient(calls, openTasks = []) {
+    return {
+      async getProjects() { calls.push(["getProjects"]); return [{ id: "p-work", name: "Work" }, { id: "p-ai", name: "AI project" }]; },
+      async getSections(options) { calls.push(["getSections", options?.projectId ?? null]); return [
+        { id: "s-work-iv", name: "Interviews", project_id: "p-work" },
+        { id: "s-ai-iv", name: "Interviews", project_id: "p-ai" },
+      ]; },
+      async getTasks() { calls.push(["getTasks"]); return openTasks; },
+      async addTask(payload, options) { calls.push(["addTask", payload, options?.requestId ? "has-request-id" : "none"]); return { id: "new" }; },
+    };
+  }
+
+  it("resolves names to ids and sends only ids, in the right order", async () => {
+    const calls = [];
+    const result = await runTodoistCli(
+      ["add", "--content", "Ask about pricing", "--project", "work", "--section", "interviews"],
+      { client: namedClient(calls) },
+    );
+
+    assert.deepEqual(calls.map((call) => call[0]), ["getProjects", "getSections", "getTasks", "addTask"]);
+    assert.equal(calls[1][1], "p-work", "sections must be read scoped to the resolved project");
+
+    const posted = calls.find((call) => call[0] === "addTask")[1];
+    assert.equal(posted.project_id, "p-work");
+    assert.equal(posted.section_id, "s-work-iv");
+    assert.ok(!("projectName" in posted) && !("sectionName" in posted), "names must not reach the API");
+    assert.equal(result.task.id, "new");
+  });
+
+  it("keeps working with raw ids", async () => {
+    const calls = [];
+    await runTodoistCli(
+      ["add", "--content", "Buy oats", "--project-id", "p-raw", "--section-id", "s-raw"],
+      { client: namedClient(calls) },
+    );
+
+    assert.deepEqual(calls.map((call) => call[0]), ["getTasks", "addTask"]);
+    const posted = calls.find((call) => call[0] === "addTask")[1];
+    assert.equal(posted.project_id, "p-raw");
+    assert.equal(posted.section_id, "s-raw");
+  });
+
+  it("does not create when a named project matches nothing", async () => {
+    const calls = [];
+    const result = await runTodoistCli(
+      ["add", "--content", "Buy oats", "--project", "Nowhere"],
+      { client: namedClient(calls) },
+    );
+
+    assert.deepEqual(calls.map((call) => call[0]), ["getProjects"]);
+    assert.equal(result.mode, "clarify");
+    assert.match(result.reason, /No Todoist project is named "Nowhere"/);
+    assert.equal(result.task, null);
+  });
+
+  it("does not create when a section name is ambiguous across projects", async () => {
+    const calls = [];
+    const result = await runTodoistCli(
+      ["add", "--content", "Buy oats", "--section", "Interviews"],
+      { client: namedClient(calls) },
+    );
+
+    assert.deepEqual(calls.map((call) => call[0]), ["getSections", "getProjects"]);
+    assert.equal(calls[0][1], null, "an unscoped section read looks across projects");
+    assert.equal(result.mode, "clarify");
+    assert.equal(result.matches.length, 2);
+    assert.deepEqual(
+      result.matches.map((match) => match.projectName).sort(),
+      ["AI project", "Work"],
+      "asking which project it is in has to name the projects",
+    );
+  });
+
+  it("does not read projects to resolve a section that is not ambiguous", async () => {
+    const calls = [];
+    const result = await runTodoistCli(
+      ["add", "--content", "Buy oats", "--section", "Nowhere"],
+      { client: namedClient(calls) },
+    );
+
+    assert.deepEqual(calls.map((call) => call[0]), ["getSections"]);
+    assert.equal(result.mode, "clarify");
+    assert.equal(result.matches.length, 0);
+  });
+
+  it("runs the duplicate guard against the name-resolved destination", async () => {
+    const calls = [];
+    const result = await runTodoistCli(
+      ["add", "--content", "Ask about pricing", "--project", "work"],
+      { client: namedClient(calls, [{ id: "dup", content: "Ask about pricing", due: null }]) },
+    );
+
+    assert.deepEqual(calls.map((call) => call[0]), ["getProjects", "getTasks"]);
+    assert.equal(result.duplicateCheck.status, "duplicate");
+    assert.equal(result.task, null);
+  });
+
+  it("shows the resolved destination on a dry run without creating", async () => {
+    const calls = [];
+    const result = await runTodoistCli(
+      ["add", "--content", "Ask about pricing", "--project", "AI project", "--dry-run"],
+      { client: namedClient(calls) },
+    );
+
+    assert.ok(!calls.some((call) => call[0] === "addTask"), "a dry run must not create");
+    assert.equal(result.payload.project_id, "p-ai");
+    assert.equal(result.dryRun, true);
+  });
+
+  it("refuses a dry run with a named destination it cannot resolve", async () => {
+    const result = await runTodoistCli(
+      ["add", "--content", "Ask about pricing", "--project", "Work", "--dry-run"],
+      { env: {} },
+    );
+
+    assert.equal(result.mode, "clarify");
+    assert.equal(result.task, null);
+    assert.equal(result.dryRun, true);
+    assert.match(result.reason, /named project "Work" cannot be resolved without Todoist access/);
+    assert.equal(
+      result.payload.project_id,
+      undefined,
+      "a preview must not silently drop the destination and show an Inbox task",
+    );
+    assert.equal(result.confirmation, null, "nothing may read as a successful preview");
+  });
+
+  it("names both destinations when neither can be resolved on a dry run", async () => {
+    const result = await runTodoistCli(
+      [
+        "add", "--content", "Ask about pricing",
+        "--project", "Work", "--section", "Interviews", "--dry-run",
+      ],
+      { env: {} },
+    );
+
+    assert.equal(result.mode, "clarify");
+    assert.match(result.reason, /project "Work" and section "Interviews"/);
+  });
+
+  it("still previews a dry run without a client when no destination was named", async () => {
+    const result = await runTodoistCli(
+      ["add", "--content", "Buy oats", "--dry-run"],
+      { env: {} },
+    );
+
+    assert.equal(result.dryRun, true);
+    assert.notEqual(result.mode, "clarify");
+    assert.equal(result.duplicateCheck.status, "unchecked");
+  });
+
+  it("asks rather than using the Inbox when a named destination is left blank", async () => {
+    const calls = [];
+    const result = await runTodoistCli(
+      ["add", "--content", "Buy oats", "--project", ""],
+      { client: namedClient(calls) },
+    );
+
+    assert.ok(!calls.some((call) => call[0] === "addTask"), "a blank name must not create");
+    assert.equal(result.mode, "clarify");
+    assert.match(result.reason, /A project name is required/);
+    assert.equal(result.payload.project_id, undefined);
+  });
+
+  it("asks when a blank section name is given", async () => {
+    const calls = [];
+    const result = await runTodoistCli(
+      ["add", "--content", "Buy oats", "--section", "   "],
+      { client: namedClient(calls) },
+    );
+
+    assert.ok(!calls.some((call) => call[0] === "addTask"), "a blank name must not create");
+    assert.equal(result.mode, "clarify");
+    assert.match(result.reason, /A section name is required/);
+  });
+
+  it("blames a blank name on the name, not on missing Todoist access", async () => {
+    const result = await runTodoistCli(
+      ["add", "--content", "Buy oats", "--project", "", "--dry-run"],
+      { env: {} },
+    );
+
+    assert.equal(result.mode, "clarify");
+    assert.match(result.reason, /A project name is required/);
+    assert.doesNotMatch(result.reason, /without Todoist access/);
+  });
+
+  it("never creates in the Inbox when the matching project has no usable id", async () => {
+    const calls = [];
+    const client = {
+      async getProjects() { calls.push(["getProjects"]); return [{ name: "Work" }]; },
+      async getSections() { calls.push(["getSections"]); return []; },
+      async getTasks() { calls.push(["getTasks"]); return []; },
+      async addTask(payload) { calls.push(["addTask", payload]); return { id: "new" }; },
+    };
+
+    const result = await runTodoistCli(
+      ["add", "--content", "Buy oats", "--project", "Work"],
+      { client },
+    );
+
+    assert.ok(!calls.some((call) => call[0] === "addTask"), "an unusable id must not create");
+    assert.equal(result.mode, "clarify");
+    assert.match(result.reason, /has no usable id/);
+  });
+
+  it("never creates in the Inbox when the matching section has no usable id", async () => {
+    const calls = [];
+    const client = {
+      async getProjects() { calls.push(["getProjects"]); return [{ id: "p-work", name: "Work" }]; },
+      async getSections() { calls.push(["getSections"]); return [{ name: "Interviews", project_id: "p-work" }]; },
+      async getTasks() { calls.push(["getTasks"]); return []; },
+      async addTask(payload) { calls.push(["addTask", payload]); return { id: "new" }; },
+    };
+
+    const result = await runTodoistCli(
+      ["add", "--content", "Buy oats", "--project", "Work", "--section", "Interviews"],
+      { client },
+    );
+
+    assert.ok(!calls.some((call) => call[0] === "addTask"), "an unusable id must not create");
+    assert.equal(result.mode, "clarify");
+    assert.match(result.reason, /has no usable id/);
+  });
+
+  it("still says no such project when nothing carries the name", async () => {
+    const result = await runTodoistCli(
+      ["add", "--content", "Buy oats", "--project", "Nowhere"],
+      { client: namedClient([]) },
+    );
+
+    assert.equal(result.mode, "clarify");
+    assert.match(result.reason, /No Todoist project is named "Nowhere"/);
+  });
+
+  it("refuses a name and a raw id for the same destination", async () => {
+    await assert.rejects(
+      runTodoistCli(
+        ["add", "--content", "Buy oats", "--project", "Work", "--project-id", "p-other"],
+        { client: namedClient([]) },
+      ),
+      /Use either --project or --project-id, not both/,
+    );
+
+    await assert.rejects(
+      runTodoistCli(
+        ["add", "--content", "Buy oats", "--section", "Interviews", "--section-id", "s-other"],
+        { client: namedClient([]) },
+      ),
+      /Use either --section or --section-id, not both/,
+    );
+  });
+
+  it("still scopes a named section with a raw project id", async () => {
+    const calls = [];
+    const result = await runTodoistCli(
+      ["add", "--content", "Ask about pricing", "--section", "Interviews", "--project-id", "p-ai"],
+      { client: namedClient(calls) },
+    );
+
+    assert.equal(calls[0][0], "getSections");
+    assert.equal(calls[0][1], "p-ai", "the raw project id must scope the section read");
+    const posted = calls.find((call) => call[0] === "addTask")[1];
+    assert.equal(posted.section_id, "s-ai-iv");
+    assert.equal(posted.project_id, "p-ai");
+    assert.equal(result.task.id, "new");
+  });
+
+  it("creates, renames, moves or deletes no project or section", async () => {
+    const forbidden = [];
+    const client = {
+      async getProjects() { return [{ id: "p-work", name: "Work" }]; },
+      async getSections() { return []; },
+      async getTasks() { return []; },
+      async addTask() { return { id: "new" }; },
+      async addProject() { forbidden.push("addProject"); },
+      async updateProject() { forbidden.push("updateProject"); },
+      async deleteProject() { forbidden.push("deleteProject"); },
+      async addSection() { forbidden.push("addSection"); },
+      async deleteSection() { forbidden.push("deleteSection"); },
+    };
+
+    await runTodoistCli(["add", "--content", "Buy oats", "--project", "Work"], { client });
+
+    assert.deepEqual(forbidden, []);
   });
 });

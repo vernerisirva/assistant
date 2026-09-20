@@ -126,6 +126,44 @@ describe("agent configuration", () => {
     assert.match(personalPrompt, /Do not invent goals, sections, or checklist items/i);
   });
 
+
+  it("teaches both task-facing agents how to handle a Todoist duplicate result", () => {
+    const adminPrompt = readFileSync(
+      `${agents.find((agent) => agent.id === "admin").promptDir}/AGENTS.md`,
+      "utf8",
+    );
+    const personalPrompt = readFileSync(
+      `${agents.find((agent) => agent.id === "personal").promptDir}/AGENTS.md`,
+      "utf8",
+    );
+
+    for (const prompt of [adminPrompt, personalPrompt]) {
+      // Nothing was created, and the agent has to say so.
+      assert.match(prompt, /nothing new was created|nothing was created/i);
+      // The existing task is identified.
+      assert.match(prompt, /name the existing task/i);
+      // The create is never retried to force it through.
+      assert.match(prompt, /(never|do not) (rerun|retry) the create/i);
+      // A second copy is raised with the user, and the guard's real limit is
+      // stated rather than promising a create that would be refused again.
+      assert.match(prompt, /second copy/i);
+      assert.match(prompt, /identical open title is still refused/i);
+      assert.match(prompt, /tells the two apart/i);
+    }
+
+    // Duplicate handling must never become a write to the matching task.
+    assert.match(
+      adminPrompt,
+      /never work around it by editing, completing, deleting, moving, or rescheduling/i,
+    );
+    assert.match(personalPrompt, /do not change the task that matched/i);
+
+    // An uncertain result is not a duplicate claim.
+    assert.match(adminPrompt, /`uncertain` result is not a duplicate claim/i);
+    assert.match(adminPrompt, /I couldn't check your existing tasks/i);
+    assert.match(adminPrompt, /recurring existing task, an unreadable list, or a failed check/i);
+  });
+
   it("teaches the admin agent read-only calendar planning boundaries", () => {
     const adminAgent = agents.find((agent) => agent.id === "admin");
     const prompt = readFileSync(`${adminAgent.promptDir}/AGENTS.md`, "utf8");
