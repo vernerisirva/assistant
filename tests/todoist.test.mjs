@@ -2829,6 +2829,20 @@ describe("Todoist no-op updates", () => {
     );
   });
 
+  it("never treats a comment as a no-op, even when it repeats the task's own text", () => {
+    // Comments are additive and go nowhere near executeUpdate. Routing them
+    // through it would compare the comment against task.content and silently
+    // swallow a comment that happens to repeat the title.
+    const plan = buildExactTodoistUpdatePlan(
+      { id: "task-1", content: "Call dad", description: "Call dad" },
+      { action: "comment", detail: "Call dad" },
+    );
+
+    assert.equal(plan.mode, "execute_then_confirm");
+    assert.equal(plan.command, "comment");
+    assert.equal(plan.payload.content, "Call dad");
+  });
+
   it("keeps every other outcome distinguishable", () => {
     const messy = { id: "t", content: "AI video", description: "  messy  " };
 
