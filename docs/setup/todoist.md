@@ -78,6 +78,36 @@ Individual flags, `--task-json`, and `--task-json-stdin` all feed the same norma
 
 Supported `--task-json` fields: `content`, `description`, `dueString`, `dueLang`, `priority`, `projectId`, `sectionId`, `parentId`, `labels`, `deadlineDate`. Common aliases such as `due`, `due_string`, and `project_id` are accepted. Anything else is rejected instead of being forwarded to Todoist.
 
+## Projects And Sections By Name
+
+`--project "Work"` and `--section "Interviews"` resolve a name to an id before
+anything is created, so the creation plan and the API layer still deal only in
+ids. `--project-id` and `--section-id` keep working unchanged.
+
+```bash
+npm run todoist -- add --content "Ask about pricing" --project "Work" --section "Interviews" --dry-run
+```
+
+Matching is exact apart from letter case and repeated whitespace. There is no
+fuzzy matching and no model choice, because putting a task in the wrong project
+is worse than asking which one was meant. Archived and deleted projects and
+sections are never matched.
+
+A name that matches nothing stops and asks. It is never quietly turned into the
+Inbox, even though the Inbox is where an unspecified task goes. A name that
+matches several things stops and lists them with the least information needed to
+tell them apart.
+
+A section is only ever taken from the project in hand. With a project named, the
+sections read is scoped to it. Without one, a section name shared by several
+projects is ambiguous and asked about; a same-named section in another project is
+never silently chosen. That is not hypothetical: sections sharing a name across
+projects are common in a real account.
+
+Resolution happens before the duplicate check, so the check and the create both
+see the real destination. This feature only reads: it never creates, renames,
+moves, archives or deletes a project or section.
+
 ## Duplicate Detection
 
 Every `add` reads the open tasks first and refuses to create a second copy of a

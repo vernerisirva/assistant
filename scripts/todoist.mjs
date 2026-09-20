@@ -10,6 +10,11 @@ import {
   normalizeTaskFieldKeys,
 } from "./lib/todoist-create.mjs";
 import {
+  resolveTodoistProject,
+  resolveTodoistSection,
+  targetStatuses,
+} from "./lib/todoist-targets.mjs";
+import {
   describeDuplicateOutcome,
   duplicateStatuses,
   findTodoistDuplicates,
@@ -95,6 +100,12 @@ export function parseTodoistArgs(argv) {
       case "--priority":
         options.priority = Number(value);
         break;
+      case "--project":
+        options.projectName = value;
+        break;
+      case "--section":
+        options.sectionName = value;
+        break;
       case "--project-id":
         options.projectId = value;
         break;
@@ -165,6 +176,7 @@ export async function runTodoistCli(argv, {
       examples: [
         "npm run todoist -- tasks --filter today",
         "npm run todoist -- add --content \"Buy oats\" --due tomorrow --dry-run",
+        "npm run todoist -- add --content \"Ask about pricing\" --project \"Work\" --section \"Interviews\" --dry-run",
         "npm run todoist -- add --task-json-stdin --dry-run --text <<'JSON'\n{\"content\":\"Review AI research updates\",\"description\":\"Goal:\\nFind 1-3 updates.\"}\nJSON",
         "npm run todoist -- exact-update --task-id TASK_ID --action format-description --dry-run",
       ],
@@ -182,7 +194,16 @@ export async function runTodoistCli(argv, {
     case "tasks":
       return todoist.getTasks(parsed.options);
     case "add": {
-      const plan = buildTodoistCreatePlan(taskInput(parsed.options));
+      const resolution = await resolveNamedTarget(todoist, parsed.options);
+      if (resolution.status !== targetStatuses.resolved) {
+        return targetClarification(
+          buildTodoistCreatePlan(taskInput(parsed.options)),
+          resolution,
+          false,
+        );
+      }
+
+      const plan = buildTodoistCreatePlan({ ...taskInput(parsed.options), ...resolution.target });
       const duplicateCheck = await checkForDuplicates(todoist, plan);
 
       if (duplicateCheck.status !== duplicateStatuses.none) {
@@ -214,8 +235,24 @@ export async function runTodoistCli(argv, {
 
 async function dryRunResult(parsed, { client, env } = {}) {
   if (parsed.command === "add") {
-    const plan = buildTodoistCreatePlan(taskInput(parsed.options));
     const reader = client ?? tryCreateClient(env);
+    let target = {};
+
+    // Names are resolved before the plan is built, so the preview shows the
+    // destination the real create would use.
+    if (reader && (parsed.options.projectName || parsed.options.sectionName)) {
+      const resolution = await resolveNamedTarget(reader, parsed.options);
+      if (resolution.status !== targetStatuses.resolved) {
+        return targetClarification(
+          buildTodoistCreatePlan(taskInput(parsed.options)),
+          resolution,
+          true,
+        );
+      }
+      target = resolution.target;
+    }
+
+    const plan = buildTodoistCreatePlan({ ...taskInput(parsed.options), ...target });
 
     if (!reader) {
       return {
@@ -311,10 +348,57 @@ function taskInput(options) {
     action: _action,
     detail: _detail,
     replacementDescription: _replacementDescription,
+    projectName: _projectName,
+    sectionName: _sectionName,
     ...input
   } = options;
 
   return input;
+}
+
+/**
+ * Turns a named project or section into ids before anything is created, so the
+ * creation plan and the API layer keep dealing in ids only. A name that matches
+ * nothing or several things stops here and asks; it is never resolved to the
+ * Inbox or to a same-named section in another project.
+ */
+async function resolveNamedTarget(client, options) {
+  const wantsProject = Boolean(options.projectName);
+  const wantsSection = Boolean(options.sectionName);
+  if (!wantsProject && !wantsSection) return { status: targetStatuses.resolved, target: {} };
+
+  const target = {};
+
+  if (wantsProject) {
+    const projects = await client.getProjects();
+    const resolved = resolveTodoistProject(options.projectName, projects);
+    if (resolved.status !== targetStatuses.resolved) return { ...resolved, target: null };
+    target.projectId = resolved.projectId;
+  }
+
+  if (wantsSection) {
+    const projectId = target.projectId ?? options.projectId;
+    const sections = await client.getSections(projectId ? { projectId } : {});
+    const resolved = resolveTodoistSection(options.sectionName, sections, { projectId });
+    if (resolved.status !== targetStatuses.resolved) return { ...resolved, target: null };
+    target.sectionId = resolved.sectionId;
+    if (!target.projectId && !options.projectId) target.projectId = resolved.projectId;
+  }
+
+  return { status: targetStatuses.resolved, target };
+}
+
+function targetClarification(plan, resolution, dryRun) {
+  return {
+    ...plan,
+    dryRun,
+    mode: "clarify",
+    command: "add",
+    task: null,
+    matches: resolution.matches,
+    reason: resolution.reason,
+    confirmation: null,
+  };
 }
 
 function parseTaskJson(value) {

@@ -96,6 +96,11 @@ export function createTodoistClient({
         },
       }));
     },
+    async getSections({ projectId } = {}) {
+      return normalizePaginatedResults(await request("/sections", {
+        query: { project_id: projectId },
+      }));
+    },
     getTask(taskId) {
       requireTaskId(taskId);
       return request(`/tasks/${encodeURIComponent(taskId)}`);
