@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as assistantStatusModule from "../scripts/lib/assistant-status.mjs";
+import { REQUIRED_ENV_KEYS, requiredEnvReport } from "../scripts/lib/env.mjs";
 import {
   buildAssistantStatus,
   loadAssistantStatusInputs,
@@ -41,7 +42,7 @@ function sampleConfig() {
         allowFrom: ["1029709001"],
         accounts: {
           main: {
-            botToken: "${TELEGRAM_BOT_TOKEN}",
+            botToken: "${HILLA_TELEGRAM_BOT_TOKEN}",
             allowFrom: ["1029709001"],
             execApprovals: { enabled: true, approvers: ["1029709001"] },
           },
@@ -118,7 +119,7 @@ describe("assistant status aggregation", () => {
   it("builds a redacted running status from local config, cron state, and logs", () => {
     const status = buildAssistantStatus({
       env: {
-        TELEGRAM_BOT_TOKEN: "891055:SECRET",
+        HILLA_TELEGRAM_BOT_TOKEN: "891055:SECRET",
         TELEGRAM_USER_ID: "1029709001",
       },
       config: sampleConfig(),
@@ -203,7 +204,7 @@ describe("assistant status aggregation", () => {
   it("reports degraded status when warning checks need attention", () => {
     const status = buildAssistantStatus({
       env: {
-        TELEGRAM_BOT_TOKEN: "891055:SECRET",
+        HILLA_TELEGRAM_BOT_TOKEN: "891055:SECRET",
         TELEGRAM_USER_ID: "1029709001",
       },
       config: sampleConfig(),
@@ -281,7 +282,7 @@ describe("assistant status aggregation", () => {
   it("keeps returning degraded status when cron state timestamps are invalid", () => {
     const status = buildAssistantStatus({
       env: {
-        TELEGRAM_BOT_TOKEN: "891055:SECRET",
+        HILLA_TELEGRAM_BOT_TOKEN: "891055:SECRET",
         TELEGRAM_USER_ID: "1029709001",
       },
       config: sampleConfig(),
@@ -327,7 +328,7 @@ describe("assistant status aggregation", () => {
 
     try {
       const inputs = loadAssistantStatusInputs({
-        env: { TELEGRAM_BOT_TOKEN: "891055:SECRET", TELEGRAM_USER_ID: "1029709001" },
+        env: { HILLA_TELEGRAM_BOT_TOKEN: "891055:SECRET", TELEGRAM_USER_ID: "1029709001" },
         projectRoot: directory,
         configPath,
         stateDir,
@@ -424,7 +425,7 @@ describe("assistant status CLI", () => {
   it("runs with injected status inputs", async () => {
     const result = await runAssistantStatusCli(["--json"], {
       loadInputs: () => ({
-        env: { TELEGRAM_BOT_TOKEN: "891055:SECRET", TELEGRAM_USER_ID: "1029709001" },
+        env: { HILLA_TELEGRAM_BOT_TOKEN: "891055:SECRET", TELEGRAM_USER_ID: "1029709001" },
         config: sampleConfig(),
         cronStore: sampleCronStore(),
         cronState: sampleCronState(),
@@ -462,7 +463,7 @@ describe("assistant status CLI", () => {
         env: {
           OPENCLAW_CONFIG_PATH: configPath,
           OPENCLAW_STATE_DIR: stateDir,
-          TELEGRAM_BOT_TOKEN: "891055:SECRET",
+          HILLA_TELEGRAM_BOT_TOKEN: "891055:SECRET",
           TELEGRAM_USER_ID: "1029709001",
         },
         now: new Date("2026-06-11T07:00:00.000Z"),
@@ -479,7 +480,7 @@ describe("assistant status CLI", () => {
   it("includes bounded redacted log lines only when requested", async () => {
     const result = await runAssistantStatusCli(["--include-logs"], {
       loadInputs: () => ({
-        env: { TELEGRAM_BOT_TOKEN: "891055:SECRET", TELEGRAM_USER_ID: "1029709001" },
+        env: { HILLA_TELEGRAM_BOT_TOKEN: "891055:SECRET", TELEGRAM_USER_ID: "1029709001" },
         config: sampleConfig(),
         cronStore: sampleCronStore(),
         cronState: sampleCronState(),
@@ -537,5 +538,81 @@ describe("assistant status CLI", () => {
     assert.match(summary, /evening-review disabled/);
     assert.match(summary, /npm run routines:status/);
     assert.match(summary, /npm run doctor/);
+  });
+});
+
+describe("canonical Telegram bot token variable", () => {
+  const config = sampleConfig();
+  const base = { config, cronStore: sampleCronStore(), cronState: sampleCronState(), now: new Date() };
+
+  function telegramCheck(env) {
+    const status = buildAssistantStatus({ ...base, env });
+    return status.checks.find((check) => check.id === "telegram-env");
+  }
+
+  it("requires only the canonical name for env validation", () => {
+    assert.ok(REQUIRED_ENV_KEYS.includes("HILLA_TELEGRAM_BOT_TOKEN"));
+    assert.ok(!REQUIRED_ENV_KEYS.includes("TELEGRAM_BOT_TOKEN"));
+
+    const legacyOnly = requiredEnvReport({
+      HILLA_TELEGRAM_BOT_TOKEN: "",
+      TELEGRAM_BOT_TOKEN: "891055:SECRET",
+    });
+    assert.ok(legacyOnly.missing.includes("HILLA_TELEGRAM_BOT_TOKEN"));
+
+    const canonical = requiredEnvReport({ HILLA_TELEGRAM_BOT_TOKEN: "891055:SECRET" });
+    assert.ok(!canonical.missing.includes("HILLA_TELEGRAM_BOT_TOKEN"));
+  });
+
+  it("accepts the canonical name for status reporting", () => {
+    assert.equal(
+      telegramCheck({ HILLA_TELEGRAM_BOT_TOKEN: "891055:SECRET", TELEGRAM_USER_ID: "1029709001" }).status,
+      "ok",
+    );
+  });
+
+  it("falls back to the legacy name so an unmigrated runtime is not reported as broken", () => {
+    assert.equal(
+      telegramCheck({ TELEGRAM_BOT_TOKEN: "891055:SECRET", TELEGRAM_USER_ID: "1029709001" }).status,
+      "ok",
+    );
+  });
+
+  it("prefers the canonical name when both are set", () => {
+    const status = buildAssistantStatus({
+      ...base,
+      env: {
+        HILLA_TELEGRAM_BOT_TOKEN: "canonical-token-value",
+        TELEGRAM_BOT_TOKEN: "legacy-token-value",
+        TELEGRAM_USER_ID: "1029709001",
+      },
+      logText: "2026-06-11T08:00:00.000+02:00 [telegram] canonical-token-value and legacy-token-value seen",
+    });
+    const serialized = JSON.stringify(status);
+
+    assert.equal(status.telegram.botTokenConfigured, true);
+    assert.ok(!serialized.includes("canonical-token-value"));
+    assert.ok(!serialized.includes("legacy-token-value"));
+  });
+
+  it("reports a failure when neither name is set", () => {
+    assert.equal(telegramCheck({ TELEGRAM_USER_ID: "1029709001" }).status, "fail");
+  });
+
+  it("redacts a token held under either name", () => {
+    assert.equal(
+      redactSensitiveText("token 891055:SECRET here", ["891055:SECRET"]),
+      "token <redacted> here",
+    );
+
+    for (const key of ["HILLA_TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_TOKEN"]) {
+      const status = buildAssistantStatus({
+        ...base,
+        env: { [key]: "891055:SECRET", TELEGRAM_USER_ID: "1029709001" },
+        logText: "2026-06-11T08:00:00.000+02:00 [telegram] using 891055:SECRET now",
+      });
+
+      assert.ok(!JSON.stringify(status).includes("891055:SECRET"), `leaked via ${key}`);
+    }
   });
 });

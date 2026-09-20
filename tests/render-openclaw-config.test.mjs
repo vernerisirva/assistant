@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 import { buildOpenClawConfig, writeOpenClawConfig } from "../scripts/render-openclaw-config.mjs";
 
 const env = {
-  TELEGRAM_BOT_TOKEN: "123:token",
+  HILLA_TELEGRAM_BOT_TOKEN: "123:token",
   TELEGRAM_USER_ID: "987654321",
   PRIMARY_MODEL: "provider/best-general-model",
   ADMIN_MODEL: "provider/reliable-admin-model",
@@ -120,7 +120,7 @@ describe("buildOpenClawConfig", () => {
     ]);
     assert.equal(config.channels.telegram.enabled, true);
     assert.deepEqual(config.channels.telegram.allowFrom, ["987654321"]);
-    assert.equal(config.channels.telegram.accounts.main.botToken, "${TELEGRAM_BOT_TOKEN}");
+    assert.equal(config.channels.telegram.accounts.main.botToken, "${HILLA_TELEGRAM_BOT_TOKEN}");
   });
 
   it("keeps Telegram approvals pointed at the same allowlisted user", () => {
@@ -190,7 +190,7 @@ describe("buildOpenClawConfig", () => {
 
     assert.equal(outputPath, resolve(root, ".openclaw/openclaw.json"));
     const config = JSON.parse(readFileSync(outputPath, "utf8"));
-    assert.equal(config.channels.telegram.accounts.main.botToken, "${TELEGRAM_BOT_TOKEN}");
+    assert.equal(config.channels.telegram.accounts.main.botToken, "${HILLA_TELEGRAM_BOT_TOKEN}");
     assert.equal(JSON.stringify(config).includes("123:token"), false);
   });
 

@@ -163,6 +163,7 @@ function isRecentLogLine(line, cutoffMs) {
 
 function collectCliSecrets(env, config) {
   const secrets = new Set([
+    env.HILLA_TELEGRAM_BOT_TOKEN,
     env.TELEGRAM_BOT_TOKEN,
     env.OPENCLAW_GATEWAY_TOKEN,
     env.GATEWAY_TOKEN,
