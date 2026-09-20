@@ -179,6 +179,18 @@ describe("agent configuration", () => {
     assert.match(prompt, /not use a comment as a way to change the task itself/i);
   });
 
+  it("teaches the admin agent not to report a no-op as an update", () => {
+    const prompt = readFileSync(
+      `${agents.find((agent) => agent.id === "admin").promptDir}/AGENTS.md`,
+      "utf8",
+    );
+
+    assert.match(prompt, /no_change_needed/);
+    assert.match(prompt, /nothing was sent and nothing changed/i);
+    assert.match(prompt, /Never report it as an update/i);
+    assert.match(prompt, /(Do not|never) retry the update/i);
+  });
+
   it("teaches the admin agent read-only calendar planning boundaries", () => {
     const adminAgent = agents.find((agent) => agent.id === "admin");
     const prompt = readFileSync(`${adminAgent.promptDir}/AGENTS.md`, "utf8");
