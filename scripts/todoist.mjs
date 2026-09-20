@@ -10,6 +10,11 @@ import {
   normalizeTaskFieldKeys,
 } from "./lib/todoist-create.mjs";
 import {
+  describeDuplicateOutcome,
+  duplicateStatuses,
+  findTodoistDuplicates,
+} from "./lib/todoist-duplicates.mjs";
+import {
   buildExactTodoistUpdatePlan,
   resolveExactTodoistTask,
 } from "./lib/todoist-exact-update.mjs";
@@ -167,7 +172,7 @@ export async function runTodoistCli(argv, {
   }
 
   if (parsed.dryRun && writeCommands.has(parsed.command)) {
-    return dryRunResult(parsed);
+    return dryRunResult(parsed, { client, env });
   }
 
   const todoist = client ?? createTodoistClient({ token: env.TODOIST_API_TOKEN });
@@ -178,8 +183,14 @@ export async function runTodoistCli(argv, {
       return todoist.getTasks(parsed.options);
     case "add": {
       const plan = buildTodoistCreatePlan(taskInput(parsed.options));
+      const duplicateCheck = await checkForDuplicates(todoist, plan);
+
+      if (duplicateCheck.status !== duplicateStatuses.none) {
+        return blockedByDuplicates(plan, duplicateCheck, false);
+      }
+
       const task = await todoist.addTask(plan.payload, { requestId: randomUUID() });
-      return { dryRun: false, ...plan, task };
+      return { dryRun: false, ...plan, duplicateCheck, task };
     }
     case "update": {
       const plan = buildTodoistUpdatePlan(parsed.options.taskId, taskInput(parsed.options));
@@ -201,13 +212,30 @@ export async function runTodoistCli(argv, {
   }
 }
 
-function dryRunResult(parsed) {
+async function dryRunResult(parsed, { client, env } = {}) {
   if (parsed.command === "add") {
     const plan = buildTodoistCreatePlan(taskInput(parsed.options));
+    const reader = client ?? tryCreateClient(env);
+
+    if (!reader) {
+      return {
+        ...plan,
+        dryRun: true,
+        duplicateCheck: { status: duplicateStatuses.unchecked, matches: [] },
+        confirmation: `Dry run only. No Todoist task was created for "${plan.payload.content}". Duplicate check not performed in dry-run mode.`,
+      };
+    }
+
+    const duplicateCheck = await checkForDuplicates(reader, plan);
+    if (duplicateCheck.status !== duplicateStatuses.none) {
+      return blockedByDuplicates(plan, duplicateCheck, true);
+    }
+
     return {
       ...plan,
       dryRun: true,
-      confirmation: `Dry run only. No Todoist task was created for "${plan.payload.content}".`,
+      duplicateCheck,
+      confirmation: `Dry run only. No Todoist task was created for "${plan.payload.content}". No matching open task was found.`,
     };
   }
 
@@ -227,6 +255,51 @@ function dryRunResult(parsed) {
     payload: null,
     confirmation: `Dry run only. Todoist task ${parsed.options.taskId} was not changed.`,
   };
+}
+
+/**
+ * Reads open tasks before any create. A failed read is reported as a failure,
+ * never as an absence of duplicates, so uncertainty can never become a silent
+ * second copy of a task.
+ */
+async function checkForDuplicates(client, plan) {
+  let tasks;
+  try {
+    tasks = await client.getTasks({});
+  } catch (error) {
+    return {
+      status: duplicateStatuses.readFailed,
+      matches: [],
+      error: error?.message ?? String(error),
+    };
+  }
+
+  return findTodoistDuplicates(plan.payload, tasks);
+}
+
+/** No task is created, and nothing existing is touched. */
+function blockedByDuplicates(plan, duplicateCheck, dryRun) {
+  return {
+    ...plan,
+    dryRun,
+    mode: "clarify",
+    command: "add",
+    task: null,
+    duplicateCheck,
+    matches: duplicateCheck.matches,
+    reason: duplicateCheck.status === duplicateStatuses.readFailed
+      ? `Could not check for existing Todoist tasks, so nothing was created: ${duplicateCheck.error}`
+      : describeDuplicateOutcome(duplicateCheck),
+    confirmation: null,
+  };
+}
+
+function tryCreateClient(env) {
+  try {
+    return createTodoistClient({ token: env?.TODOIST_API_TOKEN });
+  } catch {
+    return null;
+  }
 }
 
 function taskInput(options) {
