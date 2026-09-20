@@ -2871,6 +2871,24 @@ describe("Todoist no-op updates", () => {
     );
   });
 
+  it("will not clear a destination the task never reported", () => {
+    // section_id: null means "take it out of its section". A task object with
+    // no section_id at all is not evidence that it already has none.
+    const absent = detectTodoistNoop({ section_id: null }, { id: "task-1" });
+    assert.equal(absent.noop, false);
+    assert.deepEqual(absent.undetermined, ["section_id"]);
+
+    // An explicit null is comparable and still counts as already-empty.
+    assert.equal(
+      detectTodoistNoop({ section_id: null }, { id: "task-1", section_id: null }).noop,
+      true,
+    );
+    assert.equal(
+      detectTodoistNoop({ section_id: null }, { id: "task-1", section_id: "s-1" }).noop,
+      false,
+    );
+  });
+
   it("keeps every other outcome distinguishable", () => {
     const messy = { id: "t", content: "AI video", description: "  messy  " };
 

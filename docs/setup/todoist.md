@@ -279,6 +279,13 @@ wrongly skipping a real change is worse than a redundant request. Natural
 language is never resolved to decide equality, so asking for `tomorrow` on a
 task stored as a date still counts as a change.
 
+A field the existing task does not report at all is not comparable either. A
+task carrying no `section_id` is not evidence that it sits in no section, and a
+stored due with no due text of its own is not an empty due string, so both send
+the update instead of being read as already-empty. The title is compared
+exactly, because Todoist stores and shows it literally: a rename that only
+changes case or spacing is a real change and is still sent.
+
 Exact updates compare against the task they already fetched. A flag-driven
 `update` reads the task first to compare. If that read fails, the update is sent
 rather than skipped, since a failed read is not evidence that nothing changed.

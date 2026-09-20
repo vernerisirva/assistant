@@ -48,6 +48,9 @@ function compareField(field, value, task) {
     case "project_id":
     case "section_id":
     case "parent_id":
+      // An absent key is not evidence that the field is empty. Only an explicit
+      // null or a real value can be compared; anything else sends the update.
+      if (!(field in task)) return "undetermined";
       return sameId(value, task[field]) ? "equal" : "different";
 
     case "labels":
