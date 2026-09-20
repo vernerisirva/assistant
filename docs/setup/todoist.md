@@ -108,6 +108,11 @@ Resolution happens before the duplicate check, so the check and the create both
 see the real destination. This feature only reads: it never creates, renames,
 moves, archives or deletes a project or section.
 
+Resolving a name needs Todoist access. A dry run without a configured token asks
+rather than previewing the task, because a preview with the named destination
+dropped would show a task going to the Inbox that the real create would never
+make.
+
 ## Duplicate Detection
 
 Every `add` reads the open tasks first and refuses to create a second copy of a

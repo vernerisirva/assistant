@@ -2273,6 +2273,48 @@ describe("name targeting through the CLI", () => {
     assert.equal(result.dryRun, true);
   });
 
+  it("refuses a dry run with a named destination it cannot resolve", async () => {
+    const result = await runTodoistCli(
+      ["add", "--content", "Ask about pricing", "--project", "Work", "--dry-run"],
+      { env: {} },
+    );
+
+    assert.equal(result.mode, "clarify");
+    assert.equal(result.task, null);
+    assert.equal(result.dryRun, true);
+    assert.match(result.reason, /named project "Work" cannot be resolved without Todoist access/);
+    assert.equal(
+      result.payload.project_id,
+      undefined,
+      "a preview must not silently drop the destination and show an Inbox task",
+    );
+    assert.equal(result.confirmation, null, "nothing may read as a successful preview");
+  });
+
+  it("names both destinations when neither can be resolved on a dry run", async () => {
+    const result = await runTodoistCli(
+      [
+        "add", "--content", "Ask about pricing",
+        "--project", "Work", "--section", "Interviews", "--dry-run",
+      ],
+      { env: {} },
+    );
+
+    assert.equal(result.mode, "clarify");
+    assert.match(result.reason, /project "Work" and section "Interviews"/);
+  });
+
+  it("still previews a dry run without a client when no destination was named", async () => {
+    const result = await runTodoistCli(
+      ["add", "--content", "Buy oats", "--dry-run"],
+      { env: {} },
+    );
+
+    assert.equal(result.dryRun, true);
+    assert.notEqual(result.mode, "clarify");
+    assert.equal(result.duplicateCheck.status, "unchecked");
+  });
+
   it("creates, renames, moves or deletes no project or section", async () => {
     const forbidden = [];
     const client = {

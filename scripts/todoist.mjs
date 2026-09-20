@@ -240,7 +240,25 @@ async function dryRunResult(parsed, { client, env } = {}) {
 
     // Names are resolved before the plan is built, so the preview shows the
     // destination the real create would use.
-    if (reader && (parsed.options.projectName || parsed.options.sectionName)) {
+    if (parsed.options.projectName || parsed.options.sectionName) {
+      // Without Todoist access there is nothing to resolve the name against.
+      // Dropping it and previewing the task anyway would show it going to the
+      // Inbox, which is a destination the user did not ask for and the real
+      // create would never pick. A named destination is asked about, never
+      // quietly discarded.
+      if (!reader) {
+        return targetClarification(
+          buildTodoistCreatePlan(taskInput(parsed.options)),
+          {
+            reason:
+              `${namedTargetLabel(parsed.options)} cannot be resolved without Todoist access. ` +
+              "Set TODOIST_API_TOKEN, or give the destination as --project-id or --section-id.",
+            matches: [],
+          },
+          true,
+        );
+      }
+
       const resolution = await resolveNamedTarget(reader, parsed.options);
       if (resolution.status !== targetStatuses.resolved) {
         return targetClarification(
@@ -386,6 +404,14 @@ async function resolveNamedTarget(client, options) {
   }
 
   return { status: targetStatuses.resolved, target };
+}
+
+/** Names the destination the user asked for, so a refusal says which one. */
+function namedTargetLabel({ projectName, sectionName } = {}) {
+  const parts = [];
+  if (projectName) parts.push(`project "${String(projectName).trim()}"`);
+  if (sectionName) parts.push(`section "${String(sectionName).trim()}"`);
+  return `The named ${parts.join(" and ")}`;
 }
 
 function targetClarification(plan, resolution, dryRun) {
