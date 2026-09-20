@@ -2843,6 +2843,34 @@ describe("Todoist no-op updates", () => {
     assert.equal(plan.payload.content, "Call dad");
   });
 
+  it("sends a rename that only changes case or spacing", () => {
+    // Todoist stores and shows the title exactly as written, so a case or
+    // spacing change is a real change. Matching semantics (comparableTaskTitle)
+    // belong to finding a task, not to deciding whether a write does anything.
+    assert.equal(
+      detectTodoistNoop({ content: "call dad" }, { content: " Call  dad " }).noop,
+      false,
+    );
+    assert.equal(detectTodoistNoop({ content: "Call dad" }, { content: "Call dad" }).noop, true);
+  });
+
+  it("will not call a due change equal to a stored due that carries no text", () => {
+    const stored = { id: "t", due: { date: "2026-09-21" } };
+
+    const result = detectTodoistNoop({ due_string: "tomorrow" }, stored);
+    assert.equal(result.noop, false);
+    assert.deepEqual(result.undetermined, ["due_string"]);
+
+    // The same holds for a task with no due at all.
+    assert.equal(detectTodoistNoop({ due_string: "tomorrow" }, { id: "t", due: null }).noop, false);
+
+    // A stored due text that is present still compares normally.
+    assert.equal(
+      detectTodoistNoop({ due_string: "tomorrow" }, { id: "t", due: { string: "Tomorrow" } }).noop,
+      true,
+    );
+  });
+
   it("keeps every other outcome distinguishable", () => {
     const messy = { id: "t", content: "AI video", description: "  messy  " };
 

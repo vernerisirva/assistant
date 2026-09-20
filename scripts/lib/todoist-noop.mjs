@@ -56,10 +56,14 @@ function compareField(field, value, task) {
     // Only the due text the user wrote is comparable. A natural-language due
     // date is resolved by Todoist, so nothing here decides that "tomorrow"
     // already equals a stored date.
-    case "due_string":
-      return comparableTaskTitle(value) === comparableTaskTitle(task.due?.string ?? "")
-        ? "equal"
-        : "different";
+    case "due_string": {
+      // A stored due carrying no due text of its own is not comparable. Reading
+      // an absent string as "" would let a requested due clear or change look
+      // equal to it, so this stays undetermined and the update is sent.
+      const stored = task.due?.string;
+      if (typeof stored !== "string") return "undetermined";
+      return comparableTaskTitle(value) === comparableTaskTitle(stored) ? "equal" : "different";
+    }
 
     case "due_lang":
       return String(value) === String(task.due?.lang ?? "") ? "equal" : "different";

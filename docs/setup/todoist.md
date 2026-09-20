@@ -230,7 +230,6 @@ Title normalization removes heading markers, a leading bullet, and Markdown that
 
 Validation rejects empty content, a non-string title or description, an out-of-range priority, non-string labels, unsupported fields, a title longer than 500 characters, and a description longer than 16384 characters. A multiline title is rejected on `update`, where there is no fetched description to merge it into, and an update that would change no field at all is rejected too.
 
-<<<<<<< HEAD
 ## Comments
 
 One comment, on one exact task, from text the user supplied:
@@ -265,7 +264,7 @@ The request shape sent is `POST /comments` with `task_id` and `content`. The
 read side of that endpoint was verified against a live account; the write has
 only been exercised against a mocked client, since posting a real comment would
 have written to the owner's tasks.
-=======
+
 ## Updates That Change Nothing
 
 An update is not sent when the task already matches the requested state. The
@@ -287,7 +286,6 @@ rather than skipped, since a failed read is not evidence that nothing changed.
 Each outcome stays distinguishable: `execute_then_confirm` for a real update,
 `no_change_needed` for a skipped one, `clarify` when something is missing,
 `approval_required` when policy demands approval, and a raised error on failure.
->>>>>>> 69cbcf0 (Do not send a Todoist update that would change nothing)
 
 ## Approval Rule
 
