@@ -1933,3 +1933,67 @@ describe("duplicate status in the readable preview", () => {
     assert.doesNotMatch(formatTodoistTaskPlan(plan, { dryRun: true }), /Duplicate check/);
   });
 });
+
+describe("duplicate guard fails closed on bad reads and finished tasks", () => {
+  const args = ["add", "--content", "Call dad"];
+
+  it("ignores a completed task whichever completion field the API uses", () => {
+    for (const finished of [
+      { checked: true },
+      { is_completed: true },
+      { completed_at: "2026-09-19T10:00:00Z" },
+      { is_deleted: true },
+    ]) {
+      const result = findTodoistDuplicates({ content: "Call dad" }, [
+        { id: "x", content: "Call dad", due: null, ...finished },
+      ]);
+
+      assert.equal(result.status, "none", JSON.stringify(finished));
+    }
+  });
+
+  it("still matches an open task that carries the completion fields as false", () => {
+    const result = findTodoistDuplicates({ content: "Call dad" }, [
+      { id: "x", content: "Call dad", due: null, checked: false, is_completed: false, completed_at: null },
+    ]);
+
+    assert.equal(result.status, "duplicate");
+  });
+
+  it("refuses to judge a read that is not a list of tasks", () => {
+    for (const bad of [undefined, null, {}, { results: [] }, "tasks", 7]) {
+      assert.throws(
+        () => findTodoistDuplicates({ content: "Call dad" }, bad),
+        /needs a list of tasks/,
+        JSON.stringify(bad) ?? "undefined",
+      );
+    }
+  });
+
+  it("treats a malformed read as a failed check and never creates", async () => {
+    for (const malformed of [undefined, null, { unexpected: true }]) {
+      const posted = [];
+      const client = {
+        async getTasks() { return malformed; },
+        async addTask() { posted.push("addTask"); return { id: "x" }; },
+      };
+
+      const result = await runTodoistCli(args, { client });
+
+      assert.deepEqual(posted, [], "a malformed read must never become a create");
+      assert.equal(result.duplicateCheck.status, "read_failed");
+      assert.equal(result.mode, "clarify");
+      assert.match(result.reason, /Could not check for existing Todoist tasks/);
+    }
+  });
+
+  it("reports a malformed read as unusable in the readable preview", async () => {
+    const result = await runTodoistCli([...args, "--dry-run"], {
+      client: { async getTasks() { return null; } },
+    });
+
+    const text = formatTodoistTaskPlan(result, { dryRun: true });
+    assert.match(text, /could not be performed, so nothing was created/);
+    assert.doesNotMatch(text, /no matching open task found/);
+  });
+});

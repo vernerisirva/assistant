@@ -263,18 +263,19 @@ async function dryRunResult(parsed, { client, env } = {}) {
  * second copy of a task.
  */
 async function checkForDuplicates(client, plan) {
-  let tasks;
   try {
-    tasks = await client.getTasks({});
+    const tasks = await client.getTasks({});
+    return findTodoistDuplicates(plan.payload, tasks);
   } catch (error) {
+    // Covers a failed request and a response that is not a task list. Either
+    // way the check produced no evidence, so it is reported as a failure and
+    // never as an absence of duplicates.
     return {
       status: duplicateStatuses.readFailed,
       matches: [],
       error: error?.message ?? String(error),
     };
   }
-
-  return findTodoistDuplicates(plan.payload, tasks);
 }
 
 /** No task is created, and nothing existing is touched. */

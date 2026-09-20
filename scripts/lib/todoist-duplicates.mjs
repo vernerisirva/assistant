@@ -28,15 +28,24 @@ export const duplicateStatuses = Object.freeze({
 
 /**
  * @param payload the exact wire payload from buildTodoistCreatePlan
- * @param tasks open tasks as returned by the Todoist API
+ * @param tasks open tasks as returned by the Todoist API. Deliberately has no
+ *   default: an absent list means the read produced nothing, which must fail
+ *   closed rather than look like an empty result.
  */
-export function findTodoistDuplicates(payload = {}, tasks = []) {
+export function findTodoistDuplicates(payload = {}, tasks) {
+  // Anything other than a list means the read did not produce a task list.
+  // Coercing it to an empty list would report "no duplicate" on the strength of
+  // no evidence, so the caller has to treat it as a failed read instead.
+  if (!Array.isArray(tasks)) {
+    throw new Error("Todoist duplicate detection needs a list of tasks.");
+  }
+
   const wantedTitle = comparableTaskTitle(payload.content ?? "");
   if (!wantedTitle) return { status: duplicateStatuses.none, matches: [] };
 
-  const candidates = (Array.isArray(tasks) ? tasks : [])
+  const candidates = tasks
     .filter((task) => task && typeof task === "object")
-    .filter((task) => task.checked !== true && task.is_deleted !== true)
+    .filter((task) => isOpen(task))
     .filter((task) => comparableTaskTitle(task.content ?? "") === wantedTitle);
 
   if (candidates.length === 0) return { status: duplicateStatuses.none, matches: [] };
@@ -61,6 +70,16 @@ export function describeDuplicateOutcome({ status, matches }) {
   }
 
   return "No matching Todoist task was found.";
+}
+
+/**
+ * A finished task must never block a new one. The observed API returns
+ * `checked`, while other Todoist endpoints and versions report `is_completed`
+ * or `completed_at`, so all of them are honoured rather than assuming one.
+ */
+function isOpen(task) {
+  if (task.checked === true || task.is_completed === true || task.is_deleted === true) return false;
+  return !task.completed_at;
 }
 
 function describeMatch(task, payload) {

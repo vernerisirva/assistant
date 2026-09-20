@@ -126,6 +126,23 @@ still never posts. Without a token the output says
 `Duplicate check not performed in dry-run mode.` rather than implying a
 duplicate was ruled out.
 
+A finished task never blocks a new one. Completion is read from every field the
+Todoist API family uses, so `checked`, `is_completed` and `completed_at` all
+count, and a read that is not a list of tasks is treated as a failed check
+rather than an empty one.
+
+### Known limitation: the check is not atomic
+
+The read and the create are two separate requests, so two creates issued
+genuinely concurrently can both pass the check and both succeed. This is not
+fixed in v1, deliberately: Todoist's REST API offers no idempotency key to build
+on, and a local lock would introduce a stale-lock failure mode that blocks
+legitimate task creation, which is worse than the duplicate it prevents. The
+failure this guard is built for is sequential — the same request arriving twice,
+or a retry after uncertainty — and Hilla processes Telegram messages one at a
+time. If concurrent creation ever becomes real, the fix belongs at the point
+where requests are dispatched, not here.
+
 ### Duplicate detection is not API idempotency
 
 Each create sends a fresh `X-Request-Id`. Todoist's REST API does not document
