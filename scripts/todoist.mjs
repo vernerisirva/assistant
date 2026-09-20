@@ -140,6 +140,17 @@ export function parseTodoistArgs(argv) {
   }
 
   const parsed = { command, options: mergeTaskJson(taskJson, options), dryRun };
+
+  // A name and a raw id for the same destination contradict each other. Letting
+  // one quietly win would preview and create somewhere the caller never
+  // unambiguously asked for. Scoping a named section with --project-id is not a
+  // conflict and stays supported.
+  if (parsed.options.projectName !== undefined && parsed.options.projectId !== undefined) {
+    throw new Error("Use either --project or --project-id, not both.");
+  }
+  if (parsed.options.sectionName !== undefined && parsed.options.sectionId !== undefined) {
+    throw new Error("Use either --section or --section-id, not both.");
+  }
   if (text) parsed.text = true;
   if (taskJsonStdin) parsed.taskJsonStdin = true;
 

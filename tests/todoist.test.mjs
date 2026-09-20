@@ -2416,6 +2416,39 @@ describe("name targeting through the CLI", () => {
     assert.match(result.reason, /No Todoist project is named "Nowhere"/);
   });
 
+  it("refuses a name and a raw id for the same destination", async () => {
+    await assert.rejects(
+      runTodoistCli(
+        ["add", "--content", "Buy oats", "--project", "Work", "--project-id", "p-other"],
+        { client: namedClient([]) },
+      ),
+      /Use either --project or --project-id, not both/,
+    );
+
+    await assert.rejects(
+      runTodoistCli(
+        ["add", "--content", "Buy oats", "--section", "Interviews", "--section-id", "s-other"],
+        { client: namedClient([]) },
+      ),
+      /Use either --section or --section-id, not both/,
+    );
+  });
+
+  it("still scopes a named section with a raw project id", async () => {
+    const calls = [];
+    const result = await runTodoistCli(
+      ["add", "--content", "Ask about pricing", "--section", "Interviews", "--project-id", "p-ai"],
+      { client: namedClient(calls) },
+    );
+
+    assert.equal(calls[0][0], "getSections");
+    assert.equal(calls[0][1], "p-ai", "the raw project id must scope the section read");
+    const posted = calls.find((call) => call[0] === "addTask")[1];
+    assert.equal(posted.section_id, "s-ai-iv");
+    assert.equal(posted.project_id, "p-ai");
+    assert.equal(result.task.id, "new");
+  });
+
   it("creates, renames, moves or deletes no project or section", async () => {
     const forbidden = [];
     const client = {

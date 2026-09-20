@@ -108,6 +108,12 @@ Resolution happens before the duplicate check, so the check and the create both
 see the real destination. This feature only reads: it never creates, renames,
 moves, archives or deletes a project or section.
 
+Passing a name and a raw id for the same destination is refused rather than
+letting one quietly win: `--project` with `--project-id`, or `--section` with
+`--section-id`. Scoping a named section with a raw project id is not a conflict,
+so `--section "Interviews" --project-id "..."` still works and scopes the
+section read to that project.
+
 Resolving a name needs Todoist access. A dry run without a configured token asks
 rather than previewing the task, because a preview with the named destination
 dropped would show a task going to the Inbox that the real create would never
