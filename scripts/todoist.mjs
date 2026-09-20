@@ -9,6 +9,7 @@ import {
   formatTodoistTaskPlan,
   normalizeTaskFieldKeys,
 } from "./lib/todoist-create.mjs";
+import { detectTodoistNoop } from "./lib/todoist-noop.mjs";
 import {
   resolveTodoistProject,
   resolveTodoistSection,
@@ -240,6 +241,12 @@ export async function runTodoistCli(argv, {
     }
     case "update": {
       const plan = buildTodoistUpdatePlan(parsed.options.taskId, taskInput(parsed.options));
+      const existing = await readTaskForComparison(todoist, plan.taskId);
+
+      if (existing && detectTodoistNoop(plan.payload, existing).noop) {
+        return noChangeNeeded(plan, false);
+      }
+
       const task = await todoist.updateTask(plan.taskId, plan.payload, {
         requestId: randomUUID(),
       });
@@ -332,6 +339,13 @@ async function dryRunResult(parsed, { client, env } = {}) {
 
   if (parsed.command === "update") {
     const plan = buildTodoistUpdatePlan(parsed.options.taskId, taskInput(parsed.options));
+    const reader = client ?? tryCreateClient(env);
+    const existing = reader ? await readTaskForComparison(reader, plan.taskId) : null;
+
+    if (existing && detectTodoistNoop(plan.payload, existing).noop) {
+      return noChangeNeeded(plan, true);
+    }
+
     return {
       ...plan,
       dryRun: true,
@@ -383,6 +397,32 @@ function blockedByDuplicates(plan, duplicateCheck, dryRun) {
       ? `Could not check for existing Todoist tasks, so nothing was created: ${duplicateCheck.error}`
       : describeDuplicateOutcome(duplicateCheck),
     confirmation: null,
+  };
+}
+
+/**
+ * Reads the task an update targets so a no-op can be recognized. A failed read
+ * only means the comparison cannot be made, so the update proceeds rather than
+ * being skipped on no evidence.
+ */
+async function readTaskForComparison(client, taskId) {
+  if (typeof client.getTask !== "function") return null;
+  try {
+    return await client.getTask(taskId);
+  } catch {
+    return null;
+  }
+}
+
+function noChangeNeeded(plan, dryRun) {
+  return {
+    ...plan,
+    dryRun,
+    mode: "no_change_needed",
+    command: null,
+    payload: null,
+    task: null,
+    confirmation: "No Todoist change was needed.",
   };
 }
 

@@ -26,6 +26,23 @@ describe("agent configuration", () => {
     assert.equal(defaultAgents[0].id, "personal");
   });
 
+  it("ships no unresolved conflict markers in any agent prompt", () => {
+    // A rebase once committed markers into a prompt and every other assertion
+    // still passed, because they only check that phrases are present. The
+    // markers would have gone to the model as part of its standing orders.
+    for (const agent of agents) {
+      const path = `${agent.promptDir}/AGENTS.md`;
+      if (!existsSync(path)) continue;
+
+      for (const line of readFileSync(path, "utf8").split("\n")) {
+        assert.ok(
+          !/^(<{7} |={7}$|>{7} )/.test(line),
+          `${path} still contains a conflict marker: ${line}`,
+        );
+      }
+    }
+  });
+
   it("gives each agent a workspace and agent directory", () => {
     for (const agent of agents) {
       assert.match(agent.workspace, new RegExp(`workspace-${agent.id}$`));
@@ -177,6 +194,18 @@ describe("agent configuration", () => {
     assert.match(prompt, /ask which task instead of commenting/i);
     assert.match(prompt, /Add exactly what the user said/i);
     assert.match(prompt, /not use a comment as a way to change the task itself/i);
+  });
+
+  it("teaches the admin agent not to report a no-op as an update", () => {
+    const prompt = readFileSync(
+      `${agents.find((agent) => agent.id === "admin").promptDir}/AGENTS.md`,
+      "utf8",
+    );
+
+    assert.match(prompt, /no_change_needed/);
+    assert.match(prompt, /nothing was sent and nothing changed/i);
+    assert.match(prompt, /Never report it as an update/i);
+    assert.match(prompt, /(Do not|never) retry the update/i);
   });
 
   it("teaches the admin agent read-only calendar planning boundaries", () => {

@@ -1,4 +1,5 @@
 import { comparableTaskTitle, normalizeTodoistDescription } from "./todoist-format.mjs";
+import { detectTodoistNoop } from "./todoist-noop.mjs";
 
 const approvalRequiredActions = new Set([
   "delete",
@@ -149,12 +150,28 @@ function exactResolution(matches, emptyReason) {
 }
 
 function executeUpdate(task, payload, confirmation) {
+  // An update that would leave the task exactly as it is gets no request and no
+  // confirmation claiming a change.
+  if (detectTodoistNoop(payload, task).noop) {
+    return noChangeNeeded(task);
+  }
+
   return {
     mode: "execute_then_confirm",
     command: "update",
     taskId: task.id,
     payload,
     confirmation,
+  };
+}
+
+function noChangeNeeded(task) {
+  return {
+    mode: "no_change_needed",
+    command: null,
+    taskId: task.id,
+    payload: null,
+    confirmation: "No Todoist change was needed.",
   };
 }
 

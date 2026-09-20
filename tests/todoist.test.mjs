@@ -34,6 +34,7 @@ import {
   resolveTodoistProject,
   resolveTodoistSection,
 } from "../scripts/lib/todoist-targets.mjs";
+import { detectTodoistNoop } from "../scripts/lib/todoist-noop.mjs";
 import { parseTodoistArgs, runTodoistCli } from "../scripts/todoist.mjs";
 
 function recordingClient(calls, response = { id: "task-new", content: "Created" }, openTasks = []) {
@@ -344,9 +345,17 @@ describe("exact Todoist update helpers", () => {
     assert.deepEqual(
       buildExactTodoistUpdatePlan(tasks[1], {
         action: "wording-description",
-        replacementDescription: "Warm up\nStrength",
+        replacementDescription: "Warm up first\nThen strength",
       }).mode,
       "execute_then_confirm",
+    );
+    // Replacing a description with what it already says changes nothing.
+    assert.deepEqual(
+      buildExactTodoistUpdatePlan(tasks[1], {
+        action: "wording-description",
+        replacementDescription: "Warm up\nStrength",
+      }).mode,
+      "no_change_needed",
     );
     assert.deepEqual(
       buildExactTodoistUpdatePlan(tasks[1], {
@@ -933,7 +942,7 @@ describe("Todoist creation dry run", () => {
     assert.match(result.confirmation, /No matching open task was found\./);
   });
 
-  it("makes no Todoist call on a dry-run update or completion", async () => {
+  it("never writes on a dry-run update or completion", async () => {
     const calls = [];
     const update = await runTodoistCli([
       "update",
@@ -950,7 +959,7 @@ describe("Todoist creation dry run", () => {
       "--dry-run",
     ], { client: recordingClient(calls) });
 
-    assert.equal(calls.length, 0);
+    assert.deepEqual(postCalls(calls), [], "a dry run must not write");
     assert.deepEqual(update.payload, { content: "Renamed task" });
     assert.equal(update.dryRun, true);
     assert.equal(close.dryRun, true);
@@ -1355,8 +1364,8 @@ describe("preview and wire payload agree on clearing fields", () => {
     );
 
     assert.deepEqual(dryRun.payload, { description: "" });
-    assert.deepEqual(calls[0].body, dryRun.payload);
-    assert.equal(calls[0].body.description, "");
+    assert.deepEqual(postCalls(calls)[0].body, dryRun.payload);
+    assert.equal(postCalls(calls)[0].body.description, "");
   });
 
   it("sends exactly the update payload the dry run showed", async () => {
@@ -1371,7 +1380,7 @@ describe("preview and wire payload agree on clearing fields", () => {
     const calls = [];
     await runTodoistCli(args, { client: recordingClient(calls) });
 
-    assert.deepEqual(calls[0].body, dryRun.payload);
+    assert.deepEqual(postCalls(calls)[0].body, dryRun.payload);
     assert.deepEqual(dryRun.payload, {
       content: "Renamed",
       description: "",
@@ -1413,7 +1422,7 @@ describe("preview and wire payload agree on clearing fields", () => {
     );
 
     assert.deepEqual(plan.payload, { labels: [] });
-    assert.deepEqual(calls[0].body, { labels: [] });
+    assert.deepEqual(postCalls(calls)[0].body, { labels: [] });
     assert.match(formatTodoistTaskPlan(plan, { dryRun: true }), /- Labels: \(cleared\)/);
   });
 });
@@ -2662,5 +2671,259 @@ describe("Todoist comments", () => {
     assert.throws(() => client.addComment({ taskId: "", content: "x" }), /task id is required/);
     assert.throws(() => client.addComment({ taskId: "t", content: "  " }), /comment content is required/);
     assert.throws(() => client.addComment({ taskId: "t", content: 42 }), /comment content is required/);
+  });
+});
+
+describe("Todoist no-op updates", () => {
+  const task = {
+    id: "task-1",
+    content: "Call dad",
+    description: "Ring at 18:00",
+    priority: 1,
+    project_id: "p1",
+    section_id: null,
+    labels: ["home", "family"],
+    due: { date: "2026-09-21", string: "tomorrow", lang: "en", is_recurring: false },
+  };
+
+  it("recognizes equality only where it is reliable", () => {
+    assert.equal(detectTodoistNoop({ description: "Ring at 18:00" }, task).noop, true);
+    assert.equal(detectTodoistNoop({ content: "Call dad" }, task).noop, true);
+    assert.equal(detectTodoistNoop({ priority: 1 }, task).noop, true);
+    assert.equal(detectTodoistNoop({ project_id: "p1" }, task).noop, true);
+    assert.equal(detectTodoistNoop({ section_id: null }, task).noop, true);
+    assert.equal(detectTodoistNoop({ labels: ["family", "home"] }, task).noop, true);
+    assert.equal(detectTodoistNoop({ due_string: "Tomorrow" }, task).noop, true);
+  });
+
+  it("treats any real difference as a change", () => {
+    assert.equal(detectTodoistNoop({ description: "Ring at 19:00" }, task).noop, false);
+    assert.equal(detectTodoistNoop({ content: "Call mum" }, task).noop, false);
+    assert.equal(detectTodoistNoop({ labels: ["home"] }, task).noop, false);
+    assert.equal(detectTodoistNoop({ labels: ["home", "family", "urgent"] }, task).noop, false);
+    assert.equal(detectTodoistNoop({ due_string: "friday" }, task).noop, false);
+    assert.equal(detectTodoistNoop({ content: "Call dad", description: "new" }, task).noop, false);
+  });
+
+  it("never invents equivalence for a field it cannot compare", () => {
+    const result = detectTodoistNoop({ deadline_date: "2026-09-30" }, task);
+
+    assert.equal(result.noop, false);
+    assert.deepEqual(result.undetermined, ["deadline_date"]);
+
+    // One incomparable field is enough to send the update.
+    const mixed = detectTodoistNoop({ content: "Call dad", deadline_date: "2026-09-30" }, task);
+    assert.equal(mixed.noop, false);
+  });
+
+  it("does not resolve natural language into a date to claim equality", () => {
+    assert.equal(detectTodoistNoop({ due_string: "2026-09-21" }, task).noop, false);
+  });
+
+  it("makes no claim without an existing task or without fields", () => {
+    assert.equal(detectTodoistNoop({ content: "Call dad" }, null).noop, false);
+    assert.equal(detectTodoistNoop({}, task).noop, false);
+  });
+
+  it("skips a formatting cleanup that would change nothing", () => {
+    const clean = { id: "t", content: "AI video", description: "Line one\n\n- tidy bullet" };
+    const messy = { id: "t", content: "AI video", description: "Line one\n\n\n-  messy bullet  " };
+
+    const noop = buildExactTodoistUpdatePlan(clean, { action: "format-description" });
+    const real = buildExactTodoistUpdatePlan(messy, { action: "format-description" });
+
+    assert.equal(noop.mode, "no_change_needed");
+    assert.equal(noop.payload, null);
+    assert.equal(noop.command, null);
+    assert.equal(noop.confirmation, "No Todoist change was needed.");
+    assert.equal(real.mode, "execute_then_confirm");
+  });
+
+  it("still appends explicit detail, which always changes something", () => {
+    const plan = buildExactTodoistUpdatePlan(
+      { id: "t", content: "Warm up", description: "Warm up" },
+      { action: "append-detail", detail: "Keep it easy" },
+    );
+
+    assert.equal(plan.mode, "execute_then_confirm");
+  });
+
+  it("does not call updateTask for a no-op exact update", async () => {
+    const calls = [];
+    const client = {
+      async getTask(taskId) { calls.push(["getTask", taskId]); return { id: taskId, content: "AI video", description: "Line one" }; },
+      async updateTask() { calls.push(["updateTask"]); return {}; },
+    };
+
+    const result = await runTodoistCli(
+      ["exact-update", "--task-id", "task-1", "--action", "format-description"],
+      { client },
+    );
+
+    assert.deepEqual(calls, [["getTask", "task-1"]], "no write may be attempted");
+    assert.equal(result.mode, "no_change_needed");
+    assert.equal(result.confirmation, "No Todoist change was needed.");
+  });
+
+  it("does not call updateTask for a no-op flag update", async () => {
+    const calls = [];
+    const client = {
+      async getTask(taskId) { calls.push(["getTask", taskId]); return task; },
+      async updateTask() { calls.push(["updateTask"]); return {}; },
+    };
+
+    const result = await runTodoistCli(
+      ["update", "--task-id", "task-1", "--content", "Call dad"],
+      { client },
+    );
+
+    assert.deepEqual(calls, [["getTask", "task-1"]]);
+    assert.equal(result.mode, "no_change_needed");
+    assert.equal(result.task, null);
+    assert.equal(result.payload, null);
+  });
+
+  it("still calls updateTask when something really changes", async () => {
+    const calls = [];
+    const client = {
+      async getTask() { return task; },
+      async updateTask(taskId, payload) { calls.push([taskId, payload]); return { id: taskId }; },
+    };
+
+    const result = await runTodoistCli(
+      ["update", "--task-id", "task-1", "--content", "Call mum"],
+      { client },
+    );
+
+    assert.deepEqual(calls, [["task-1", { content: "Call mum" }]]);
+    assert.equal(result.mode, "execute_then_confirm");
+  });
+
+  it("updates rather than skipping when the task cannot be read", async () => {
+    const calls = [];
+    const client = {
+      async getTask() { throw new Error("Todoist API request failed: 503"); },
+      async updateTask(taskId, payload) { calls.push([taskId, payload]); return { id: taskId }; },
+    };
+
+    const result = await runTodoistCli(
+      ["update", "--task-id", "task-1", "--content", "Call dad"],
+      { client },
+    );
+
+    assert.equal(calls.length, 1, "an unreadable task must not be treated as identical");
+    assert.notEqual(result.mode, "no_change_needed");
+  });
+
+  it("reports a no-op on a dry run instead of previewing a write", async () => {
+    const result = await runTodoistCli(
+      ["update", "--task-id", "task-1", "--content", "Call dad", "--dry-run"],
+      { client: { async getTask() { return task; }, async updateTask() { throw new Error("must not write"); } } },
+    );
+
+    assert.equal(result.mode, "no_change_needed");
+    assert.equal(result.dryRun, true);
+    assert.match(
+      formatTodoistTaskPlan(result, { dryRun: true }),
+      /^No Todoist change was needed\. Task task-1 already matches/,
+    );
+  });
+
+  it("never treats a comment as a no-op, even when it repeats the task's own text", () => {
+    // Comments are additive and go nowhere near executeUpdate. Routing them
+    // through it would compare the comment against task.content and silently
+    // swallow a comment that happens to repeat the title.
+    const plan = buildExactTodoistUpdatePlan(
+      { id: "task-1", content: "Call dad", description: "Call dad" },
+      { action: "comment", detail: "Call dad" },
+    );
+
+    assert.equal(plan.mode, "execute_then_confirm");
+    assert.equal(plan.command, "comment");
+    assert.equal(plan.payload.content, "Call dad");
+  });
+
+  it("sends a rename that only changes case or spacing", () => {
+    // Todoist stores and shows the title exactly as written, so a case or
+    // spacing change is a real change. Matching semantics (comparableTaskTitle)
+    // belong to finding a task, not to deciding whether a write does anything.
+    assert.equal(
+      detectTodoistNoop({ content: "call dad" }, { content: " Call  dad " }).noop,
+      false,
+    );
+    assert.equal(detectTodoistNoop({ content: "Call dad" }, { content: "Call dad" }).noop, true);
+  });
+
+  it("will not call a due change equal to a stored due that carries no text", () => {
+    const stored = { id: "t", due: { date: "2026-09-21" } };
+
+    const result = detectTodoistNoop({ due_string: "tomorrow" }, stored);
+    assert.equal(result.noop, false);
+    assert.deepEqual(result.undetermined, ["due_string"]);
+
+    // The same holds for a task with no due at all.
+    assert.equal(detectTodoistNoop({ due_string: "tomorrow" }, { id: "t", due: null }).noop, false);
+
+    // A stored due text that is present still compares normally.
+    assert.equal(
+      detectTodoistNoop({ due_string: "tomorrow" }, { id: "t", due: { string: "Tomorrow" } }).noop,
+      true,
+    );
+  });
+
+  it("will not clear a destination the task never reported", () => {
+    // section_id: null means "take it out of its section". A task object with
+    // no section_id at all is not evidence that it already has none.
+    const absent = detectTodoistNoop({ section_id: null }, { id: "task-1" });
+    assert.equal(absent.noop, false);
+    assert.deepEqual(absent.undetermined, ["section_id"]);
+
+    // An explicit null is comparable and still counts as already-empty.
+    assert.equal(
+      detectTodoistNoop({ section_id: null }, { id: "task-1", section_id: null }).noop,
+      true,
+    );
+    assert.equal(
+      detectTodoistNoop({ section_id: null }, { id: "task-1", section_id: "s-1" }).noop,
+      false,
+    );
+  });
+
+  it("claims equality from no absent field at all", () => {
+    // Every field in compareField follows one rule: a value the task did not
+    // report cannot be compared, so the update is sent.
+    const bare = { id: "t" };
+
+    for (const payload of [
+      { content: "x" },
+      { description: "x" },
+      { priority: 2 },
+      { project_id: null },
+      { section_id: null },
+      { parent_id: null },
+      { labels: ["a"] },
+      { due_string: "tomorrow" },
+      { due_lang: "en" },
+      { deadline: "2026-09-21" },
+    ]) {
+      assert.equal(
+        detectTodoistNoop(payload, bare).noop,
+        false,
+        `${Object.keys(payload)[0]} must not be called equal on a task that never reported it`,
+      );
+    }
+  });
+
+  it("keeps every other outcome distinguishable", () => {
+    const messy = { id: "t", content: "AI video", description: "  messy  " };
+
+    assert.equal(buildExactTodoistUpdatePlan(messy, { action: "format-description" }).mode, "execute_then_confirm");
+    assert.equal(buildExactTodoistUpdatePlan(messy, { action: "delete" }).mode, "approval_required");
+    assert.equal(buildExactTodoistUpdatePlan(messy, { action: "wording-description" }).mode, "clarify");
+    assert.equal(buildExactTodoistUpdatePlan(messy, { action: "nonsense" }).mode, "clarify");
+    assert.equal(
+      buildExactTodoistUpdatePlan({ id: "t", content: "x", description: "" }, { action: "format-description" }).mode,
+      "no_change_needed",
+    );
   });
 });

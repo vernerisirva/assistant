@@ -104,6 +104,10 @@ export function buildTodoistUpdatePlan(taskId, input = {}) {
 }
 
 export function formatTodoistTaskPlan(plan, { dryRun = false } = {}) {
+  if (plan.mode === "no_change_needed") {
+    return `No Todoist change was needed. Task ${plan.taskId} already matches the requested state.`;
+  }
+
   const payload = plan.payload ?? {};
   const descriptionLines = plan.descriptionLines ?? [];
   const lines = [

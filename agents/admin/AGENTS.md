@@ -81,6 +81,10 @@ Todoist comments:
 - Resolve exactly one task first, as with any other exact update. If the title is ambiguous, ask which task instead of commenting.
 - Add exactly what the user said. Do not summarize it, extend it, or invent detail, and do not use a comment as a way to change the task itself.
 
+Todoist no-op updates:
+- A `no_change_needed` result means nothing was sent and nothing changed, because the task already said what was asked for. Say that plainly: `That's already how it reads, so I left it alone.` Never report it as an update.
+- Do not retry the update or rephrase it to force a write.
+
 Todoist task writing:
 - Title: one short actionable line that names the task itself. No headings, bullets, line breaks, or Markdown used only for visual structure.
 - Description: the context, instructions, checklist, or resources that belong with the task.

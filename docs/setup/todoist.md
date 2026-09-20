@@ -265,6 +265,35 @@ read side of that endpoint was verified against a live account; the write has
 only been exercised against a mocked client, since posting a real comment would
 have written to the owner's tasks.
 
+## Updates That Change Nothing
+
+An update is not sent when the task already matches the requested state. The
+result is `no_change_needed` and the confirmation is
+`No Todoist change was needed.` — never a claim that something was updated.
+
+Equality is only claimed where it is reliable: title, description, priority,
+project, section, parent, the label set regardless of order, and the due text
+the user wrote. Every field in the payload has to be comparable and equal. One
+field this cannot compare, such as a deadline, sends the update anyway, because
+wrongly skipping a real change is worse than a redundant request. Natural
+language is never resolved to decide equality, so asking for `tomorrow` on a
+task stored as a date still counts as a change.
+
+A field the existing task does not report at all is not comparable either. A
+task carrying no `section_id` is not evidence that it sits in no section, and a
+stored due with no due text of its own is not an empty due string, so both send
+the update instead of being read as already-empty. The title is compared
+exactly, because Todoist stores and shows it literally: a rename that only
+changes case or spacing is a real change and is still sent.
+
+Exact updates compare against the task they already fetched. A flag-driven
+`update` reads the task first to compare. If that read fails, the update is sent
+rather than skipped, since a failed read is not evidence that nothing changed.
+
+Each outcome stays distinguishable: `execute_then_confirm` for a real update,
+`no_change_needed` for a skipped one, `clarify` when something is missing,
+`approval_required` when policy demands approval, and a raised error on failure.
+
 ## Approval Rule
 
 Reading configured Todoist tasks and projects is allowed. Creating a task is allowed without a second approval only when the user explicitly asks, task content and due date/project are complete and unambiguous, the action is additive, and the task is easy to undo.
