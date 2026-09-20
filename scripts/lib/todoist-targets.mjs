@@ -24,7 +24,11 @@ export function resolveTodoistProject(name, projects) {
   const matches = live(projects).filter((project) => comparableTaskTitle(project.name ?? "") === wanted);
 
   if (matches.length === 0) {
-    return clarify(`No Todoist project is named "${String(name).trim()}".`);
+    return clarify(
+      unusableMatch(projects, wanted)
+        ? `A Todoist project named "${String(name).trim()}" has no usable id, so it cannot be a destination.`
+        : `No Todoist project is named "${String(name).trim()}".`,
+    );
   }
   if (matches.length > 1) {
     return clarify(
@@ -46,14 +50,22 @@ export function resolveTodoistSection(name, sections, { projectId, projectsById 
   const wanted = comparableTaskTitle(name ?? "");
   if (!wanted) return clarify("A section name is required.");
 
-  const scoped = projectId
-    ? live(sections).filter((section) => section.project_id === projectId)
-    : live(sections);
-  const matches = scoped.filter((section) => comparableTaskTitle(section.name ?? "") === wanted);
+  // Scoped before the usability filter, so an unusable entry in this project is
+  // still visible to the "no usable id" explanation below.
+  const inProject = projectId
+    ? sections.filter(
+        (section) => section && typeof section === "object" && section.project_id === projectId,
+      )
+    : sections;
+  const matches = live(inProject).filter((section) => comparableTaskTitle(section.name ?? "") === wanted);
 
   const where = projectId ? " in that project" : "";
   if (matches.length === 0) {
-    return clarify(`No Todoist section is named "${String(name).trim()}"${where}.`);
+    return clarify(
+      unusableMatch(inProject, wanted)
+        ? `A Todoist section named "${String(name).trim()}"${where} has no usable id, so it cannot be a destination.`
+        : `No Todoist section is named "${String(name).trim()}"${where}.`,
+    );
   }
   if (matches.length > 1) {
     return clarify(
@@ -75,14 +87,37 @@ export function resolveTodoistSection(name, sections, { projectId, projectsById 
   };
 }
 
+/**
+ * An entry without a usable id cannot become a destination. Letting one match
+ * would return "resolved" carrying an undefined id, and a create plan with no
+ * project_id goes to the Inbox: the one outcome this module exists to prevent.
+ */
 function live(items) {
   return items.filter(
     (item) =>
       item &&
       typeof item === "object" &&
       typeof item.name === "string" &&
+      usableId(item.id) &&
       item.is_archived !== true &&
       item.is_deleted !== true,
+  );
+}
+
+function usableId(id) {
+  return typeof id === "number" ? Number.isFinite(id) : typeof id === "string" && id.trim() !== "";
+}
+
+/** Distinguishes "there is no such name" from "it is there but unusable". */
+function unusableMatch(items, wanted) {
+  return items.some(
+    (item) =>
+      item &&
+      typeof item === "object" &&
+      comparableTaskTitle(item.name ?? "") === wanted &&
+      item.is_archived !== true &&
+      item.is_deleted !== true &&
+      !usableId(item.id),
   );
 }
 

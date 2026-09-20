@@ -2368,6 +2368,54 @@ describe("name targeting through the CLI", () => {
     assert.doesNotMatch(result.reason, /without Todoist access/);
   });
 
+  it("never creates in the Inbox when the matching project has no usable id", async () => {
+    const calls = [];
+    const client = {
+      async getProjects() { calls.push(["getProjects"]); return [{ name: "Work" }]; },
+      async getSections() { calls.push(["getSections"]); return []; },
+      async getTasks() { calls.push(["getTasks"]); return []; },
+      async addTask(payload) { calls.push(["addTask", payload]); return { id: "new" }; },
+    };
+
+    const result = await runTodoistCli(
+      ["add", "--content", "Buy oats", "--project", "Work"],
+      { client },
+    );
+
+    assert.ok(!calls.some((call) => call[0] === "addTask"), "an unusable id must not create");
+    assert.equal(result.mode, "clarify");
+    assert.match(result.reason, /has no usable id/);
+  });
+
+  it("never creates in the Inbox when the matching section has no usable id", async () => {
+    const calls = [];
+    const client = {
+      async getProjects() { calls.push(["getProjects"]); return [{ id: "p-work", name: "Work" }]; },
+      async getSections() { calls.push(["getSections"]); return [{ name: "Interviews", project_id: "p-work" }]; },
+      async getTasks() { calls.push(["getTasks"]); return []; },
+      async addTask(payload) { calls.push(["addTask", payload]); return { id: "new" }; },
+    };
+
+    const result = await runTodoistCli(
+      ["add", "--content", "Buy oats", "--project", "Work", "--section", "Interviews"],
+      { client },
+    );
+
+    assert.ok(!calls.some((call) => call[0] === "addTask"), "an unusable id must not create");
+    assert.equal(result.mode, "clarify");
+    assert.match(result.reason, /has no usable id/);
+  });
+
+  it("still says no such project when nothing carries the name", async () => {
+    const result = await runTodoistCli(
+      ["add", "--content", "Buy oats", "--project", "Nowhere"],
+      { client: namedClient([]) },
+    );
+
+    assert.equal(result.mode, "clarify");
+    assert.match(result.reason, /No Todoist project is named "Nowhere"/);
+  });
+
   it("creates, renames, moves or deletes no project or section", async () => {
     const forbidden = [];
     const client = {
