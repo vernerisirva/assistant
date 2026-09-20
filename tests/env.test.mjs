@@ -81,6 +81,6 @@ describe("validate-env", () => {
       result.stderr,
       /Missing required environment keys in \.env\.example:/,
     );
-    assert.match(result.stderr, /- TELEGRAM_BOT_TOKEN/);
+    assert.match(result.stderr, /- HILLA_TELEGRAM_BOT_TOKEN/);
   });
 });

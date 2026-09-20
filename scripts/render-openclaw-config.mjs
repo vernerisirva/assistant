@@ -86,7 +86,7 @@ export function buildOpenClawConfig(env, root = projectRoot) {
         },
         accounts: {
           main: {
-            botToken: "${TELEGRAM_BOT_TOKEN}",
+            botToken: "${HILLA_TELEGRAM_BOT_TOKEN}",
             dmPolicy: "allowlist",
             allowFrom: [telegramUserId],
             capabilities: {

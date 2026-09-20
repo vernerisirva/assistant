@@ -181,7 +181,7 @@ export function redactSensitiveText(text = "", secrets = []) {
 
 function buildChecks({ env, config, paths, exists, parsedLogs, telegram }) {
   const telegramConfig = config?.channels?.telegram;
-  const hasTelegramEnv = hasConfiguredSecret(env.TELEGRAM_BOT_TOKEN) && hasConfiguredValue(env.TELEGRAM_USER_ID);
+  const hasTelegramEnv = hasConfiguredSecret(resolveTelegramBotToken(env)) && hasConfiguredValue(env.TELEGRAM_USER_ID);
   return [
     pathCheck("config-file", paths.configPath, exists, "fail", "OpenClaw config file is missing."),
     pathCheck("state-dir", paths.stateDir, exists, "fail", "OpenClaw state directory is missing."),
@@ -229,7 +229,7 @@ function buildTelegramStatus({ env, config, parsedLogs }) {
     provider: parsedLogs.telegramProvider,
     providerStartedAt: parsedLogs.telegramProviderStartedAt,
     allowFromCount: Array.isArray(allowFrom) ? allowFrom.length : 0,
-    botTokenConfigured: hasConfiguredSecret(env.TELEGRAM_BOT_TOKEN) || hasConfiguredSecret(account.botToken),
+    botTokenConfigured: hasConfiguredSecret(resolveTelegramBotToken(env)) || hasConfiguredSecret(account.botToken),
     execApprovalsEnabled: account.execApprovals?.enabled === true,
   };
 }
@@ -422,12 +422,22 @@ function redactIssue(issue, secrets) {
 
 function collectSecrets({ env, config }) {
   const secrets = new Set([
+    env.HILLA_TELEGRAM_BOT_TOKEN,
     env.TELEGRAM_BOT_TOKEN,
     env.OPENCLAW_GATEWAY_TOKEN,
     env.GATEWAY_TOKEN,
   ]);
   collectSecretValues(config, secrets);
   return [...secrets].filter((secret) => typeof secret === "string" && secret.length > 0);
+}
+
+/**
+ * HILLA_TELEGRAM_BOT_TOKEN is the canonical name. The unprefixed name is still
+ * read here so a runtime that has not migrated yet is reported accurately and
+ * its token is redacted, but only the canonical name satisfies env validation.
+ */
+function resolveTelegramBotToken(env) {
+  return env.HILLA_TELEGRAM_BOT_TOKEN || env.TELEGRAM_BOT_TOKEN;
 }
 
 function hasConfiguredSecret(value) {
