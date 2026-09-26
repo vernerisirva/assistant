@@ -936,7 +936,9 @@ describe("capability help prompt", () => {
     assert.match(guide, /`What needs my approval\?`, `What requires approval\?`, `What can you do without asking me\?`: run `npm run --silent capabilities -- --requires-approval`/);
     assert.match(guide, /`What is read-only\?`, `What can't change anything\?`: run `npm run --silent capabilities -- --read-only`/);
     // Which kinds of action need an OK is not what is waiting right now.
-    assert.match(guide, /It is not what is waiting right now: end with one offer, `Want me to check whether anything is waiting on you right now\?` `What do I need to approve\?` and `Anything pending\?` go to the pending view, `npm run --silent pending`/);
+    // Both readings of the ambiguous question get answered, whichever pointer the agent follows.
+    assert.match(guide, /It is not what is waiting right now, so for `What needs my approval\?` also run `npm run --silent pending` and add one line after the list with what is waiting, such as `Right now nothing is waiting on you\.` `What do I need to approve\?` and `Anything pending\?` get the pending view alone/);
+    assert.match(personalPrompt, /It is read-only; approving or cancelling anything follows the normal rules\. `What needs my approval\?` goes to Help\./);
     assert.match(personalPrompt, /For `What's waiting on me\?`, `Anything pending\?`, or `What do I need to approve\?`, run `npm run --silent pending`/);
   });
 
