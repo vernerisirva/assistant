@@ -31,6 +31,7 @@ export function classifyQuietJob(job) {
   const description = String(job?.description ?? "").toLowerCase();
 
   if (name.startsWith("Assistant routine:")) return "assistant-routine";
+  if (name.startsWith("Assistant weekly plan:")) return "weekly-plan";
   if (job?.schedule?.kind === "at" || name.startsWith("Reminder:")) return "reminder";
   if (lowerName.includes("golf") || description.includes("golf")) return "golf";
   return "unknown";

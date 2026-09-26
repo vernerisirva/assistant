@@ -51,6 +51,8 @@ Hilla starts from confirm-before-action. It may read configured context, summari
 
 Explicit approval is required for email sends/mutations, Calendar edits/deletes/invites/responses, risky Todoist changes, Min Golf bookings or account changes, purchases, payments, browser form submissions, sensitive memory, actions affecting other people, and state-changing shell commands that are not clearly part of the user's repo-maintenance request.
 
+One narrow standing authorization exists: the Saturday weekly plan may create the user's own Todoist tasks from its displayed, stored proposal after a 12-hour review window or an explicit OK. It never edits, completes, moves or deletes tasks, and never touches Calendar, Gmail, bookings, purchases or memory. See `docs/security/approval-model.md`.
+
 Low-risk Todoist changes may proceed from an explicit user instruction when exactly one personal task target is clear, including when that exact target is resolved from a screenshot or reference. Examples include formatting cleanup, wording cleanup, adding detail, labels, due-date changes, and marking that one personal task complete. Ask a clarifying question for ambiguous targets, and require approval for deletes, reopens, moves, bulk edits, shared/project-wide changes, sensitive content, inferred update content, or changes affecting other people.
 
 The authoritative policy sources are:

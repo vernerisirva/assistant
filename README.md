@@ -30,7 +30,7 @@ npm run inbox:debug -- "Can you book golf tomorrow morning?"
 - Todoist: `docs/setup/todoist.md`
 - Min Golf: `docs/setup/mingolf.md`
 - Memory: `docs/setup/memory.md`
-- Routines: `docs/setup/routines.md`
+- Routines and the weekly plan: `docs/setup/routines.md`
 
 ## Safety
 

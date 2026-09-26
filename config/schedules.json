@@ -37,5 +37,16 @@
     "day": "Sunday",
     "time": "19:00",
     "purpose": "Review calendar, email, health friction, food planning, groceries, and one adjustment for the next week."
+  },
+  "weeklyPlan": {
+    "id": "weekly-plan",
+    "agent": "personal",
+    "propose": {
+      "day": "Saturday",
+      "time": "09:00"
+    },
+    "applyCheckEveryMinutes": 15,
+    "reviewWindowHours": 12,
+    "purpose": "Propose next week's food, shopping, gym, stretching, golf and golf-practice plan; create the displayed plan's Todoist tasks after a 12-hour review window unless it is changed or cancelled."
   }
 }

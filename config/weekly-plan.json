@@ -1,0 +1,77 @@
+{
+  "defaultTargets": {
+    "gym": 2,
+    "golfRound": 1,
+    "golfPractice": 1,
+    "stretch": 3,
+    "mealPrep": 2
+  },
+  "maxSessionsPerActivity": 7,
+  "preferences": {
+    "golfRound": {
+      "preferredDays": ["sunday", "saturday"],
+      "avoidDays": []
+    },
+    "gym": {
+      "preferredDays": [],
+      "avoidDays": []
+    },
+    "golfPractice": {
+      "preferredDays": [],
+      "avoidDays": []
+    },
+    "stretch": {
+      "preferredDays": [],
+      "avoidDays": []
+    },
+    "mealPrep": {
+      "preferredDays": [],
+      "avoidDays": []
+    }
+  },
+  "activities": {
+    "gym": {
+      "label": "Gym",
+      "sessions": [
+        "Full-body strength with a lower-body focus: a squat or deadlift variation, a push, a pull and core.",
+        "Full-body strength with an upper-body focus: presses, rows, single-leg work and rotational core."
+      ],
+      "beforeGolfRoundNote": "Keep the leg work moderate: golf round tomorrow."
+    },
+    "golfRound": {
+      "label": "Golf round",
+      "description": "18 holes.\nAfterwards, note tee penalties, 3-putts and up-and-downs."
+    },
+    "golfPractice": {
+      "label": "Golf practice",
+      "description": "About 60-90 minutes.",
+      "focus": ["Driver and tee shots", "Wedges inside 100 m", "Putting"]
+    },
+    "stretch": {
+      "label": "Stretch",
+      "minutes": 15,
+      "routines": [
+        [
+          "Hip flexor stretch: 2 x 45 s per side",
+          "Thoracic rotations: 10 per side",
+          "Figure-4 glute stretch: 2 x 45 s per side",
+          "Cat-cow: 10 slow reps"
+        ],
+        [
+          "Hamstring stretch: 2 x 45 s per side",
+          "Open books: 10 per side",
+          "Doorway chest stretch: 2 x 30 s",
+          "Deep squat hold: 3 x 30 s"
+        ]
+      ]
+    },
+    "mealPrep": {
+      "label": "Meal prep"
+    }
+  },
+  "shoppingTaskTitle": "Grocery shopping for next week",
+  "todoist": {
+    "projectName": null,
+    "sectionName": null
+  }
+}

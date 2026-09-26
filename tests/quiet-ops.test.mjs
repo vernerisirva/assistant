@@ -133,6 +133,8 @@ describe("quiet ops status", () => {
     assert.equal(classifyQuietJob(jobs.find((job) => job.id === "golf-weekly")), "golf");
     assert.equal(classifyQuietJob(jobs.find((job) => job.id === "one-shot")), "reminder");
     assert.equal(classifyQuietJob(jobs.find((job) => job.id === "unknown")), "unknown");
+    assert.equal(classifyQuietJob({ name: "Assistant weekly plan: propose", description: "golf plan" }), "weekly-plan");
+    assert.equal(classifyQuietJob({ name: "Assistant weekly plan: apply due plans" }), "weekly-plan");
   });
 
   it("audits overlaps, disabled jobs, upcoming reminders, and daily recurring counts", () => {

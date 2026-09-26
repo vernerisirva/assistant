@@ -185,11 +185,45 @@
     },
     {
       "mode": "trusted-routine",
-      "description": "A named low-risk routine can run automatically after repeated successful approvals."
+      "description": "A named low-risk routine can run automatically after repeated successful approvals, or when the user explicitly grants a narrow standing authorization listed under trustedRoutines."
     },
     {
       "mode": "permanent-approval-required",
       "description": "High-risk actions stay approval-gated even when routine actions become trusted."
+    }
+  ],
+  "trustedRoutines": [
+    {
+      "id": "weekly-plan",
+      "mode": "trusted-routine",
+      "authorizedBy": "explicit-user-request-2026-09-26",
+      "allowedActions": ["create-own-todoist-tasks-from-displayed-weekly-plan"],
+      "allowedOperationKinds": ["create-task"],
+      "allowedTaskFields": ["content", "description", "due_string", "project_id", "section_id"],
+      "reviewWindowHours": 12,
+      "autoApplyRequires": [
+        "proposal-displayed-to-user",
+        "full-review-window-elapsed-after-latest-revision",
+        "not-cancelled",
+        "exact-stored-displayed-version",
+        "own-todoist-tasks-only",
+        "no-unrelated-actions"
+      ],
+      "explicitAcceptanceAppliesImmediately": true,
+      "notAuthorized": [
+        "delete-todoist-task",
+        "complete-todoist-task",
+        "move-todoist-task",
+        "modify-existing-todoist-task",
+        "calendar-write",
+        "gmail-write",
+        "booking",
+        "purchase",
+        "browser-submission",
+        "memory-write",
+        "shell-mutation",
+        "create-anything-not-in-displayed-proposal"
+      ]
     }
   ]
 }
