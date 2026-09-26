@@ -136,6 +136,22 @@ npm run --silent pending             # the same as JSON: items, notes, checked a
 
 It covers a weekly plan awaiting review and a running focus session. An unreadable source shows up under `unavailable`, not as an empty list.
 
+## Capabilities
+
+See what Hilla tells the user it can do. The list comes from the registry in `scripts/lib/capabilities.mjs`, and the command is read-only:
+
+```bash
+npm run --silent capabilities                        # the full list, as sent for "What can you do?"
+npm run --silent capabilities -- --tag golf          # one topic; --category todoist for one section
+npm run --silent capabilities -- --automatic         # what runs on its own, with what is switched on now
+npm run --silent capabilities -- --requires-approval # what needs an OK first
+npm run --silent capabilities -- --read-only         # what only reads or advises
+npm run --silent capabilities -- --all --json        # developer view, including disabled entries
+npm run --silent capabilities -- guide               # the help guide the agent follows, with the full list
+```
+
+It checks which integrations are configured in `.env` and, only for views that show a scheduled capability, lists the live scheduler's jobs to say which are on. Configured is not the same as working: use `assistant:status` or a read-only Todoist query for that. If the scheduler cannot be read, scheduled entries say so instead of claiming on or off.
+
 ## Personal Playbooks
 
 Saved routines live in the memory store. Reading them is safe; saving or changing one needs the user's exact words and goes through the guide's quoted-heredoc commands.

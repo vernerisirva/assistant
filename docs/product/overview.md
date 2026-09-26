@@ -17,6 +17,17 @@ The product direction is practical rather than expansive:
 - `health`: workouts, food planning, groceries, sleep consistency, and routine support.
 - `research`: source-backed lookup, comparisons, and planning support.
 
+## Ask What Hilla Can Do
+
+Ask `What can you do?` or `Help` at any time. Narrower questions get only the part that applies:
+
+- `What can you do with golf?`, `What can you do with Todoist?`, `What can help me sleep better?`
+- `What can you do automatically?`: what runs on its own, and whether it is switched on right now.
+- `What needs my approval?`: which kinds of action wait for an OK, and which are done on a plain request.
+- `What could you help me with right now?`: at most three suggestions that fit the conversation.
+
+Every answer comes from one capability registry, `scripts/lib/capabilities.mjs`, not from the model's memory. `npm run capabilities` prints the same list. It separates what Hilla can do from what it only previews or drafts (a Calendar event, an email reply) and from what it does not support, so help never claims a feature that is not there. This page does not repeat the list, so it cannot drift from it.
+
 ## On-Demand Coaching
 
 Hilla coaches when asked: golf and work performance, attention, staying present, recovering from mistakes, confidence, process routines, and sleep habits. It works like a practical coach. It asks only the questions that change the advice, picks one small intervention, and gives one action or cue. Five modes cover it: quick reset, in-performance, pre-performance setup, debrief, and sleep coaching.

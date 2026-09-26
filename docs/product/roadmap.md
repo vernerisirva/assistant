@@ -24,6 +24,7 @@ Hilla currently has:
 - Focus and next action v1: "What should I do now?" gives one recommendation from fresh context, and a focus session keeps one disposable local record of the block's task facts. No timers, no scheduled prompts, and no Todoist or Calendar side effects.
 - Personal playbooks v1: the user's own routines (resets, pre-round, meeting prep, wind-down) in the existing memory store, saved or changed only with the user's explicit words and used before inventing a new technique. Debriefs end with Keep, Adjust, and a possible lesson that is saved only after a yes.
 - Pending actions v1: one read-only view of what Hilla is waiting on (a weekly plan awaiting review, a running focus session), built from stored state. Unreadable sources are reported, and nothing is inferred from conversation.
+- Capability help v1: `What can you do?` and narrower questions (a topic, what is automatic, what needs approval) are answered from one registry, `scripts/lib/capabilities.mjs`, including what is only previewed or not supported. It adds no capability itself.
 
 ## Phase 1: Stabilize Current Assistant
 
