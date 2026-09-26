@@ -24,7 +24,7 @@ const routingExamples = [
   ["Sleep coach", "sleep coaching", { kind: "coaching", context: "sleep", mode: "sleep_coaching" }],
   ["Debrief my round", "golf debrief", { kind: "coaching", context: "golf", mode: "debrief" }],
   ["How do I fix my slice?", "golf technique question, not mental coaching", { kind: "golf_technique", context: "golf", mode: null }],
-  ["What is performance anxiety?", "factual question, not coaching; answer it or use research", null],
+  ["What is performance anxiety?", "factual question, not coaching; answer it, and route source-backed lookups to research", null],
   ["I haven't slept properly for months", "sleep health: suggest a professional assessment, no diagnosis", { kind: "sleep_health", context: "sleep", mode: null }],
   ["I feel hopeless and can't cope", "support first, not coaching", { kind: "support", context: "general", mode: null }],
 ];

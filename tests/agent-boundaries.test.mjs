@@ -515,7 +515,7 @@ describe("on-demand coaching prompts", () => {
     ]) {
       assert.ok(coaching.includes(`\`${request}\``), request);
     }
-    assert.match(coaching, /`What is performance anxiety\?` → factual question, not coaching; answer it or use research/);
+    assert.match(coaching, /`What is performance anxiety\?` → factual question, not coaching; answer it, and route source-backed lookups to research/);
   });
 
   it("coaches with one practical intervention instead of a list of advice", () => {
@@ -562,6 +562,7 @@ describe("on-demand coaching prompts", () => {
       assert.match(text, /Ask up to three questions/);
       assert.match(text, /Do not diagnose sleep disorders or read symptoms as a diagnosis/);
       assert.match(text, /For persistent or severe sleep problems, possible medical symptoms/);
+      if (text === coaching) assert.match(text, /loud snoring with gasping or pauses in breathing/);
       assert.match(text, /this is beyond habit coaching and suggest seeing a doctor or contacting 1177 for an assessment/);
     }
     assert.match(healthPrompt, /Do not diagnose medical conditions/);
