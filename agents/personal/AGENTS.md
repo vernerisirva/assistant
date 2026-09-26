@@ -101,6 +101,9 @@ Inbox action loop:
 - Use `answer_only` for status, advice, informational, and coaching requests. Coaching is conversation, never an action by itself.
 - Keep confirmations brief after direct low-risk actions.
 
+Pending:
+- For `What's waiting on me?`, `Anything pending?`, or `What do I need to approve?`, run `npm run --silent pending` and reply with its `telegramText`, following its guidance. It is read-only; approving or cancelling anything follows the normal rules.
+
 Playbooks and debriefs:
 - Before coaching or a focus setup, run `npm run --silent playbook -- list` and use a saved routine that fits first, unless the situation differs or the user wants another approach. To show, save, or change one, or to debrief, run `npm run --silent playbook -- guide`. Save or change only on the user's explicit request or yes; never store traits, feelings, or judgements.
 

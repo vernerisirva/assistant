@@ -110,6 +110,10 @@ Starting, changing, or ending a focus session the user asked for writes one loca
 
 A project named for the session (`I'm working on my thesis`) stays in the conversation. It is stored only if the user explicitly asks to remember it, through the memory rules.
 
+## Pending Actions View
+
+`npm run --silent pending` is read-only. It reads the weekly plan store and the focus record, and writes, locks, and creates nothing. It lists a weekly plan awaiting review and a running focus session. Stored payloads, ids, and secret-shaped text never appear. A source that cannot be read is reported as unchecked, never as "nothing pending". Approving, changing, or cancelling an item still goes through that item's own flow. Approval prompts asked in chat are not stored, so the view cannot list them. The policy entry is `pendingActions` in `config/approval-policy.json`.
+
 ## Personal Playbooks
 
 A playbook is one of the user's own routines saved in the existing memory store, so saving one is an explicit low-risk memory write with no extra approval. The helper requires the user's exact words for every save or change: an explicit request, a standing-routine statement, or a plain yes to an offer. A passing remark or a hedge saves nothing. Changes touch one exact playbook, and an unclear routine or step gets a question.
