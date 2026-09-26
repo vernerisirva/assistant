@@ -28,6 +28,10 @@ Generated runtime files are local and private. They are ignored by git and shoul
 4. `npm run render:config` renders `.openclaw/openclaw.json` and generated prompt workspaces.
 5. The OpenClaw gateway loads the rendered config.
 
+### Prompt Size Budget
+
+The agents run on the Codex harness. It reads `AGENTS.md` files from the repository root down to the agent workspace, so each agent gets this repo's root `AGENTS.md` followed by its own prompt. Together they share Codex's 32 KiB project-doc budget. Anything past the budget is dropped without an error, and the end of an agent prompt holds its Confirm-before-action rules. `tests/agent-boundaries.test.mjs` fails when any agent prompt plus the root guide exceeds the budget. Keep prompt additions compact, and check a new session's Codex rollout after large prompt changes.
+
 ## Safety Flow
 
 `config/approval-policy.json`, `docs/security/approval-model.md`, and agent prompts should agree. Tests enforce important prompt and policy boundaries in:
