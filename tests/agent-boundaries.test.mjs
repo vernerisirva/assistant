@@ -396,6 +396,8 @@ describe("agent configuration", () => {
     assert.match(prompt, /routines:status/);
     assert.match(prompt, /routines:disable/);
     assert.match(prompt, /routines:set-time/);
+    assert.match(prompt, /routines:set-time -- ROUTINE_ID HH:mm` when the user asks to control routine check-ins\. These apply to the live scheduler at once; no gateway restart\./);
+    assert.doesNotMatch(prompt, /gateway must restart|restart to reload/i);
   });
 
   it("teaches the personal agent approval-gated routine-only skip controls", () => {
@@ -444,6 +446,8 @@ describe("agent configuration", () => {
     assert.match(prompt, /exact job id or exact job name/i);
     assert.match(prompt, /Do not use fuzzy job names for mutations/i);
     assert.match(prompt, /Do not delete scheduled jobs in v1/i);
+    assert.match(prompt, /disable them instead\. Changes apply to the live scheduler at once; no gateway restart\./);
+    assert.match(prompt, /Do not mention a gateway restart for skip\/unskip or scheduler changes unless the command output requires one/);
   });
 
   it("teaches the personal agent risk-tiered approvals", () => {

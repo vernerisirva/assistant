@@ -6,7 +6,7 @@ import {
   commandExists,
   requestedOpenClawConfigPath,
   requestedOpenClawStateDir,
-  resolveOpenClawCommand,
+  resolveOpenClawRuntime,
   resolveOpenClawStateDir,
 } from "./lib/commands.mjs";
 import { projectPath, safeGeneratedPath } from "./lib/config.mjs";
@@ -19,8 +19,14 @@ const env = mergedEnv(envPath);
 const report = requiredEnvReport(env, REQUIRED_ENV_KEYS);
 const requestedConfigPath = requestedOpenClawConfigPath(env);
 const requestedStateDir = requestedOpenClawStateDir(env);
-const openClawCommand = resolveOpenClawCommand(env);
-const hasOpenClaw = Boolean(openClawCommand);
+
+let openClawCheck;
+try {
+  const runtime = resolveOpenClawRuntime({ env, verify: true });
+  openClawCheck = ["openclaw", true, `${runtime.command} (${runtime.source}, ${runtime.version})`];
+} catch (error) {
+  openClawCheck = ["openclaw", false, error.message];
+}
 
 let configCheck;
 try {
@@ -41,7 +47,7 @@ try {
 const checks = [
   ["node", commandExists("node")],
   ["npm", commandExists("npm") || commandExists("/opt/homebrew/bin/npm")],
-  ["openclaw", hasOpenClaw, openClawCommand === "openclaw" ? undefined : openClawCommand],
+  openClawCheck,
   [".env", existsSync(envPath)],
   configCheck,
   stateCheck,
@@ -54,8 +60,4 @@ for (const [name, ok, detail] of checks) {
 
 if (report.missing.length > 0) {
   console.log(`Missing environment keys: ${report.missing.join(", ")}`);
-}
-
-if (!hasOpenClaw) {
-  console.log("Install OpenClaw with: npm install -g openclaw@latest");
 }

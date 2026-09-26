@@ -81,7 +81,13 @@ Weekly review rules:
 - Do not modify Todoist, Calendar, Gmail, memory, or routines from the weekly review.
 ```
 
-Preview scheduled routine jobs without changing OpenClaw:
+### Where scheduled jobs live
+
+The live OpenClaw Gateway scheduler is the only source of truth for scheduled jobs. OpenClaw 2026.7 keeps jobs, their run state and their history in the Gateway's SQLite state database. It imported the old `.openclaw/state/cron/jobs.json` once and renamed it `jobs.json.migrated`. Nothing reads that file any more, and editing it changes nothing.
+
+`routines:*`, `quiet:*`, `assistant:status` and `weekly-plan -- status --jobs` all talk to the running Gateway through the supported CLI (`openclaw cron list|get|add|edit|enable|disable`). The first three go through one adapter, `scripts/lib/live-cron.mjs`. They use the Gateway's own OpenClaw: `OPENCLAW_CLI` if set, else `~/.openclaw/bin/openclaw`, else an `openclaw` on PATH that reports 2026.7.1 or newer. The CLI reads the Gateway token from the rendered config, so no token appears on a command line. The Gateway applies a change before the command returns, so none of these commands needs a Gateway restart. If the Gateway cannot be reached they say so. They never fall back to an old file.
+
+Preview what an install would change, without changing anything:
 
 ```bash
 npm run routines:plan
@@ -93,13 +99,21 @@ Install or update the scheduled Telegram check-ins:
 npm run routines:install
 ```
 
-The installer upserts jobs named `Assistant routine: ...` in `.openclaw/state/cron/jobs.json` and leaves unrelated OpenClaw cron jobs alone. By default, midday check-in, workout-window, and weekly review are enabled; morning brief and evening review are installed disabled to keep automatic daily messages quieter. Restart the OpenClaw gateway after installing so the scheduler reloads the store.
+The install is an upsert by exact job name, `Assistant routine: <id>`:
+
+- a missing routine is added;
+- an existing routine is edited in place, and only in the fields that differ from `config/schedules.json`;
+- a routine that already matches is left alone, so a second install changes nothing.
+
+Jobs with other names are never touched. If two live jobs share a routine's name, the install stops before changing anything. Afterwards it lists the jobs again and reports any routine that still differs and any other job that changed. By default, midday check-in, workout-window, and weekly review are enabled; morning brief and evening review are installed disabled to keep automatic daily messages quieter.
 
 Review scheduled routine status:
 
 ```bash
 npm run routines:status
 ```
+
+It lists every live routine job with its next run, last run, last status and whether it is skipped today. It also names any configured routine that is not installed, or is installed twice.
 
 Temporarily disable or re-enable one routine:
 
@@ -114,20 +128,26 @@ Change one routine time:
 npm run routines:set-time -- morning-brief 08:30
 ```
 
-Restart the gateway after enable, disable, or set-time so the scheduler reloads the cron store.
+These change only that one job, and the change is live immediately. Add `--dry-run` to see the job before and after without changing it. `set-time` keeps the job's days, timezone and stagger. A later `routines:install` sets time and enabled state back to `config/schedules.json`, so change the config to make a change permanent.
 
 ## Quiet Ops
 
-Use quiet ops to inspect and control every project-local OpenClaw cron or reminder job, including ad hoc reminders and assistant routines:
+Use quiet ops to inspect and control every live Gateway cron job, including ad hoc reminders, assistant routines and the weekly plan jobs:
 
 ```bash
 npm run quiet:status -- --json
 npm run quiet:audit -- --json
 ```
 
-`quiet:status` lists all installed jobs, enabled state, category, schedule, and available next/last run state. `quiet:audit` flags same-time enabled jobs, disabled installed jobs, upcoming one-shot reminders, and the enabled daily recurring message count.
+`quiet:status` lists all live jobs, enabled or not, with category, schedule, and next and last run state. `quiet:audit` flags:
 
-Mutations require an exact job id or exact job name:
+- enabled jobs that fire at the same time;
+- disabled installed jobs;
+- upcoming one-shot reminders;
+- the number of enabled daily recurring messages;
+- any schedule kind quiet-ops does not understand. Such a job is shown as it is, never treated as cron or one-shot.
+
+Mutations require an exact job id or exact job name. An ambiguous or unknown reference fails without changing anything:
 
 ```bash
 npm run quiet:disable -- "Assistant routine: workout-window"
@@ -136,7 +156,12 @@ npm run quiet:set-time -- "Assistant routine: midday-check-in" 13:15
 npm run quiet:reschedule -- "Reminder: Renew gym card" 2026-06-19 09:00
 ```
 
-Add `--dry-run` to preview a mutation without writing. Mutating commands write `.openclaw/state/cron/jobs.json`, preserve the rest of each job, create a timestamped backup beside the store, and require an OpenClaw Gateway restart before the scheduler reloads the change.
+Add `--dry-run` to see the job before and after without changing anything. A real mutation changes only the named field through `openclaw cron enable|disable|edit`:
+
+- `set-time` changes only a cron job's minute and hour, and keeps its days, timezone and stagger;
+- `reschedule` works only on one-shot jobs.
+
+The change is live when the command returns, with no Gateway restart. Afterwards the command lists the jobs again and reports any other field or job that changed.
 
 ## Weekly Plan
 
@@ -174,7 +199,7 @@ npm run --silent weekly-plan -- install           # install or update them throu
 npm run --silent weekly-plan -- status --jobs     # plan status plus installed job state
 ```
 
-The two jobs are installed through the Gateway cron CLI, `openclaw cron add/edit`, because the Gateway keeps its own cron store. `routines:install` and the quiet-ops mutations still edit the old `cron/jobs.json`, which this OpenClaw version no longer reads.
+The two jobs are installed through the Gateway cron CLI, `openclaw cron add/edit`, like every other scheduled job (see "Where scheduled jobs live" above).
 
 ## Telegram Use
 

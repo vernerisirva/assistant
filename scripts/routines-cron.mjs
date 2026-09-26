@@ -1,22 +1,37 @@
 #!/usr/bin/env node
+/**
+ * Routine controls.
+ *
+ * plan, install, status, enable, disable and set-time work on the live
+ * OpenClaw Gateway scheduler through scripts/lib/live-cron.mjs. A change is
+ * live as soon as the command returns; no Gateway restart is needed.
+ *
+ * skips, skip and unskip use the local skip store, which each routine prompt
+ * reads when it runs.
+ */
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
 import {
-  buildRoutineCronCommands,
   buildRoutineCronJobs,
+  cronExpressionWithTime,
+  findRoutineJob,
+  parseTime,
+  planRoutineInstall,
+  publicRoutineJob,
   routineCronStatus,
-  updateRoutineCronEnabled,
-  updateRoutineCronTime,
-  upsertRoutineCronJobs,
 } from "./lib/routine-cron.mjs";
 import {
-  readExistingCronState,
-  readExistingCronStore,
-  readJsonIfExists,
-  resolveCronStorePath,
-  writeCronStoreFile,
-} from "./lib/cron-store.mjs";
+  LIVE_CRON_RESTART_REQUIRED,
+  LIVE_CRON_SOURCE,
+  changedJobs,
+  createGatewayCron,
+  createSecretRedactor,
+  executeJobChange,
+  maskCronCommandForDisplay,
+  planCronExpressionChange,
+  planEnabledChange,
+  publicCronJob,
+} from "./lib/live-cron.mjs";
 import {
   addRoutineSkip,
   readRoutineSkipStore,
@@ -25,7 +40,7 @@ import {
   routineSkipStatus,
   writeRoutineSkipStoreFile,
 } from "./lib/routine-skips.mjs";
-import { resolveOpenClawCommand, resolveOpenClawConfigPath, resolveOpenClawStateDir } from "./lib/commands.mjs";
+import { resolveOpenClawStateDir } from "./lib/commands.mjs";
 import { projectPath, readJson } from "./lib/config.mjs";
 import { mergedEnv } from "./lib/env.mjs";
 import { routineIds } from "./lib/routine.mjs";
@@ -98,42 +113,23 @@ export async function runRoutineCronCli(
     root = projectRoot,
     env = mergedEnv(projectPath(root, ".env")),
     schedules = readJson(projectPath(root, "config/schedules.json")),
-    config,
+    cron,
+    runOpenClaw,
     stateDir = resolveOpenClawStateDir(env, root),
-    cronStorePath = resolveCronStorePath(stateDir),
-    existingCronStore,
-    existingCronState,
-    existingJobs,
     skipStorePath = resolveRoutineSkipStorePath(stateDir),
     readSkipStoreForStatus = () => readRoutineSkipStore(skipStorePath, { strict: false }),
     readSkipStoreForMutation = () => readRoutineSkipStore(skipStorePath, { strict: true }),
     writeSkipStore = (store) => writeRoutineSkipStoreFile(skipStorePath, store),
-    openclawCommand,
-    writeCronStore = (store) => writeCronStoreFile(cronStorePath, store),
     now = new Date(),
-    nowMs = now.getTime(),
-    idGenerator = randomUUID,
   } = {},
 ) {
   const parsed = parseRoutineCronArgs(argv);
   const configuredRoutineIds = routineIds(schedules);
-  let configCache;
-  let cronStoreCache;
-  let cronStateCache;
-  const getConfig = () => {
-    configCache ??= config ?? readJsonIfExists(resolveOpenClawConfigPath(env, root));
-    return configCache;
+  let cronCache;
+  const liveCron = () => {
+    cronCache ??= cron ?? createGatewayCron({ root, env, runOpenClaw });
+    return cronCache;
   };
-  const getCronStore = () => {
-    cronStoreCache ??= existingCronStore ?? readExistingCronStore(cronStorePath);
-    return cronStoreCache;
-  };
-  const getCronState = () => {
-    cronStateCache ??= existingCronState ?? readExistingCronState(stateDir);
-    return cronStateCache;
-  };
-  const getExistingJobs = () => existingJobs ?? (Array.isArray(getCronStore().jobs) ? getCronStore().jobs : []);
-  const getOpenClawCommand = () => openclawCommand ?? resolveOpenClawCommand(env) ?? "openclaw";
 
   if (parsed.command === "skips") {
     return routineSkipStatus(readSkipStoreForStatus(), {
@@ -170,63 +166,147 @@ export async function runRoutineCronCli(
   }
 
   if (parsed.command === "status") {
+    const redact = liveCron().redact ?? ((text) => text);
+    const routines = routineCronStatus(await liveCron().list(), {
+      skipStore: readSkipStoreForStatus(),
+      now,
+      timezone: schedules.timezone,
+    });
+    const counts = new Map();
+    for (const routine of routines) counts.set(routine.routineId, (counts.get(routine.routineId) ?? 0) + 1);
     return {
-      routines: routineCronStatus(getCronStore(), getCronState(), {
-        skipStore: readSkipStoreForStatus(),
-        now,
-        timezone: schedules.timezone,
-      }),
+      source: LIVE_CRON_SOURCE,
+      routines: routines.map((routine) => ({ ...routine, routineId: redact(routine.routineId), name: redact(routine.name) })),
+      notInstalled: configuredRoutineIds.filter((routineId) => !counts.has(routineId)),
+      duplicates: [...counts].filter(([, count]) => count > 1).map(([routineId]) => redact(routineId)),
     };
   }
 
-  if (parsed.command === "enable" || parsed.command === "disable") {
-    const update = updateRoutineCronEnabled(
-      getCronStore(),
-      parsed.options.routineId,
-      parsed.command === "enable",
-    );
-    writeCronStore(update.store);
-    return { restartRequired: true, result: update.result };
+  if (["enable", "disable", "set-time"].includes(parsed.command)) {
+    return controlRoutine(parsed, liveCron());
   }
 
-  if (parsed.command === "set-time") {
-    const update = updateRoutineCronTime(
-      getCronStore(),
-      parsed.options.routineId,
-      parsed.options.time,
-    );
-    writeCronStore(update.store);
-    return { restartRequired: true, result: update.result };
-  }
-
-  const jobs = buildRoutineCronJobs(schedules, { telegramUserId: env.TELEGRAM_USER_ID });
-  const commands = buildRoutineCronCommands(jobs, {
-    existingJobs: getExistingJobs(),
-    gatewayToken: gatewayTokenFrom(getConfig()),
-    openclawCommand: getOpenClawCommand(),
+  return installRoutines(parsed, {
+    cron: liveCron(),
+    desired: buildRoutineCronJobs(schedules, { telegramUserId: env.TELEGRAM_USER_ID }),
   });
+}
+
+async function controlRoutine(parsed, cron) {
+  const { routineId, time } = parsed.options;
+  const jobs = await cron.list();
+  const job = findRoutineJob(jobs, routineId);
+  let plan;
+  if (parsed.command === "set-time") {
+    if (job.schedule.kind !== "cron") {
+      throw new Error(`${job.name} [${job.id}] has schedule kind ${job.schedule.kind}; set-time needs a cron schedule.`);
+    }
+    plan = planCronExpressionChange(job, cronExpressionWithTime(job.schedule.expr, parseTime(time)));
+  } else {
+    plan = planEnabledChange(job, parsed.command === "enable");
+  }
+
+  const dryRun = parsed.options.dryRun === true;
+  const outcome = await executeJobChange(cron, plan, { beforeJobs: jobs, dryRun });
+  const redact = cron.redact ?? ((text) => text);
+  return {
+    source: LIVE_CRON_SOURCE,
+    dryRun,
+    changed: outcome.changed,
+    applied: outcome.applied,
+    restartRequired: LIVE_CRON_RESTART_REQUIRED,
+    result: {
+      action: plan.action,
+      routineId,
+      jobId: job.id,
+      jobName: job.name,
+      ...(parsed.command === "set-time" ? { cron: plan.preview.schedule.expr } : {}),
+    },
+    preview: { before: publicCronJob(outcome.before, { redact }), after: publicCronJob(outcome.after, { redact }) },
+    ...(outcome.verification
+      ? { verification: { ...outcome.verification, unrelatedJobsChanged: redactNames(outcome.verification.unrelatedJobsChanged, redact) } }
+      : {}),
+  };
+}
+
+function redactNames(jobs, redact) {
+  return jobs.map((job) => ({ ...job, name: redact(job.name) }));
+}
+
+/**
+ * A true upsert against the live Gateway: exact routine names only, one edit
+ * or add per routine, then a fresh listing that must show every routine
+ * matching config and no other job changed.
+ */
+async function installRoutines(parsed, { cron, desired }) {
+  const beforeJobs = await cron.list();
+  const steps = planRoutineInstall(desired, beforeJobs);
+  const preview = steps.map((step) => ({
+    action: step.action,
+    routineId: step.routineId,
+    jobName: step.jobName,
+    jobId: step.jobId,
+    changes: step.changes,
+    display: displayStep(step),
+  }));
 
   if (parsed.command === "plan" || parsed.options.dryRun) {
     return {
-      dryRun: parsed.command === "install" && parsed.options.dryRun === true,
-      jobs,
-      commands: commands.map((command) => ({
-        action: command.action,
-        jobName: command.jobName,
-        routineId: command.routineId,
-        display: command.display,
-      })),
+      source: LIVE_CRON_SOURCE,
+      dryRun: parsed.command === "install",
+      jobs: desired.map(publicRoutineJob),
+      steps: preview,
     };
   }
 
-  const upsert = upsertRoutineCronJobs(getCronStore(), jobs, { nowMs, idGenerator });
-  writeCronStore(upsert.store);
+  const results = [];
+  for (const step of steps) {
+    if (step.action === "unchanged") {
+      results.push({ action: "unchanged", routineId: step.routineId, jobName: step.jobName, jobId: step.jobId });
+      continue;
+    }
+    try {
+      const job = step.action === "add" ? await cron.add(step.args) : await cron.edit(step.jobId, step.args);
+      results.push({ action: step.action, routineId: step.routineId, jobName: step.jobName, jobId: job.id ?? step.jobId });
+    } catch (error) {
+      const applied = results.filter((entry) => entry.action !== "unchanged").map((entry) => `${entry.action} ${entry.jobName}`);
+      throw new Error(`routines:install stopped at ${step.jobName}: ${error.message} Already applied: ${applied.join(", ") || "nothing"}.`);
+    }
+  }
 
-  return { dryRun: false, restartRequired: true, jobs, results: upsert.results };
+  const afterJobs = await cron.list();
+  let remaining;
+  try {
+    remaining = planRoutineInstall(desired, afterJobs).filter((step) => step.action !== "unchanged");
+  } catch (error) {
+    throw new Error(`routines:install ran, but the Gateway now reports a problem: ${error.message}`);
+  }
+  if (remaining.length > 0) {
+    throw new Error(
+      `routines:install ran, but these routine jobs still differ from config: ${remaining
+        .map((step) => `${step.jobName} (${step.action === "add" ? "missing" : step.changes.map((change) => change.field).join(", ")})`)
+        .join("; ")}.`,
+    );
+  }
+  const routineNames = new Set(desired.map((job) => job.name));
+  const unrelated = (jobs) => jobs.filter((job) => !routineNames.has(job.name));
+
+  return {
+    source: LIVE_CRON_SOURCE,
+    dryRun: false,
+    restartRequired: LIVE_CRON_RESTART_REQUIRED,
+    results,
+    verification: {
+      remainingDifferences: [],
+      unrelatedJobsChanged: redactNames(changedJobs(unrelated(beforeJobs), unrelated(afterJobs)), cron.redact ?? ((text) => text)),
+    },
+  };
 }
 
-function gatewayTokenFrom(config) {
-  return config.gateway?.remote?.token ?? config.gateway?.auth?.token;
+function displayStep(step) {
+  if (step.action === "add") return maskCronCommandForDisplay({ command: "openclaw", args: ["cron", "add", ...step.args, "--json"] });
+  if (step.action === "edit") return maskCronCommandForDisplay({ command: "openclaw", args: ["cron", "edit", step.jobId, ...step.args] });
+  return null;
 }
 
 export function formatRoutineCronCliResult(command, result) {
@@ -269,7 +349,7 @@ if (process.argv[1] && currentFile === resolve(process.argv[1])) {
       parsed.options.json ? JSON.stringify(result, null, 2) : formatRoutineCronCliResult(parsed.command, result),
     );
   } catch (error) {
-    console.error(error.message);
+    console.error(createSecretRedactor({ env: mergedEnv(projectPath(projectRoot, ".env")) })(error.message));
     process.exit(1);
   }
 }

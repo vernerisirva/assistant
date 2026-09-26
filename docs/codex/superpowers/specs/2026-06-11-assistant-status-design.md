@@ -1,5 +1,7 @@
 # Assistant Status Design
 
+> **Historical note (2026-09-26):** written before OpenClaw 2026.7. The Gateway now keeps cron jobs in its SQLite store and reads no `.openclaw/state/cron/jobs.json`; routine, quiet-ops and status commands use the live scheduler through `scripts/lib/live-cron.mjs`, with no restart. Current behavior: `docs/setup/routines.md`.
+
 ## Purpose
 
 Give the Telegram-facing Personal agent one dependable, read-only way to answer questions like:

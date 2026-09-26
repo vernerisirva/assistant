@@ -191,15 +191,16 @@ npm run quiet:status -- --json
 npm run quiet:audit
 ```
 
+Scheduled jobs live in the running Gateway's scheduler, not in a repo file. Every command below talks to it through the OpenClaw CLI, and a change is live when the command returns: no Gateway restart, no `render:config`. The retired `.openclaw/state/cron/jobs.json` is read by nothing. See `docs/setup/routines.md` for details.
+
 Install or update scheduled routine jobs:
 
 ```bash
+npm run routines:plan      # what would change; changes nothing
 npm run routines:install
-npm run render:config
-launchctl kickstart -k gui/501/ai.openclaw.gateway
 ```
 
-The installer upserts jobs named `Assistant routine: ...` in `.openclaw/state/cron/jobs.json` and should not remove unrelated OpenClaw cron jobs. The gateway restart reloads the cron store.
+The installer upserts jobs named `Assistant routine: ...` by exact name. It edits only the fields that differ from config, adds missing routines, and never touches other jobs. A second run changes nothing.
 
 Control one scheduled routine:
 
@@ -207,18 +208,38 @@ Control one scheduled routine:
 npm run routines:disable -- workout-window
 npm run routines:enable -- workout-window
 npm run routines:set-time -- morning-brief 08:30
-npm run render:config
-launchctl kickstart -k gui/501/ai.openclaw.gateway
 ```
 
-Control any project-local OpenClaw cron or reminder job with an exact job id or exact job name:
+Control any live Gateway cron or reminder job with an exact job id or exact job name:
 
 ```bash
 npm run quiet:disable -- "Assistant routine: workout-window"
 npm run quiet:enable -- "Assistant routine: workout-window"
 npm run quiet:set-time -- "Assistant routine: midday-check-in" 13:15
 npm run quiet:reschedule -- "Reminder: Renew gym card" 2026-06-19 09:00
-launchctl kickstart -k gui/501/ai.openclaw.gateway
 ```
 
-Use `--dry-run` before quiet-ops mutations when the target is not obvious. Quiet-ops mutations create timestamped backups beside `.openclaw/state/cron/jobs.json` and preserve unrelated job fields.
+Use `--dry-run` before a mutation when the target is not obvious: it shows the job before and after and changes nothing. A real mutation changes only the intended field. Afterwards it lists the jobs again and reports anything else that changed.
+
+## Gateway Service
+
+The Gateway runs as the LaunchAgent `ai.openclaw.gateway`. OpenClaw installs it itself, through a small wrapper the repo provides:
+
+```bash
+npm run install:launchd -- --dry-run   # show the plan; writes and starts nothing
+npm run install:launchd                # install or refresh; restarts only when needed
+```
+
+The installer uses the OpenClaw that normal Gateway operations use, checked in this order:
+
+1. `OPENCLAW_CLI`, if set;
+2. the managed `~/.openclaw/bin/openclaw`;
+3. an `openclaw` on PATH, but only if it reports 2026.7.1 or newer.
+
+It never guesses an nvm install path, and if nothing qualifies it fails and lists what it checked. Then it:
+
+- writes `~/.openclaw/bin/ai-assistant-launchd-wrapper`, which loads the project `.env`, points OpenClaw at `.openclaw/openclaw.json` and `.openclaw/state`, and runs the chosen OpenClaw from the project directory;
+- keeps or creates the Gateway token in the rendered config, without printing it;
+- runs `openclaw gateway install --wrapper <wrapper> --port 18789`.
+
+OpenClaw writes the plist, its protected service environment and its log path (`~/Library/Logs/openclaw/gateway.log`). It leaves an installation that already matches alone, and the installer restarts the service only when the wrapper changed. The installer does not pass `.env` values to OpenClaw's installer, so they are not copied into the service environment. `assistant:status` reads the log path from the installed plist, so the two always agree. Use `--dry-run` rather than reinstalling a healthy Gateway just to check the installer.

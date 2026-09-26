@@ -1,21 +1,25 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { LIVE_CRON_SOURCE, publicCronJob, summarizeCronJobs } from "./live-cron.mjs";
 import { routineCronStatus } from "./routine-cron.mjs";
 import { readRoutineSkipStore, resolveRoutineSkipStorePath } from "./routine-skips.mjs";
 import { formatLocalDateTime, nextWeekStart } from "./weekly-plan.mjs";
 import { createWeeklyPlanStore, summarizeWeeklyPlans } from "./weekly-plan-store.mjs";
 
-const defaultCronStore = { version: 1, jobs: [] };
-const defaultCronState = { version: 1, jobs: {} };
 const defaultSkipStore = { version: 1, skips: [] };
 const DEFAULT_LAUNCHD_LABEL = "ai.openclaw.gateway";
 
+/**
+ * `liveCron` is a snapshot from the live Gateway scheduler (see
+ * loadLiveCronSnapshot). When it could not be read, automation is reported as
+ * unavailable with the reason. Nothing falls back to the retired
+ * `.openclaw/state/cron/jobs.json`.
+ */
 export function buildAssistantStatus({
   env = {},
   config = {},
-  cronStore = defaultCronStore,
-  cronState = defaultCronState,
+  liveCron,
   skipStore = defaultSkipStore,
   weeklyPlans = [],
   gatewayLogText = "",
@@ -33,10 +37,11 @@ export function buildAssistantStatus({
     recentHours,
     secrets,
   });
-  const stateIssues = [];
-  const safeCronState = sanitizeCronState(cronState, stateIssues);
   const telegram = buildTelegramStatus({ env, config, parsedLogs });
-  const checks = buildChecks({ env, config, paths, exists, parsedLogs, telegram });
+  const checks = [
+    ...buildChecks({ env, config, paths, exists, parsedLogs, telegram }),
+    ...liveSchedulerChecks(liveCron, secrets),
+  ];
   const checkIssues = checks
     .filter((check) => ["fail", "warn"].includes(check.status))
     .map((check) => ({
@@ -45,7 +50,7 @@ export function buildAssistantStatus({
       checkId: check.id,
       message: check.message,
     }));
-  const recentIssues = [...checkIssues, ...loadIssues, ...stateIssues, ...parsedLogs.issues].map((issue) =>
+  const recentIssues = [...checkIssues, ...loadIssues, ...liveCronIssues(liveCron), ...parsedLogs.issues].map((issue) =>
     redactIssue(issue, secrets),
   );
   const hasFail = checks.some((check) => check.status === "fail");
@@ -55,21 +60,13 @@ export function buildAssistantStatus({
     overall: hasFail ? "needs_attention" : hasWarnOrError ? "degraded" : "running",
     checks,
     telegram,
-    automation: {
-      summary: buildAutomationSummary(cronStore),
-      jobs: buildAutomationJobs(cronStore, safeCronState, secrets),
-      routines: routineCronStatus(cronStore, safeCronState, {
-        skipStore,
-        now,
-        timezone: "Europe/Stockholm",
-      }),
-    },
+    automation: buildAutomation(liveCron, { skipStore, now, secrets }),
     weeklyPlan: buildWeeklyPlanStatus(weeklyPlans, now),
     recentActivity: {
       gatewayReadyAt: parsedLogs.gatewayReadyAt,
       telegramProviderStartedAt: parsedLogs.telegramProviderStartedAt,
       lastInboundTelegramAt: parsedLogs.lastInboundTelegramAt,
-      lastScheduledRunAt: lastScheduledRunAt(safeCronState),
+      lastScheduledRunAt: lastScheduledRunAt(liveCron),
     },
     recentIssues,
     logs: logSource
@@ -97,20 +94,12 @@ export function loadAssistantStatusInputs({
   const logSource = resolveGatewayLogSource({ env, stateDir: resolvedStateDir, platform });
   const loadIssues = [];
   const config = readJsonFile(resolvedConfigPath, {}, loadIssues);
-  const cronStore = normalizeCronStore(
-    readJsonFile(join(resolvedStateDir, "cron", "jobs.json"), defaultCronStore, loadIssues),
-  );
-  const cronState = normalizeCronState(
-    readJsonFile(join(resolvedStateDir, "cron", "jobs-state.json"), defaultCronState, loadIssues),
-  );
   const skipStore = readRoutineSkipStore(skipStorePath, { issues: loadIssues, strict: false });
   const weeklyPlans = readWeeklyPlans(resolvedStateDir, loadIssues);
 
   return {
     env,
     config,
-    cronStore,
-    cronState,
     skipStore,
     weeklyPlans,
     gatewayLogText: logSource.stdoutPath ? readTextFile(logSource.stdoutPath) : "",
@@ -348,115 +337,87 @@ function buildTelegramStatus({ env, config, parsedLogs }) {
   };
 }
 
-function buildAutomationSummary(cronStore) {
-  const jobs = Array.isArray(cronStore?.jobs) ? cronStore.jobs : [];
-  const enabledJobs = jobs.filter((job) => job.enabled !== false).length;
-  const cronJobs = jobs.filter((job) => job.schedule?.kind === "cron").length;
-  const oneTimeJobs = jobs.filter((job) => job.schedule?.kind === "at").length;
+function buildAutomation(liveCron, { skipStore, now, secrets }) {
+  const redact = (text) => redactSensitiveText(text, secrets);
+  if (!liveCron?.available) {
+    return {
+      source: LIVE_CRON_SOURCE,
+      available: false,
+      error: liveCron ? redactSensitiveText(liveCron.error ?? "unknown error", secrets) : "not checked",
+      scheduler: null,
+      summary: null,
+      jobs: [],
+      routines: [],
+    };
+  }
+
   return {
-    totalJobs: jobs.length,
-    enabledJobs,
-    disabledJobs: jobs.length - enabledJobs,
-    cronJobs,
-    oneTimeJobs,
-    dailyRecurringJobs: jobs.filter((job) => job.enabled !== false && isDailyCron(job.schedule)).length,
+    source: LIVE_CRON_SOURCE,
+    available: true,
+    error: null,
+    scheduler: liveCron.scheduler ?? null,
+    summary: summarizeCronJobs(liveCron.jobs),
+    jobs: liveCron.jobs.map((job) => publicCronJob(job, { redact })),
+    routines: routineCronStatus(liveCron.jobs, {
+      skipStore,
+      now,
+      timezone: "Europe/Stockholm",
+    }).map((routine) => ({ ...routine, routineId: redact(routine.routineId), name: redact(routine.name) })),
   };
 }
 
-function buildAutomationJobs(cronStore, cronState, secrets) {
-  const jobs = Array.isArray(cronStore?.jobs) ? cronStore.jobs : [];
-  return jobs.map((job) => {
-    const state = cronState?.jobs?.[job.id]?.state ?? {};
-    return {
-      id: redactSensitiveText(job.id ?? "", secrets),
-      name: redactSensitiveText(job.name ?? "", secrets),
-      agentId: job.agentId ?? null,
-      enabled: job.enabled !== false,
-      schedule: summarizeSchedule(job.schedule),
-      nextRunAt: isoFromTimestampMs(state.nextRunAtMs),
-      lastRunAt: isoFromTimestampMs(state.lastRunAtMs),
-      lastStatus: state.lastStatus ?? null,
-    };
-  });
+/** Only a scheduler that was actually queried can pass or warn; a caller that skipped it adds no check. */
+function liveSchedulerChecks(liveCron, secrets) {
+  if (!liveCron) return [];
+  if (!liveCron.available) {
+    return [
+      {
+        id: "live-scheduler",
+        status: "warn",
+        message: redactSensitiveText(`Live Gateway scheduler could not be read: ${liveCron.error ?? "unknown error"}`, secrets),
+      },
+    ];
+  }
+  if (liveCron.schedulerError) {
+    return [
+      {
+        id: "live-scheduler",
+        status: "warn",
+        message: redactSensitiveText(
+          `Live Gateway jobs were read, but the scheduler state could not be: ${liveCron.schedulerError}`,
+          secrets,
+        ),
+      },
+    ];
+  }
+  if (liveCron.scheduler?.enabled === false) {
+    return [{ id: "live-scheduler", status: "warn", message: "The Gateway scheduler is disabled, so no cron job will run." }];
+  }
+  return [{ id: "live-scheduler", status: "ok", message: `Live Gateway scheduler lists ${liveCron.jobs.length} job(s).` }];
 }
 
-function summarizeSchedule(schedule = {}) {
-  if (schedule.kind === "cron") {
-    return {
-      kind: "cron",
-      expr: schedule.expr,
-      timezone: schedule.tz,
-    };
-  }
-  if (schedule.kind === "at") {
-    return {
-      kind: "at",
-      at: schedule.at,
-    };
-  }
-  return { kind: schedule.kind ?? "unknown" };
-}
-
-function isDailyCron(schedule = {}) {
-  if (schedule.kind !== "cron" || typeof schedule.expr !== "string") return false;
-  const parts = schedule.expr.trim().split(/\s+/);
-  return (
-    parts.length === 5 &&
-    parts[0] !== "*" &&
-    parts[1] !== "*" &&
-    parts[2] === "*" &&
-    parts[3] === "*" &&
-    parts[4] === "*"
+function liveCronIssues(liveCron) {
+  if (!liveCron?.available) return [];
+  return liveCron.jobs.flatMap((job) =>
+    (job.warnings ?? []).map((warning) => ({
+      severity: "warn",
+      type: "invalid-state-timestamp",
+      jobId: job.id,
+      field: warning.replace(/^invalid /, ""),
+      message: `Ignored ${warning} reported by the Gateway for ${job.id}.`,
+    })),
   );
 }
 
-function lastScheduledRunAt(cronState) {
-  const lastRunMs = Object.values(cronState?.jobs ?? {})
-    .map((job) => job?.state?.lastRunAtMs)
-    .filter((value) => Number.isFinite(value))
-    .sort((a, b) => b - a)[0];
-  return lastRunMs ? new Date(lastRunMs).toISOString() : null;
-}
-
-function sanitizeCronState(cronState, issues) {
-  const jobs = {};
-  for (const [jobId, entry] of Object.entries(cronState?.jobs ?? {})) {
-    const state = { ...(entry?.state ?? {}) };
-    for (const key of ["nextRunAtMs", "lastRunAtMs"]) {
-      if (state[key] === undefined || state[key] === null) continue;
-      const normalized = timestampMs(state[key]);
-      if (normalized === null) {
-        delete state[key];
-        issues.push({
-          severity: "warn",
-          type: "invalid-state-timestamp",
-          jobId,
-          field: key,
-          message: `Ignored invalid cron state timestamp for ${jobId}.${key}.`,
-        });
-      } else {
-        state[key] = normalized;
-      }
-    }
-    jobs[jobId] = { ...entry, state };
-  }
-  return { version: cronState?.version ?? 1, jobs };
-}
-
-function isoFromTimestampMs(value) {
-  const normalized = timestampMs(value);
-  return normalized === null ? null : new Date(normalized).toISOString();
-}
-
-function timestampMs(value) {
-  if (typeof value === "number" && Number.isFinite(value) && Number.isFinite(new Date(value).getTime())) {
-    return value;
-  }
-  if (typeof value === "string" && value.trim().length > 0) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed) && Number.isFinite(new Date(parsed).getTime())) return parsed;
-  }
-  return null;
+function lastScheduledRunAt(liveCron) {
+  if (!liveCron?.available) return null;
+  return (
+    liveCron.jobs
+      .map((job) => job.lastRunAt)
+      .filter(Boolean)
+      .sort()
+      .at(-1) ?? null
+  );
 }
 
 /** Answers: is a weekly plan pending, when does it apply, which version, was it applied? */
@@ -532,16 +493,6 @@ function readTextFile(path) {
   }
 }
 
-function normalizeCronStore(value) {
-  return Array.isArray(value?.jobs) ? { version: value.version ?? 1, jobs: value.jobs } : defaultCronStore;
-}
-
-function normalizeCronState(value) {
-  return value?.jobs && typeof value.jobs === "object" && !Array.isArray(value.jobs)
-    ? { version: value.version ?? 1, jobs: value.jobs }
-    : defaultCronState;
-}
-
 function leadingTimestamp(line) {
   const match = line.match(/^(\d{4}-\d{2}-\d{2}T\S+)/);
   return match?.[1] ?? null;
@@ -580,6 +531,8 @@ function collectSecrets({ env, config }) {
     env.TELEGRAM_BOT_TOKEN,
     env.OPENCLAW_GATEWAY_TOKEN,
     env.GATEWAY_TOKEN,
+    // The user's Telegram id is private too; job names and Gateway errors can carry it.
+    /^\d{5,}$/.test(String(env.TELEGRAM_USER_ID ?? "").trim()) ? String(env.TELEGRAM_USER_ID).trim() : null,
   ]);
   collectSecretValues(config, secrets);
   return [...secrets].filter((secret) => typeof secret === "string" && secret.length > 0);

@@ -1,25 +1,40 @@
+/**
+ * Quiet ops: status, noise audit and exact-target controls for every live
+ * OpenClaw Gateway cron job, working on jobs normalized by live-cron.mjs.
+ */
+import {
+  LIVE_CRON_SOURCE,
+  isDailyCronSchedule,
+  planCronExpressionChange,
+  planEnabledChange,
+  planOneShotChange,
+} from "./live-cron.mjs";
+
 const DEFAULT_TIMEZONE = "Europe/Stockholm";
 
-export function quietOpsStatus(existingStore, existingState = {}) {
-  const jobs = cronJobs(existingStore);
-  const statusJobs = jobs.map((job) => describeQuietJob(job, existingState));
+/** `redact` masks secrets and the Telegram id in printed names; matching always uses the real name. */
+export function quietOpsStatus(jobs, { redact } = {}) {
+  const statusJobs = cronJobs(jobs).map((job) => describeQuietJob(job, { redact }));
 
   return {
+    source: LIVE_CRON_SOURCE,
     jobs: statusJobs,
-    summary: quietOpsSummary(statusJobs),
+    summary: quietOpsSummary(cronJobs(jobs)),
   };
 }
 
-export function auditQuietOps(existingStore, existingState = {}, { now = new Date(), upcomingDays = 14 } = {}) {
-  const status = quietOpsStatus(existingStore, existingState);
+export function auditQuietOps(jobs, { now = new Date(), upcomingDays = 14, redact } = {}) {
+  const status = quietOpsStatus(jobs, { redact });
   const issues = [
     ...sameTimeEnabledIssues(status.jobs),
     ...disabledInstalledIssues(status.jobs),
     ...upcomingOneShotIssues(status.jobs, { now, upcomingDays }),
     ...dailyRecurringCountIssues(status.jobs),
+    ...unsupportedScheduleIssues(status.jobs),
   ];
 
   return {
+    source: LIVE_CRON_SOURCE,
     summary: status.summary,
     issues,
   };
@@ -37,112 +52,78 @@ export function classifyQuietJob(job) {
   return "unknown";
 }
 
-export function updateQuietJobEnabled(existingStore, ref, enabled) {
-  const update = updateQuietJob(existingStore, ref, (job) => ({
-    ...job,
-    enabled,
-  }));
-
-  return {
-    ...update,
-    result: {
-      action: enabled ? "enable" : "disable",
-      jobId: update.after.id,
-      jobName: update.after.name,
-    },
-  };
-}
-
-export function updateQuietCronTime(existingStore, ref, time) {
-  const parsedTime = parseTime(time);
-  const update = updateQuietJob(existingStore, ref, (job) => {
-    if (job.schedule?.kind !== "cron") {
-      throw new Error(`Quiet-ops set-time requires a cron job: ${job.name}`);
-    }
-
-    return {
-      ...job,
-      schedule: {
-        ...job.schedule,
-        expr: cronExpressionWithTime(job.schedule.expr, parsedTime),
-      },
-    };
-  });
-
-  return {
-    ...update,
-    result: {
-      action: "set-time",
-      jobId: update.after.id,
-      jobName: update.after.name,
-      cron: update.after.schedule.expr,
-    },
-  };
-}
-
-export function updateQuietOneShotTime(
-  existingStore,
-  ref,
-  date,
-  time,
-  { timezone = DEFAULT_TIMEZONE } = {},
-) {
-  let at;
-  const update = updateQuietJob(existingStore, ref, (job) => {
-    if (job.schedule?.kind !== "at") {
-      throw new Error(`Quiet-ops reschedule requires a one-shot at job: ${job.name}`);
-    }
-
-    at = localDateTimeToUtcIso(date, time, timezone);
-    return {
-      ...job,
-      schedule: {
-        ...job.schedule,
-        at,
-      },
-    };
-  });
-
-  return {
-    ...update,
-    result: {
-      action: "reschedule",
-      jobId: update.after.id,
-      jobName: update.after.name,
-      at,
-      timezone,
-    },
-  };
-}
-
-export function describeQuietJob(job, existingState = {}) {
-  const state = existingState.jobs?.[job.id]?.state ?? {};
-
+export function describeQuietJob(job, { redact = (text) => text } = {}) {
   return {
     id: job.id,
-    name: job.name,
+    name: redact(job.name),
     category: classifyQuietJob(job),
-    enabled: job.enabled !== false,
+    enabled: job.enabled,
     agentId: job.agentId ?? null,
     schedule: describeSchedule(job.schedule),
-    nextRunAt: state.nextRunAtMs ? new Date(state.nextRunAtMs).toISOString() : null,
-    lastStatus: state.lastStatus ?? null,
+    nextRunAt: job.nextRunAt ?? null,
+    lastRunAt: job.lastRunAt ?? null,
+    lastStatus: job.lastStatus ?? null,
   };
 }
 
-function quietOpsSummary(statusJobs) {
-  const enabledJobs = statusJobs.filter((job) => job.enabled).length;
-  const recurringJobs = statusJobs.filter((job) => job.schedule.kind === "cron").length;
-  const oneShotJobs = statusJobs.filter((job) => job.schedule.kind === "at").length;
-  const dailyRecurringJobs = statusJobs.filter((job) => job.enabled && isDailyCron(job.schedule.expr)).length;
+/**
+ * Resolves the exact target and plans one change without touching the Gateway.
+ * Unsupported combinations, such as set-time on a one-shot, fail here.
+ */
+export function planQuietOpsChange(jobs, parsed, { timezone = DEFAULT_TIMEZONE } = {}) {
+  const job = findQuietJob(cronJobs(jobs), parsed.options.ref);
+  const result = { action: parsed.command, jobId: job.id, jobName: job.name };
+
+  switch (parsed.command) {
+    case "enable":
+    case "disable":
+      return { plan: planEnabledChange(job, parsed.command === "enable"), result };
+    case "set-time": {
+      if (job.schedule?.kind !== "cron") {
+        throw new Error(`Quiet-ops set-time requires a cron job: ${job.name} [${job.id}] has schedule kind ${job.schedule?.kind ?? "unknown"}.`);
+      }
+      const cron = cronExpressionWithTime(job.schedule.expr, parseTime(parsed.options.time));
+      return { plan: planCronExpressionChange(job, cron), result: { ...result, cron } };
+    }
+    case "reschedule": {
+      if (job.schedule?.kind !== "at") {
+        throw new Error(`Quiet-ops reschedule requires a one-shot at job: ${job.name} [${job.id}] has schedule kind ${job.schedule?.kind ?? "unknown"}.`);
+      }
+      const at = localDateTimeToUtcIso(parsed.options.date, parsed.options.time, timezone);
+      return { plan: planOneShotChange(job, at), result: { ...result, at, timezone } };
+    }
+    default:
+      throw new Error(`Unsupported quiet-ops mutation: ${parsed.command}`);
+  }
+}
+
+export function findQuietJob(jobs, ref) {
+  const matches = jobs.filter((job) => job.id === ref || job.name === ref);
+
+  if (matches.length === 0) {
+    throw new Error(`No quiet-ops job matches exact id or name: ${ref}`);
+  }
+
+  if (matches.length > 1) {
+    throw new Error(`Ambiguous quiet-ops job reference: ${ref} matches ${matches.map((job) => job.id).join(", ")}`);
+  }
+
+  return matches[0];
+}
+
+function quietOpsSummary(jobs) {
+  const enabledJobs = jobs.filter((job) => job.enabled).length;
+  const kinds = jobs.map((job) => job.schedule?.kind);
 
   return {
-    totalJobs: statusJobs.length,
+    totalJobs: jobs.length,
     enabledJobs,
-    disabledJobs: statusJobs.length - enabledJobs,
-    recurringJobs,
-    oneShotJobs,
-    dailyRecurringJobs,
+    disabledJobs: jobs.length - enabledJobs,
+    recurringJobs: kinds.filter((kind) => kind === "cron" || kind === "every").length,
+    intervalJobs: kinds.filter((kind) => kind === "every").length,
+    oneShotJobs: kinds.filter((kind) => kind === "at").length,
+    otherScheduleJobs: kinds.filter((kind) => !["cron", "every", "at"].includes(kind)).length,
+    dailyRecurringJobs: jobs.filter((job) => job.enabled && isDailyCronSchedule(job.schedule)).length,
   };
 }
 
@@ -196,8 +177,8 @@ function upcomingOneShotIssues(statusJobs, { now, upcomingDays }) {
     }));
 }
 
-function dailyRecurringCountIssues(statusJobs) {
-  const dailyJobs = statusJobs.filter((job) => job.enabled && isDailyCron(job.schedule.expr));
+function dailyRecurringCountIssues(jobs) {
+  const dailyJobs = jobs.filter((job) => job.enabled && isDailyCronSchedule(job.schedule));
   if (dailyJobs.length === 0) return [];
 
   return [
@@ -210,12 +191,25 @@ function dailyRecurringCountIssues(statusJobs) {
   ];
 }
 
+// A schedule kind this repo does not know is shown as-is, never treated as cron or at.
+function unsupportedScheduleIssues(statusJobs) {
+  return statusJobs
+    .filter((job) => job.schedule.supported === false)
+    .map((job) => ({
+      type: "unsupported-schedule",
+      severity: "info",
+      jobId: job.id,
+      jobName: job.name,
+      schedule: job.schedule,
+    }));
+}
+
 function describeSchedule(schedule = {}) {
   if (schedule.kind === "cron") {
     return {
       kind: "cron",
       expr: schedule.expr,
-      timezone: schedule.tz ?? null,
+      timezone: schedule.timezone ?? null,
     };
   }
 
@@ -226,46 +220,21 @@ function describeSchedule(schedule = {}) {
     };
   }
 
+  if (schedule.kind === "every") {
+    return {
+      kind: "every",
+      everyMs: schedule.everyMs,
+    };
+  }
+
   return {
     kind: schedule.kind ?? "unknown",
+    supported: false,
   };
 }
 
-function updateQuietJob(existingStore, ref, updater) {
-  const jobs = cronJobs(existingStore);
-  const { job, index } = findQuietJob(jobs, ref);
-  const after = updater(job);
-  const updatedJobs = jobs.map((candidate, candidateIndex) => (candidateIndex === index ? after : candidate));
-
-  return {
-    store: {
-      ...existingStore,
-      version: existingStore?.version ?? 1,
-      jobs: updatedJobs,
-    },
-    before: job,
-    after,
-  };
-}
-
-function findQuietJob(jobs, ref) {
-  const matches = jobs
-    .map((job, index) => ({ job, index }))
-    .filter(({ job }) => job.id === ref || job.name === ref);
-
-  if (matches.length === 0) {
-    throw new Error(`No quiet-ops job matches exact id or name: ${ref}`);
-  }
-
-  if (matches.length > 1) {
-    throw new Error(`Ambiguous quiet-ops job reference: ${ref}`);
-  }
-
-  return matches[0];
-}
-
-function cronJobs(existingStore) {
-  return Array.isArray(existingStore?.jobs) ? existingStore.jobs : [];
+function cronJobs(jobs) {
+  return Array.isArray(jobs) ? jobs : [];
 }
 
 function cronExpressionWithTime(expr, { hour, minute }) {
@@ -275,11 +244,6 @@ function cronExpressionWithTime(expr, { hour, minute }) {
   }
 
   return [String(minute), String(hour), ...parts.slice(2)].join(" ");
-}
-
-function isDailyCron(expr) {
-  const parts = (expr ?? "").trim().split(/\s+/);
-  return parts.length === 5 && parts[2] === "*" && parts[3] === "*" && parts[4] === "*";
 }
 
 function parseTime(time) {

@@ -6,6 +6,7 @@ import {
   loadAssistantStatusInputs,
   redactSensitiveText,
 } from "./lib/assistant-status.mjs";
+import { createGatewayCron, loadLiveCronSnapshot, LIVE_CRON_SOURCE } from "./lib/live-cron.mjs";
 import { resolveOpenClawConfigPath, resolveOpenClawStateDir } from "./lib/commands.mjs";
 import { projectPath } from "./lib/config.mjs";
 import { mergedEnv } from "./lib/env.mjs";
@@ -53,11 +54,15 @@ export async function runAssistantStatusCli(
     configPath,
     stateDir,
     loadInputs,
+    cron,
+    runOpenClaw,
     now = new Date(),
   } = {},
 ) {
   const options = parseAssistantStatusArgs(argv);
-  const inputs = loadInputs ? loadInputs() : loadDefaultInputs({ root, env, configPath, stateDir });
+  const inputs = loadInputs
+    ? await loadInputs()
+    : await loadDefaultInputs({ root, env, configPath, stateDir, cron, runOpenClaw });
   const status = buildAssistantStatus({
     ...inputs,
     now,
@@ -76,16 +81,25 @@ export async function runAssistantStatusCli(
   };
 }
 
-function loadDefaultInputs({ root, env, configPath, stateDir }) {
+async function loadDefaultInputs({ root, env, configPath, stateDir, cron, runOpenClaw }) {
   const resolvedEnv = env ?? mergedEnv(projectPath(root, ".env"));
   const resolvedConfigPath = configPath ?? resolveOpenClawConfigPath(resolvedEnv, root);
   const resolvedStateDir = stateDir ?? resolveOpenClawStateDir(resolvedEnv, root);
-  return loadAssistantStatusInputs({
+  const inputs = loadAssistantStatusInputs({
     env: resolvedEnv,
     projectRoot: root,
     configPath: resolvedConfigPath,
     stateDir: resolvedStateDir,
   });
+  return { ...inputs, liveCron: await loadLiveCron({ root, env: resolvedEnv, cron, runOpenClaw }) };
+}
+
+async function loadLiveCron({ root, env, cron, runOpenClaw }) {
+  try {
+    return await loadLiveCronSnapshot(cron ?? createGatewayCron({ root, env, runOpenClaw }));
+  } catch (error) {
+    return { available: false, source: LIVE_CRON_SOURCE, jobs: [], scheduler: null, error: error.message };
+  }
 }
 
 function buildRecentLogLines(
@@ -111,9 +125,18 @@ function buildRecentLogLines(
 }
 
 export function formatAssistantStatus(status) {
-  const summary = status.automation?.summary ?? {};
-  const routines = status.automation?.routines ?? [];
-  const routineText = routines.length === 0
+  const automation = status.automation ?? {};
+  const summary = automation.summary ?? {};
+  const routines = automation.routines ?? [];
+  const liveUnavailable = automation.available === false;
+  const automationText = liveUnavailable
+    ? `live Gateway scheduler ${automation.error === "not checked" ? "not checked" : `unavailable (${automation.error})`}`
+    : `${summary.enabledJobs ?? 0}/${summary.totalJobs ?? 0} automatic jobs enabled; ` +
+      `${summary.dailyRecurringJobs ?? 0} enabled daily recurring jobs (live Gateway scheduler` +
+      `${automation.scheduler?.enabled === false ? ", which is disabled" : ""})`;
+  const routineText = liveUnavailable
+    ? "unknown while the live scheduler is unavailable"
+    : routines.length === 0
     ? "no assistant routines installed"
     : routines
       .map((routine) => {
@@ -138,7 +161,7 @@ export function formatAssistantStatus(status) {
   return [
     `Status: ${status.overall}`,
     `Telegram: ${status.telegram?.enabled ? "enabled" : "disabled"}${status.telegram?.provider ? ` for ${status.telegram.provider}` : ""}; ${status.telegram?.allowFromCount ?? 0} allowlisted user(s).`,
-    `Automation: ${summary.enabledJobs ?? 0}/${summary.totalJobs ?? 0} automatic jobs enabled; ${summary.dailyRecurringJobs ?? 0} enabled daily recurring jobs.`,
+    `Automation: ${automationText}.`,
     `Routines: ${routineText}.`,
     `Weekly plan: ${describeWeeklyPlan(status.weeklyPlan)}.`,
     `Recent activity: gateway ready at ${status.recentActivity?.gatewayReadyAt ?? "unknown"}; last scheduled run ${status.recentActivity?.lastScheduledRunAt ?? "unknown"}.`,
@@ -190,6 +213,7 @@ function collectCliSecrets(env, config) {
     env.TELEGRAM_BOT_TOKEN,
     env.OPENCLAW_GATEWAY_TOKEN,
     env.GATEWAY_TOKEN,
+    /^\d{5,}$/.test(String(env.TELEGRAM_USER_ID ?? "").trim()) ? String(env.TELEGRAM_USER_ID).trim() : null,
   ]);
   collectSecretValues(config, secrets);
   return [...secrets].filter((secret) => typeof secret === "string" && secret.length > 0);

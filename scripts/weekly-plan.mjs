@@ -13,8 +13,7 @@
  */
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { createTodoistClient } from "./lib/todoist.mjs";
@@ -178,7 +177,7 @@ function createContext({
   const loadedSchedules = () => schedules ?? readJson(projectPath(root, "config/schedules.json"));
   let planningCache;
   let todoistCache;
-  const openclawCommand = () => resolveGatewayOpenClawCommand(env);
+  const openclawCommand = () => resolveOpenClawCommand(env);
   // Like the Gateway wrapper: the repo .env values (for example the Telegram
   // bot token the rendered config refers to) plus the project config and state.
   const openclawEnv = () => ({
@@ -751,14 +750,6 @@ function readJsonIfPresent(path) {
   } catch {
     return {};
   }
-}
-
-/** The Gateway's own CLI first, so a stale global `openclaw` never talks to a newer Gateway. */
-export function resolveGatewayOpenClawCommand(env = process.env) {
-  if (env.OPENCLAW_CLI) return env.OPENCLAW_CLI;
-  const gatewayCli = join(env.HOME || homedir(), ".openclaw/bin/openclaw");
-  if (existsSync(gatewayCli)) return gatewayCli;
-  return resolveOpenClawCommand(env) ?? "openclaw";
 }
 
 export function formatWeeklyPlanCliResult(command, result, { json = false, text = false } = {}) {

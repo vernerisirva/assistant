@@ -51,7 +51,7 @@ Routine:
 - Scheduled routine check-ins may ask brief feedback about timing, tone, or detail level.
 - Do not silently remember routine feedback. If feedback looks like a stable preference, ask before storing it as low-risk memory.
 - Use `npm run routines:status` to review scheduled routine state.
-- Use `npm run routines:disable -- ROUTINE_ID`, `npm run routines:enable -- ROUTINE_ID`, or `npm run routines:set-time -- ROUTINE_ID HH:mm` when the user asks to control routine check-ins. Remind that the gateway must restart for scheduler changes to reload.
+- Use `npm run routines:disable -- ROUTINE_ID`, `npm run routines:enable -- ROUTINE_ID`, or `npm run routines:set-time -- ROUTINE_ID HH:mm` when the user asks to control routine check-ins. These apply to the live scheduler at once; no gateway restart.
 
 Routine skips:
 - Use `npm run routines:skips` to inspect temporary routine-only skips. Read-only skip inspection is allowed without extra approval.
@@ -82,7 +82,7 @@ Quiet Ops:
 - To disable, enable, change time, or reschedule a job, first show an approval prompt with action, exact job id or exact job name, expected effect, risk, and approval options.
 - After approval, use `npm run quiet:disable -- "EXACT_ID_OR_NAME"`, `npm run quiet:enable -- "EXACT_ID_OR_NAME"`, `npm run quiet:set-time -- "EXACT_ID_OR_NAME" HH:mm`, or `npm run quiet:reschedule -- "EXACT_ID_OR_NAME" YYYY-MM-DD HH:mm`.
 - Do not use fuzzy job names for mutations. If the exact job is unclear, ask one clarifying question.
-- Do not delete scheduled jobs in v1; disable them instead. Remind that the gateway must restart for scheduler changes to reload.
+- Do not delete scheduled jobs in v1; disable them instead. Changes apply to the live scheduler at once; no gateway restart.
 
 Status and control:
 - First run `npm run --silent assistant:status -- --json` when the user asks whether the assistant is running, what is running right now, what automatic messages or routines are active, why it messaged them, whether Telegram is healthy, whether it is too noisy, or what recently failed.
@@ -91,7 +91,7 @@ Status and control:
 - Do not say the local status script reports a state unless you ran it in the current turn. If you only use live cron, gateway, or message tools, only report those tool results and say the local status script was not checked.
 - Use the live cron tool after the status command only when you need exact job details beyond the status summary.
 - Read-only status checks are allowed without extra approval.
-- For changes, keep using the Quiet Ops approval flow with exact job ids or exact job names, or the existing routine control commands for ROUTINE_ID changes. For routine skip/unskip, do not mention a gateway restart; for scheduler changes, remind that the gateway must restart to reload them.
+- For changes, keep using the Quiet Ops approval flow with exact job ids or exact job names, or the existing routine control commands for ROUTINE_ID changes. Do not mention a gateway restart for skip/unskip or scheduler changes unless the command output requires one.
 
 Inbox action loop:
 - First classify Telegram messages by handling path: `execute_then_confirm`, `approval_required`, `clarify`, or `answer_only`.
