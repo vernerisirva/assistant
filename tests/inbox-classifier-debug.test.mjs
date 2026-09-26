@@ -435,3 +435,129 @@ describe("inbox classifier debug command", () => {
     assert.doesNotMatch(technique, /- Mode:/);
   });
 });
+
+describe("inbox classifier debug: focus and next action", () => {
+  const focusHardStop = /^Stop before turning a focus recommendation into a Todoist task, Calendar change, reminder, or message/;
+
+  it("answers a next-action request in personal, as advice with no side effects", () => {
+    // "meeting" would otherwise route to admin.
+    const result = classify("I have 90 minutes before my next meeting");
+
+    assert.equal(result.selectedAgent, "personal");
+    assert.equal(result.confidence, "high");
+    assert.equal(result.focus.kind, "next_action");
+    assert.equal(result.focus.availableMinutes, 90);
+    assert.equal(result.coaching, null);
+    assert.equal(result.sideEffecting, false);
+    assert.equal(result.approvalRequired, false);
+    assert.match(result.safety.reason, /Focus recommendations are advisory conversation/);
+    assert.match(result.hardStopPoints[0], focusHardStop);
+  });
+
+  it("shows a session start or end as a local focus-record write that needs no approval", () => {
+    for (const [message, options] of [
+      ["Start a 45-minute focus session on my thesis", {}],
+      ["Done", { focusActive: true }],
+    ]) {
+      const result = classify(message, options);
+
+      assert.equal(result.selectedAgent, "personal", message);
+      assert.equal(result.focus.writes, "focus-state", message);
+      assert.equal(result.sideEffecting, true, message);
+      assert.equal(result.approvalRequired, false, message);
+      assert.match(result.safety.reason, /Writes only the local, disposable focus session record; no Todoist task, Calendar event, reminder, or message/, message);
+      assert.match(result.hardStopPoints[0], focusHardStop, message);
+    }
+  });
+
+  it("uses the running session only when there is one", () => {
+    const inSession = classify("I'm stuck", { focusActive: true });
+    assert.equal(inSession.focus.kind, "session_check_in");
+    assert.equal(inSession.focus.usesFocusSession, true);
+
+    const noSession = classify("I'm stuck");
+    assert.equal(noSession.focus.kind, "next_action");
+    assert.equal(noSession.focus.usesFocusSession, false);
+    assert.match(noSession.focus.reason, /do not invent one/);
+
+    assert.equal(classify("Done").focus, null);
+  });
+
+  it("leads over general coaching but never over distress, sleep health, technique, or a playbook write", () => {
+    const distractedInSession = classify("I'm getting distracted", { focusActive: true });
+    assert.equal(distractedInSession.focus.kind, "session_check_in");
+    assert.equal(distractedInSession.coaching, null);
+    assert.match(distractedInSession.focus.reason, /coaching quick reset/);
+
+    const distractedAlone = classify("I'm getting distracted");
+    assert.equal(distractedAlone.focus, null);
+    assert.equal(distractedAlone.coaching.mode, "quick_reset");
+
+    const bareHelp = classify("Help me focus");
+    assert.equal(bareHelp.focus, null);
+    assert.equal(bareHelp.coaching.mode, "quick_reset");
+
+    for (const [message, kind] of [
+      ["I feel hopeless and can't cope", "support"],
+      ["I haven't slept properly for months", "sleep_health"],
+      ["How do I fix my slice?", "golf_technique"],
+      ["My deep-work block is normally 45 minutes", "playbook"],
+    ]) {
+      const result = classify(message, { focusActive: true });
+      assert.equal(result.focus, null, message);
+      assert.equal(result.coaching.kind, kind, message);
+    }
+  });
+
+  it("never masks an action or softens a side-effect signal", () => {
+    const task = classify("I have 45 minutes, add a Todoist task to email my supervisor");
+    assert.equal(task.focus, null);
+    assert.notEqual(task.action.mode, "answer_only");
+
+    const calendar = classify("Schedule a focus block at 14:00 tomorrow");
+    assert.equal(calendar.focus, null);
+    assert.equal(calendar.action.intent, "calendar.create");
+
+    const payment = classify("I have 30 minutes, should I pay my invoices?");
+    assert.equal(payment.focus.kind, "next_action");
+    assert.equal(payment.approvalRequired, true);
+    assert.doesNotMatch(formatInboxClassifierDebug(payment), /Note: focus replies are advisory/);
+  });
+
+  it("keeps a session's project out of storage and a factual question out of focus", () => {
+    const project = classify("I'm working on my MSc now");
+    assert.equal(project.focus.kind, "project_context");
+    assert.equal(project.focus.project, "msc");
+    assert.equal(project.sideEffecting, false);
+
+    assert.equal(classify("What is a focus session?").focus, null);
+    assert.equal(classify("What Todoist tasks are due today?").focus, null);
+  });
+
+  it("parses the focus-active flag for in-session debugging", () => {
+    assert.deepEqual(parseInboxClassifierDebugArgs(["--focus-active", "I'm stuck"]), {
+      json: false,
+      focusActive: true,
+      actionOptions: {},
+      message: "I'm stuck",
+    });
+  });
+
+  it("formats the focus block without implying an action", () => {
+    const output = formatInboxClassifierDebug(classify("I have 45 minutes, what should I do?"));
+
+    assert.match(output, /Likely route: personal \(confidence: high\)/);
+    assert.match(output, /Focus:\n- Kind: next_action\n- Available time: 45 minutes\n- Uses the running focus session: no\n- Questions: at most 1/);
+    assert.match(output, /- Shape: one primary recommendation with a one-line reason → optional fallback → one thing not worth starting now/);
+    assert.match(output, /- Writes: nothing/);
+    assert.match(output, /Note: focus replies are advisory; only starting or ending a session writes the local focus record, and nothing is scheduled\./);
+
+    const checkIn = formatInboxClassifierDebug(classify("I found another bug", { focusActive: true }));
+    assert.match(checkIn, /- Kind: session_check_in \(trigger: scope\)/);
+    assert.match(checkIn, /- Uses the running focus session: yes/);
+
+    const project = formatInboxClassifierDebug(classify("Switch to thesis mode"));
+    assert.match(project, /- Project for this session: thesis \(not stored\)/);
+    assert.match(project, /- Questions: none/);
+  });
+});

@@ -5,6 +5,7 @@ This repo is the source of truth for Hilla's prompts, config templates, safety p
 ## Source Directories
 
 - `agents/`: source prompts and standing orders.
+- `agents/personal/guides/`: detailed feature guides that a helper serves on demand, such as `npm run --silent focus -- guide`. They are not rendered into workspaces and do not count against the project-doc budget.
 - `config/`: JSON configuration templates used by render scripts and tests.
 - `scripts/`: command-line helpers for config rendering, status, routines, Todoist, memory, Min Golf, and quiet ops.
 - `scripts/lib/`: reusable helper modules with unit coverage.
@@ -16,7 +17,7 @@ This repo is the source of truth for Hilla's prompts, config templates, safety p
 - `.openclaw/openclaw.json`: rendered config.
 - `.openclaw/workspace-*`: generated per-agent workspaces.
 - `.openclaw/agents/*`: generated OpenClaw agent directories.
-- `.openclaw/state`: runtime state, including the Gateway's SQLite database (cron jobs and their run history), memories, weekly plans (`weekly-plan/`), and Telegram state.
+- `.openclaw/state`: runtime state, including the Gateway's SQLite database (cron jobs and their run history), memories, weekly plans (`weekly-plan/`), the disposable focus session record (`focus/`), and Telegram state.
 
 ## Scheduled Jobs
 
@@ -35,6 +36,8 @@ Generated runtime files are local and private. They are ignored by git and shoul
 ### Prompt Size Budget
 
 The agents run on the Codex harness. It reads `AGENTS.md` files from the repository root down to the agent workspace, so each agent gets this repo's root `AGENTS.md` followed by its own prompt. Together they share Codex's 32 KiB project-doc budget. Anything past the budget is dropped without an error, and the end of an agent prompt holds its Confirm-before-action rules. `tests/agent-boundaries.test.mjs` fails when any agent prompt plus the root guide exceeds the budget. Keep prompt additions compact, and check a new session's Codex rollout after large prompt changes.
+
+A new capability keeps its triggers and hard boundaries in the standing orders and moves the detail into `agents/personal/guides/<feature>.md`, which its helper prints when the agent runs it. The focus guide is the first: the prompt says when to run `npm run --silent focus -- guide`, and tests pin both the pointer and the guide.
 
 ## Safety Flow
 

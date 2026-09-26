@@ -10,6 +10,7 @@
     "draft-min-golf-booking-approval-request",
     "read-local-memory",
     "capture-explicit-local-feedback",
+    "manage-local-focus-session-state",
     "remember-explicit-low-risk-memory",
     "forget-single-memory-by-request",
     "build-explicit-complete-calendar-creation-preview",
@@ -80,6 +81,26 @@
       "sensitive-content",
       "external-delivery",
       "inferred-conversation-context"
+    ]
+  },
+  "focusSessions": {
+    "storage": "local-disposable",
+    "recordFields": ["startedAt", "plannedMinutes", "context", "outcome", "firstAction", "definitionOfDone", "ignore"],
+    "recommendationsAreAdvisory": true,
+    "neverStored": [
+      "mood",
+      "energy",
+      "productivity-scores",
+      "psychological-labels",
+      "minute-by-minute-behavior"
+    ],
+    "neverCreates": [
+      "todoist-tasks",
+      "calendar-events",
+      "reminders",
+      "messages",
+      "scheduled-jobs",
+      "memory"
     ]
   },
   "lowRiskTodoistTaskChanges": {

@@ -102,6 +102,14 @@ The assistant must store only the feedback text the user explicitly provides. It
 
 Sensitive feedback is not stored. Ask the user to rephrase without private health, financial, or authentication details. Sending, sharing, emailing, or posting feedback externally requires explicit Telegram approval with a clear recipient and target.
 
+## Focus Sessions
+
+"What should I do now?" answers and focus sessions are advice. They never create, complete, reschedule, or edit Todoist tasks, never touch Calendar, never send messages, and never add reminders. Hilla may offer to create a Todoist task; nothing is created unless the user clearly says yes, and then the Todoist rules above apply unchanged.
+
+Starting, changing, or ending a focus session the user asked for writes one local record, `.openclaw/state/focus/session.json`, without a second approval. It holds only the start time, planned minutes, optional project, outcome, first action, definition of done, and what to ignore. The helper refuses any other field, and refuses text that describes the user's mood, energy, motivation, or mental state, scores their productivity, or names a clinical condition. An unreadable record is never reported as "no session" and is replaced only on an explicit new-session request. Ending the session deletes the record. No timer, reminder, or scheduled job reads it. The policy entry is `focusSessions` in `config/approval-policy.json`.
+
+A project named for the session (`I'm working on my thesis`) stays in the conversation. It is stored only if the user explicitly asks to remember it, through the memory rules.
+
 ## Calendar Creation Preview
 
 `npm run calendar:create -- ... --dry-run` validates and normalizes one proposed Calendar event. It is a pure preview helper: it does not fetch Calendar data, call a Calendar API, create an event, edit an event, send email, invite guests, RSVP, book, purchase, or submit a browser form.

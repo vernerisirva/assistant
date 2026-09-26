@@ -27,6 +27,7 @@ if (import.meta.url === new URL(process.argv[1], "file:").href) {
     const result = buildInboxClassifierDebug({
       message,
       actionOptions: parsed.actionOptions,
+      focusActive: parsed.focusActive,
     });
     console.log(parsed.json ? JSON.stringify(result, null, 2) : formatInboxClassifierDebug(result));
   } catch (error) {

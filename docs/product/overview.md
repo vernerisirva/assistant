@@ -23,6 +23,16 @@ Hilla coaches when asked: golf and work performance, attention, staying present,
 
 Coaching is conversation only. It never creates tasks, events, reminders, or routines, runs on no schedule, and stores a playbook entry such as a golf cue word only when the user sets it explicitly. It is not therapy. It does not diagnose, and it points to professional care for persistent sleep problems or significant distress. The contract lives in `agents/personal/AGENTS.md`; `npm run inbox:debug -- "I just made a double bogey"` shows how a message would be handled.
 
+## Focus And Next Action
+
+Tell Hilla the situation and it helps pick the next action:
+
+- `I have 45 minutes, what should I do?` gets one recommendation that fits the time, optionally a fallback, and one thing not worth starting. It works from what the user just said, then Todoist and Calendar state fetched now, then the running session and project, then saved preferences, and it never invents tasks or deadlines.
+- `Start a 45-minute focus session on my thesis` sets up one block: outcome, first action, done-when, and what to ignore. `I'm stuck`, `I found another bug`, or `What next?` during the block get the immediate next step, without new scope. `Done` ends it and offers an optional 60-second debrief.
+- `I'm working on my thesis` keeps recommendations on the thesis for this conversation. It is not stored.
+
+A focus session is a small local record under `.openclaw/state/focus/`, holding task facts only and deleted when the session ends. There are no timers or scheduled messages, and recommendations never create, complete, or move Todoist tasks, touch Calendar, or add reminders. Hilla may offer to create a task, and then the normal Todoist rules apply.
+
 ## Product Priorities
 
 1. Reliable Telegram operation.

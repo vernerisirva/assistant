@@ -1,8 +1,18 @@
 import { classifyCoachingRequest } from "./coaching.mjs";
+import { classifyFocusRequest } from "./focus.mjs";
 import { classifyInboxAction } from "./inbox-action.mjs";
 
 const coachingHardStop =
   "Stop before turning a coaching idea into a Todoist task, reminder, routine, Calendar event, or memory; that needs the user's clear yes and then the normal rules.";
+const focusHardStop =
+  "Stop before turning a focus recommendation into a Todoist task, Calendar change, reminder, or message; that needs the user's clear yes and then the normal rules.";
+// Coaching kinds that always lead: distress, sleep health, swing technique, and
+// playbook memory writes are never reshaped into a focus reply.
+const coachingKindsBeforeFocus = new Set(["support", "sleep_health", "golf_technique", "playbook"]);
+const focusWriteReason =
+  "Writes only the local, disposable focus session record; no Todoist task, Calendar event, reminder, or message.";
+const focusAdviceReason =
+  "Focus recommendations are advisory conversation: no Todoist, Calendar, reminder, or message side effects.";
 
 const agentHardStops = Object.freeze({
   personal: [
@@ -106,6 +116,13 @@ export function parseInboxClassifierDebugArgs(argv) {
       continue;
     }
 
+    // The agent learns this from `npm run focus -- status`; the flag lets the
+    // debug command show how an in-session message is handled.
+    if (arg === "--focus-active") {
+      options.focusActive = true;
+      continue;
+    }
+
     if (arg === "--source") {
       const source = argv[index + 1];
       if (!source || source.startsWith("--")) {
@@ -173,16 +190,18 @@ export function parseInboxClassifierDebugArgs(argv) {
   return options;
 }
 
-export function buildInboxClassifierDebug({ message, actionOptions = {} }) {
+export function buildInboxClassifierDebug({ message, actionOptions = {}, focusActive = false }) {
   const raw = String(message ?? "").trim();
   const text = normalize(raw);
   const action = classifyInboxAction(raw, actionOptions);
-  const coaching = coachingFor(raw, action);
-  const route = chooseRoute(text, action, coaching);
-  const sideEffect = detectSideEffect(text, action, coaching);
+  const coachingResult = coachingFor(raw, action);
+  const focus = focusFor(raw, action, coachingResult, { focusActive });
+  const coaching = focus ? null : coachingResult;
+  const route = chooseRoute(text, action, coaching, focus);
+  const sideEffect = detectSideEffect(text, action, coaching, focus);
   const approvalRequired = Boolean(action.approvalRequired || sideEffect.approvalRequired);
   const confidence = action.mode === "clarify" ? "low" : route.confidence;
-  const hardStopPoints = collectHardStopPoints(route.agent, sideEffect, coaching);
+  const hardStopPoints = collectHardStopPoints(route.agent, sideEffect, coaching, focus);
 
   return {
     message: raw,
@@ -192,6 +211,7 @@ export function buildInboxClassifierDebug({ message, actionOptions = {} }) {
     route,
     action,
     coaching,
+    focus,
     safety: sideEffect,
     sideEffecting: sideEffect.sideEffecting,
     approvalRequired,
@@ -216,6 +236,7 @@ export function formatInboxClassifierDebug(result) {
     `- Base risk: ${result.action.risk}`,
     `- Reason: ${result.action.reason}`,
     ...coachingLines(result.coaching),
+    ...focusLines(result.focus),
     "",
     "Routing/safety overlay:",
     `- Side-effect signal: ${result.sideEffecting ? "yes" : "no"}`,
@@ -239,7 +260,20 @@ function coachingFor(raw, action) {
   return classifyCoachingRequest(raw);
 }
 
-function chooseRoute(text, action, coaching) {
+// Focus requests are conversation too, under the same condition. A recognized
+// focus request leads over general coaching, whose quick reset it reuses inside
+// a session, but never over distress, sleep health, technique, or a playbook
+// write.
+function focusFor(raw, action, coaching, { focusActive }) {
+  if (action.mode !== "answer_only" || !["no_action", "advice.query"].includes(action.intent)) {
+    return null;
+  }
+  if (coaching && coachingKindsBeforeFocus.has(coaching.kind)) return null;
+
+  return classifyFocusRequest(raw, { focusActive });
+}
+
+function chooseRoute(text, action, coaching, focus) {
   if (action.mode === "clarify") {
     return {
       agent: "personal",
@@ -269,6 +303,14 @@ function chooseRoute(text, action, coaching) {
       agent: "admin",
       confidence: "high",
       reason: "Message asks the admin agent to validate a Calendar creation request as a preview.",
+    };
+  }
+
+  if (focus) {
+    return {
+      agent: "personal",
+      confidence: "high",
+      reason: focusRouteReason(focus),
     };
   }
 
@@ -314,7 +356,18 @@ function coachingRouteReason(coaching) {
   }
 }
 
-function detectSideEffect(text, action, coaching) {
+function focusRouteReason(focus) {
+  switch (focus.kind) {
+    case "next_action":
+      return "Message asks what to do next; personal recommends one next action from current context, as conversation.";
+    case "project_context":
+      return "Message sets the project for this session; personal keeps recommendations on it without storing it.";
+    default:
+      return "Message is about a focus session, which personal runs as conversation with a local, disposable record.";
+  }
+}
+
+function detectSideEffect(text, action, coaching, focus) {
   if (action.mode === "approval_required") {
     return {
       sideEffecting: true,
@@ -375,11 +428,45 @@ function detectSideEffect(text, action, coaching) {
     };
   }
 
+  if (focus?.writes === "focus-state") {
+    return {
+      sideEffecting: true,
+      approvalRequired: false,
+      reason: focusWriteReason,
+    };
+  }
+
+  if (focus) {
+    return {
+      sideEffecting: false,
+      approvalRequired: false,
+      reason: focusAdviceReason,
+    };
+  }
+
   return {
     sideEffecting: false,
     approvalRequired: false,
     reason: "No mutation or external side-effect signal detected.",
   };
+}
+
+function focusLines(focus) {
+  if (!focus) return [];
+
+  const { maxQuestions, steps } = focus.shape;
+  return [
+    "",
+    "Focus:",
+    `- Kind: ${focus.kind}${focus.trigger ? ` (trigger: ${focus.trigger})` : ""}`,
+    ...(focus.availableMinutes ? [`- Available time: ${focus.availableMinutes} minutes`] : []),
+    ...(focus.project ? [`- Project for this session: ${focus.project} (not stored)`] : []),
+    `- Uses the running focus session: ${focus.usesFocusSession ? "yes" : "no"}`,
+    `- Questions: ${maxQuestions === 0 ? "none" : `at most ${maxQuestions}`}`,
+    `- Shape: ${steps.join(" → ")}`,
+    `- Writes: ${focus.writes === "focus-state" ? "the local focus session record only" : "nothing"}`,
+    `- Guidance: ${focus.reason}`,
+  ];
 }
 
 function coachingLines(coaching) {
@@ -421,6 +508,12 @@ function buildLayerNote(result, executableIntent) {
     return "the classifier recognizes a policy-allowed creation preview only; this repository has no Calendar write tool and creates no event.";
   }
 
+  // Only when the overlay came from focus itself; any other side-effect signal
+  // keeps its own note.
+  if (result.focus && [focusWriteReason, focusAdviceReason].includes(result.safety.reason)) {
+    return "focus replies are advisory; only starting or ending a session writes the local focus record, and nothing is scheduled.";
+  }
+
   if (!executableIntent && result.sideEffecting) {
     return "the base classifier did not detect an executable intent, but the safety overlay found side-effect language.";
   }
@@ -440,11 +533,11 @@ function buildLayerNote(result, executableIntent) {
   return "";
 }
 
-function collectHardStopPoints(agent, sideEffect, coaching) {
-  const points = [...(agentHardStops[agent] ?? [])];
+function collectHardStopPoints(agent, sideEffect, coaching, focus) {
+  const points = [...(focus ? [focusHardStop] : []), ...(agentHardStops[agent] ?? [])];
 
   if (!sideEffect.sideEffecting) {
-    return coaching ? [coachingHardStop, ...points.slice(0, 2)] : points.slice(0, 2);
+    return coaching ? [coachingHardStop, ...points.slice(0, 2)] : points.slice(0, focus ? 3 : 2);
   }
 
   if (

@@ -12,6 +12,7 @@
     "assistant:status": "node scripts/assistant-status.mjs",
     "inbox:debug": "node scripts/inbox-classifier-debug.mjs",
     "feedback": "node scripts/feedback.mjs",
+    "focus": "node scripts/focus.mjs",
     "calendar:plan": "node scripts/calendar-plan.mjs",
     "calendar:create": "node scripts/calendar-create.mjs",
     "review": "node scripts/review.mjs",
