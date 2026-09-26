@@ -16,7 +16,7 @@ The repo should stay easy for Codex and future agents to maintain. Prefer clear 
 
 ## Current Agents
 
-- `personal`: the only agent the user should feel they are talking to. Routes work to specialists and handles memory, routines, status, approvals, on-demand coaching, next-action recommendations and focus sessions, and concise Telegram replies.
+- `personal`: the only agent the user should feel they are talking to. Routes work to specialists and handles memory, routines, status, approvals, on-demand coaching with personal playbooks, next-action recommendations and focus sessions, and concise Telegram replies.
 - `admin`: Gmail, Calendar, Todoist, Min Golf tee-time search, reminders, logistics, meeting prep, and personal administration.
 - `health`: workouts, food choices, meal planning, groceries, sleep consistency, movement, and routine support.
 - `research`: source-backed lookup, comparisons, and planning support.

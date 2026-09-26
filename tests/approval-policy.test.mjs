@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { FOCUS_STATE_FIELDS } from "../scripts/lib/focus.mjs";
+import { PLAYBOOK_DOMAINS } from "../scripts/lib/playbooks.mjs";
 
 const policy = JSON.parse(readFileSync("config/approval-policy.json", "utf8"));
 
@@ -73,6 +74,24 @@ describe("approval policy", () => {
     }
     // A focus session is not a trusted routine and gains no standing authorization.
     assert.deepEqual(policy.trustedRoutines.map((routine) => routine.id), ["weekly-plan"]);
+  });
+
+  it("keeps personal playbooks inside the existing memory store and its explicit rules", () => {
+    const playbooks = policy.personalPlaybooks;
+    assert.equal(playbooks.storage, "existing-memory-store");
+    assert.equal(playbooks.writeRequires, "explicit-request-or-yes-in-the-users-own-words");
+    assert.deepEqual(playbooks.domains, [...PLAYBOOK_DOMAINS]);
+    assert.deepEqual(playbooks.fields, ["name", "domain", "trigger", "steps", "cue"]);
+    for (const never of ["personality-traits", "judgements", "feelings", "psychological-labels", "health-details", "debrief-conversations"]) {
+      assert.ok(playbooks.neverStored.includes(never), never);
+    }
+    for (const never of ["todoist-tasks", "calendar-events", "reminders", "routines", "scheduled-jobs"]) {
+      assert.ok(playbooks.neverCreates.includes(never), never);
+    }
+    // Saving one is an explicit low-risk memory write, not a new kind of action.
+    assert.ok(policy.allowedWithoutExtraApproval.includes("remember-explicit-low-risk-memory"));
+    assert.ok(!policy.allowedWithoutExtraApproval.some((action) => /playbook/i.test(action)));
+    assert.ok(actionsForDomain("memory").includes("remember-sensitive-preference"));
   });
 
   it("allows read-only calendar snapshot planning without promoting calendar mutations", () => {

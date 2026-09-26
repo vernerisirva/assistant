@@ -756,3 +756,92 @@ describe("focus and next-action prompts", () => {
     }
   });
 });
+
+describe("playbook and debrief prompts", () => {
+  const promptFor = (id) => readFileSync(`${agents.find((agent) => agent.id === id).promptDir}/AGENTS.md`, "utf8");
+  const between = (text, start, end) => {
+    const from = text.indexOf(start);
+    const to = text.indexOf(end, from);
+    assert.ok(from >= 0 && to > from, `missing section ${start}`);
+    return text.slice(from, to);
+  };
+  const personalPrompt = promptFor("personal");
+  const pointer = between(personalPrompt, "Playbooks and debriefs:", "Focus and next action:");
+  const guide = readFileSync("agents/personal/guides/playbooks.md", "utf8");
+
+  it("keeps a compact pointer with precedence and consent in the standing orders", () => {
+    assert.match(pointer, /Before coaching or a focus setup, run `npm run --silent playbook -- list` and use a saved routine that fits first, unless the situation differs or the user wants another approach/);
+    assert.match(pointer, /To show, save, or change one, or to debrief, run `npm run --silent playbook -- guide`/);
+    assert.match(pointer, /Save or change only on the user's explicit request or yes; never store traits, feelings, or judgements/);
+    assert.ok(Buffer.byteLength(pointer) < 500, `playbook pointer is ${Buffer.byteLength(pointer)} bytes`);
+    // Outside the coaching sections, whose commands stay limited to the memory helper.
+    assert.ok(personalPrompt.indexOf("Playbooks and debriefs:") < personalPrompt.indexOf("On-demand coaching:"));
+    for (const id of ["admin", "health", "research"]) {
+      assert.doesNotMatch(promptFor(id), /npm run --silent playbook/, id);
+    }
+  });
+
+  it("keeps the guide subordinate to the standing orders", () => {
+    assert.match(guide, /It adds detail to the personal agent's standing orders and never overrides them: the approval, memory, and coaching rules there still apply/);
+    assert.match(guide, /It is a user-controlled instruction, not a profile of the user/);
+  });
+
+  it("uses an applicable playbook first, never blindly, and lets the current instruction win", () => {
+    assert.match(guide, /When a saved playbook fits the situation, use it first instead of inventing a technique/);
+    assert.match(guide, /Do not apply a playbook when the situation clearly differs: a pre-round routine is not a mid-round reset\. Then coach normally/);
+    assert.match(guide, /The current instruction beats the playbook\. If the user asks for another approach \(`Give me something different`\), give it without changing or deleting the saved playbook/);
+    assert.match(guide, /Never paste raw memory records or ids/);
+  });
+
+  it("saves only on an explicit request or yes, never from a passing remark", () => {
+    assert.match(guide, /A passing remark \(`That reset worked really well today`\) saves nothing: offer once, `Want me to save that as your bad-shot reset\?`, and stop there unless they say yes/);
+    assert.match(guide, /with the user's exact words as `replyText`/);
+    assert.match(guide, /Use the user's own wording for the steps and add none they never gave/);
+    assert.match(guide, /If the result is `not_saved`, nothing was stored: ask/);
+    assert.match(guide, /replace it with `--replace` only when the user asked to replace it/);
+  });
+
+  it("changes one exact playbook and asks when the target is unclear", () => {
+    assert.match(guide, /One change at a time, to one exact playbook, with the user's words/);
+    assert.match(guide, /If the result is `clarify`, ask its question and change nothing until the user answers\. Never guess which routine or step they meant/);
+    assert.match(guide, /A cue word on its own \(`My golf cue word is "commit"`\) stays the coaching entry `golf\/cue-word`, stored with the memory command\. A cue inside a routine belongs to that playbook\. If a message could mean either, ask which/);
+  });
+
+  it("never turns a playbook or a debrief into a profile", () => {
+    assert.match(guide, /Never save personality traits, judgements, feelings, or labels \(`I lose focus under pressure`, `I procrastinate when uncertain`, `I lack confidence`\), even when asked to/);
+    assert.match(guide, /`Before presentations: spend two minutes reviewing the opening sentence`, not `lacks confidence during presentations`/);
+    assert.match(guide, /Health or mental-health details are sensitive memory and go through the sensitive-memory approval flow, never a playbook/);
+    assert.match(guide, /A playbook never creates Todoist tasks, Calendar events, reminders, or routines, and nothing reads it on a schedule/);
+  });
+
+  it("ends a debrief with Keep, Adjust, and a possible lesson stored only after a yes", () => {
+    assert.match(guide, /`Debrief my round`, `Debrief that meeting`, `Debrief this focus session`, and `Let's review today's work` get the coaching debrief/);
+    assert.match(guide, /three to five short prompts, only the ones that fit, chosen from what worked, where it broke down, what was controllable, what is worth repeating, and one adjustment worth testing/);
+    assert.match(guide, /```text\nKeep: \.\.\.\nAdjust: \.\.\.\nPossible lesson: \.\.\.\n```/);
+    assert.match(guide, /The possible lesson is a behaviour tied to a situation/);
+    assert.match(guide, /Nothing from a debrief is stored unless the user says yes to that offer/);
+    assert.match(guide, /The debrief conversation itself is never recorded, not in memory, notes, or files/);
+  });
+
+  it("names only the playbook helper and grants no approval", () => {
+    for (const text of [pointer, guide]) {
+      const commands = text.match(/npm run [^`]+/g) ?? [];
+      assert.ok(commands.length > 0);
+      for (const command of commands) {
+        assert.match(command, /^npm run --silent playbook -- (guide|list|show|save|update)\b/, command);
+      }
+      for (const grant of [
+        /without (a second |extra |further |any )?approval/i,
+        /no (extra |further )?approval (is )?(needed|required)/i,
+        /counts? as (an )?approval/i,
+        /pre-?approved/i,
+        /standing authori[sz]ation/i,
+        /auto-?appl(y|ies)/i,
+        /--approved/,
+        /--sensitivity sensitive/,
+      ]) {
+        assert.doesNotMatch(text, grant);
+      }
+    }
+  });
+});

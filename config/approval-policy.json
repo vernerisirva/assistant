@@ -103,6 +103,27 @@
       "memory"
     ]
   },
+  "personalPlaybooks": {
+    "storage": "existing-memory-store",
+    "fields": ["name", "domain", "trigger", "steps", "cue"],
+    "domains": ["golf", "work", "sleep", "general"],
+    "writeRequires": "explicit-request-or-yes-in-the-users-own-words",
+    "neverStored": [
+      "personality-traits",
+      "judgements",
+      "feelings",
+      "psychological-labels",
+      "health-details",
+      "debrief-conversations"
+    ],
+    "neverCreates": [
+      "todoist-tasks",
+      "calendar-events",
+      "reminders",
+      "routines",
+      "scheduled-jobs"
+    ]
+  },
   "lowRiskTodoistTaskChanges": {
     "requireExactTaskTarget": true,
     "requireExplicitUserInstruction": true,

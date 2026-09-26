@@ -1,6 +1,7 @@
 import { classifyCoachingRequest } from "./coaching.mjs";
 import { classifyFocusRequest } from "./focus.mjs";
 import { classifyInboxAction } from "./inbox-action.mjs";
+import { classifyPlaybookRequest } from "./playbooks.mjs";
 
 const coachingHardStop =
   "Stop before turning a coaching idea into a Todoist task, reminder, routine, Calendar event, or memory; that needs the user's clear yes and then the normal rules.";
@@ -13,6 +14,13 @@ const focusWriteReason =
   "Writes only the local, disposable focus session record; no Todoist task, Calendar event, reminder, or message.";
 const focusAdviceReason =
   "Focus recommendations are advisory conversation: no Todoist, Calendar, reminder, or message side effects.";
+const playbookHardStop =
+  "Stop before saving or changing a playbook without the user's explicit words; never store traits, feelings, judgements, or health details.";
+const playbookWriteReason =
+  "Saves or changes one playbook in the memory store, only with the user's explicit words; no Todoist, Calendar, or reminders.";
+const playbookReadReason = "Using, showing, or offering to save a playbook writes nothing.";
+const coachingSettingReason =
+  "Changes one coaching setting, such as the golf cue word, with the normal memory command and only on the user's explicit words.";
 
 const agentHardStops = Object.freeze({
   personal: [
@@ -79,6 +87,9 @@ const sideEffectRules = Object.freeze([
     pattern: /\b(book|booking|reserve|boka|check in|cancel|pay|payment)\b.*\b(golf|min golf|tee|tee time|tee-time)\b|\b(golf|min golf|tee|tee time|tee-time)\b.*\b(book|booking|reserve|boka|check in|cancel|pay|payment)\b/,
   },
   {
+    // Scheduled routines. A personal playbook is also called a routine, so
+    // this rule does not apply once the message is recognized as a playbook.
+    id: "scheduled-routine",
     reason: "Routine mutations require Telegram approval.",
     approvalRequired: true,
     pattern: /\b(skip|unskip|disable|enable|reschedule|set time|move|adjust|change)\b.*\b(routine|midday-check-in|workout-window|morning-brief|evening-review|weekly-review)\b|\b(routine|midday-check-in|workout-window|morning-brief|evening-review|weekly-review)\b.*\b(skip|unskip|disable|enable|reschedule|set time|move|adjust|change)\b/,
@@ -196,12 +207,15 @@ export function buildInboxClassifierDebug({ message, actionOptions = {}, focusAc
   const action = classifyInboxAction(raw, actionOptions);
   const coachingResult = coachingFor(raw, action);
   const focus = focusFor(raw, action, coachingResult, { focusActive });
-  const coaching = focus ? null : coachingResult;
-  const route = chooseRoute(text, action, coaching, focus);
-  const sideEffect = detectSideEffect(text, action, coaching, focus);
+  const playbook = playbookFor(raw, action, coachingResult);
+  // Saving, changing, showing, or praising a routine is not a coaching request;
+  // using one is coaching with the saved routine, so both stay visible.
+  const coaching = focus || (playbook && playbook.kind !== "playbook_use") ? null : coachingResult;
+  const route = chooseRoute(text, action, coaching, focus, playbook);
+  const sideEffect = detectSideEffect(text, action, coaching, focus, playbook);
   const approvalRequired = Boolean(action.approvalRequired || sideEffect.approvalRequired);
   const confidence = action.mode === "clarify" ? "low" : route.confidence;
-  const hardStopPoints = collectHardStopPoints(route.agent, sideEffect, coaching, focus);
+  const hardStopPoints = collectHardStopPoints(route.agent, sideEffect, coaching, focus, playbook);
 
   return {
     message: raw,
@@ -212,6 +226,7 @@ export function buildInboxClassifierDebug({ message, actionOptions = {}, focusAc
     action,
     coaching,
     focus,
+    playbook,
     safety: sideEffect,
     sideEffecting: sideEffect.sideEffecting,
     approvalRequired,
@@ -237,6 +252,7 @@ export function formatInboxClassifierDebug(result) {
     `- Reason: ${result.action.reason}`,
     ...coachingLines(result.coaching),
     ...focusLines(result.focus),
+    ...playbookLines(result.playbook),
     "",
     "Routing/safety overlay:",
     `- Side-effect signal: ${result.sideEffecting ? "yes" : "no"}`,
@@ -273,7 +289,19 @@ function focusFor(raw, action, coaching, { focusActive }) {
   return classifyFocusRequest(raw, { focusActive });
 }
 
-function chooseRoute(text, action, coaching, focus) {
+// Playbook requests sit alongside coaching and focus: a saved routine is what
+// coaching uses first. Coaching's own explicit playbook entry and its safety
+// kinds keep their classification.
+function playbookFor(raw, action, coaching) {
+  if (action.mode !== "answer_only" || !["no_action", "advice.query"].includes(action.intent)) {
+    return null;
+  }
+  if (coaching && coachingKindsBeforeFocus.has(coaching.kind)) return null;
+
+  return classifyPlaybookRequest(raw);
+}
+
+function chooseRoute(text, action, coaching, focus, playbook) {
   if (action.mode === "clarify") {
     return {
       agent: "personal",
@@ -311,6 +339,14 @@ function chooseRoute(text, action, coaching, focus) {
       agent: "personal",
       confidence: "high",
       reason: focusRouteReason(focus),
+    };
+  }
+
+  if (playbook) {
+    return {
+      agent: "personal",
+      confidence: "high",
+      reason: "Message is about the user's saved playbooks, which personal reads and changes only on explicit request.",
     };
   }
 
@@ -367,7 +403,7 @@ function focusRouteReason(focus) {
   }
 }
 
-function detectSideEffect(text, action, coaching, focus) {
+function detectSideEffect(text, action, coaching, focus, playbook) {
   if (action.mode === "approval_required") {
     return {
       sideEffecting: true,
@@ -403,6 +439,7 @@ function detectSideEffect(text, action, coaching, focus) {
   }
 
   for (const rule of sideEffectRules) {
+    if (playbook && rule.id === "scheduled-routine") continue;
     if (rule.pattern.test(text)) {
       return {
         sideEffecting: true,
@@ -417,6 +454,14 @@ function detectSideEffect(text, action, coaching, focus) {
       sideEffecting: true,
       approvalRequired: false,
       reason: coaching.reason,
+    };
+  }
+
+  if (playbook?.writes === "memory") {
+    return {
+      sideEffecting: true,
+      approvalRequired: false,
+      reason: playbook.kind === "coaching_setting" ? coachingSettingReason : playbookWriteReason,
     };
   }
 
@@ -444,11 +489,31 @@ function detectSideEffect(text, action, coaching, focus) {
     };
   }
 
+  if (playbook) {
+    return {
+      sideEffecting: false,
+      approvalRequired: false,
+      reason: playbookReadReason,
+    };
+  }
+
   return {
     sideEffecting: false,
     approvalRequired: false,
     reason: "No mutation or external side-effect signal detected.",
   };
+}
+
+function playbookLines(playbook) {
+  if (!playbook) return [];
+
+  return [
+    "",
+    "Playbook:",
+    `- Kind: ${playbook.kind}`,
+    `- Writes: ${playbook.writes !== "memory" ? "nothing" : playbook.kind === "coaching_setting" ? "one coaching setting in the memory store, with the user's explicit words" : "one playbook in the memory store, with the user's explicit words"}`,
+    `- Guidance: ${playbook.reason}`,
+  ];
 }
 
 function focusLines(focus) {
@@ -514,6 +579,10 @@ function buildLayerNote(result, executableIntent) {
     return "focus replies are advisory; only starting or ending a session writes the local focus record, and nothing is scheduled.";
   }
 
+  if (result.playbook && [playbookWriteReason, playbookReadReason, coachingSettingReason].includes(result.safety.reason)) {
+    return "playbooks are saved or changed only with the user's explicit words; using, showing, or offering one writes nothing.";
+  }
+
   if (!executableIntent && result.sideEffecting) {
     return "the base classifier did not detect an executable intent, but the safety overlay found side-effect language.";
   }
@@ -533,11 +602,12 @@ function buildLayerNote(result, executableIntent) {
   return "";
 }
 
-function collectHardStopPoints(agent, sideEffect, coaching, focus) {
-  const points = [...(focus ? [focusHardStop] : []), ...(agentHardStops[agent] ?? [])];
+function collectHardStopPoints(agent, sideEffect, coaching, focus, playbook) {
+  const own = [...(focus ? [focusHardStop] : []), ...(playbook ? [playbookHardStop] : [])];
+  const points = [...own, ...(agentHardStops[agent] ?? [])];
 
   if (!sideEffect.sideEffecting) {
-    return coaching ? [coachingHardStop, ...points.slice(0, 2)] : points.slice(0, focus ? 3 : 2);
+    return coaching ? [coachingHardStop, ...points.slice(0, 2 + own.length)] : points.slice(0, 2 + own.length);
   }
 
   if (

@@ -561,3 +561,73 @@ describe("inbox classifier debug: focus and next action", () => {
     assert.match(project, /- Questions: none/);
   });
 });
+
+describe("inbox classifier debug: playbooks", () => {
+  const playbookHardStop = /^Stop before saving or changing a playbook without the user's explicit words/;
+
+  it("uses a saved playbook alongside coaching, writing nothing", () => {
+    const result = classify("Use my pre-round routine");
+
+    assert.equal(result.selectedAgent, "personal");
+    assert.equal(result.playbook.kind, "playbook_use");
+    assert.equal(result.playbook.writes, "nothing");
+    assert.equal(result.coaching.mode, "pre_performance");
+    assert.equal(result.sideEffecting, false);
+    assert.ok(result.hardStopPoints.some((point) => playbookHardStop.test(point)));
+  });
+
+  it("shows a playbook change as one explicit memory write, not a scheduled-routine change", () => {
+    const result = classify("Change my pre-round routine to target, breath, commit");
+
+    assert.equal(result.playbook.kind, "playbook_update");
+    assert.equal(result.coaching, null);
+    assert.equal(result.sideEffecting, true);
+    assert.equal(result.approvalRequired, false);
+    assert.match(result.safety.reason, /Saves or changes one playbook in the memory store, only with the user's explicit words/);
+
+    const scheduled = classify("Change my morning-brief routine to 07:30");
+    assert.equal(scheduled.playbook, null);
+    assert.equal(scheduled.approvalRequired, true);
+    assert.equal(scheduled.safety.reason, "Routine mutations require Telegram approval.");
+  });
+
+  it("sends a standalone cue word to the coaching setting, not a playbook", () => {
+    const result = classify("Change my golf cue word to commit");
+
+    assert.equal(result.playbook.kind, "coaching_setting");
+    assert.equal(result.sideEffecting, true);
+    assert.equal(result.approvalRequired, false);
+    assert.match(result.safety.reason, /coaching setting, such as the golf cue word, with the normal memory command/);
+    assert.match(formatInboxClassifierDebug(result), /- Writes: one coaching setting in the memory store/);
+
+    assert.equal(classify("Change the cue in my pre-round routine to commit").playbook.kind, "playbook_update");
+  });
+
+  it("offers instead of saving after a passing remark", () => {
+    const result = classify("That reset worked really well today");
+
+    assert.equal(result.playbook.kind, "playbook_offer");
+    assert.equal(result.sideEffecting, false);
+    assert.equal(result.coaching, null);
+    assert.match(formatInboxClassifierDebug(result), /Note: playbooks are saved or changed only with the user's explicit words; using, showing, or offering one writes nothing\./);
+  });
+
+  it("leaves coaching's own playbook entry, distress, and actions to their paths", () => {
+    const entry = classify("Remember my bad-shot reset: exhale, accept, next shot");
+    assert.equal(entry.coaching.kind, "playbook");
+    assert.equal(entry.playbook, null);
+
+    const distress = classify("I feel hopeless and can't cope");
+    assert.equal(distress.coaching.kind, "support");
+    assert.equal(distress.playbook, null);
+
+    const task = classify("Add a Todoist task to update my pre-round routine");
+    assert.equal(task.playbook, null);
+    assert.notEqual(task.action.mode, "answer_only");
+  });
+
+  it("formats the playbook block", () => {
+    const output = formatInboxClassifierDebug(classify("Add one breath before the target step"));
+    assert.match(output, /Playbook:\n- Kind: playbook_update\n- Writes: one playbook in the memory store, with the user's explicit words/);
+  });
+});

@@ -125,6 +125,17 @@ npm run --silent focus -- end      # clear the record
 
 A session counts as overtime for two hours after its planned end and as stale after that. A stale session is ignored until it is ended or replaced.
 
+## Personal Playbooks
+
+Saved routines live in the memory store. Reading them is safe; saving or changing one needs the user's exact words and goes through the guide's quoted-heredoc commands.
+
+```bash
+npm run --silent playbook -- list                       # saved playbooks and coaching settings
+npm run --silent playbook -- show --name "bad-shot reset"
+npm run --silent playbook -- guide                      # the playbook and debrief guide the agent follows
+npm run inbox:debug -- "That reset worked really well today"
+```
+
 Create a Todoist task. Use `--content` for a one-line task, and `--task-json-stdin` as the canonical command whenever the description has more than one line or the text contains apostrophes or quotes:
 
 ```bash
