@@ -1,5 +1,7 @@
 # Scheduled Routines Implementation Plan
 
+> **Historical note (2026-09-26):** written before OpenClaw 2026.7. The Gateway now keeps cron jobs in its SQLite store and reads no `.openclaw/state/cron/jobs.json`; routine, quiet-ops and status commands use the live scheduler through `scripts/lib/live-cron.mjs`, with no restart. Current behavior: `docs/setup/routines.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Turn existing memory-aware routines into Telegram-delivered OpenClaw cron jobs with safe feedback prompts.

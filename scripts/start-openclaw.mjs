@@ -7,6 +7,7 @@ import { mergedEnv } from "./lib/env.mjs";
 import {
   buildOpenClawGatewayArgs,
   requestedOpenClawConfigPath,
+  resolveOpenClawCommand,
   resolveOpenClawStateDir,
 } from "./lib/commands.mjs";
 import { projectPath, safeGeneratedPath } from "./lib/config.mjs";
@@ -18,9 +19,11 @@ const requestedConfigPath = requestedOpenClawConfigPath(env);
 
 let configPath;
 let stateDir;
+let openclawCommand;
 try {
   configPath = safeGeneratedPath(projectRoot, requestedConfigPath);
   stateDir = resolveOpenClawStateDir(env, projectRoot);
+  openclawCommand = resolveOpenClawCommand(env);
 } catch (error) {
   console.error(error.message);
   process.exit(1);
@@ -31,7 +34,7 @@ if (!existsSync(configPath)) {
   process.exit(1);
 }
 
-const child = spawn("openclaw", buildOpenClawGatewayArgs(), {
+const child = spawn(openclawCommand, buildOpenClawGatewayArgs(), {
   cwd: projectRoot,
   stdio: "inherit",
   env: {
@@ -43,10 +46,7 @@ const child = spawn("openclaw", buildOpenClawGatewayArgs(), {
 });
 
 child.on("error", (error) => {
-  console.error(`Failed to start OpenClaw: ${error.message}`);
-  if (error.code === "ENOENT") {
-    console.error("Install OpenClaw with: npm install -g openclaw@latest");
-  }
+  console.error(`Failed to start OpenClaw (${openclawCommand}): ${error.message}`);
   process.exit(1);
 });
 

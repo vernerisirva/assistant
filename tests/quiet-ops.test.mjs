@@ -1,244 +1,234 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import {
-  auditQuietOps,
-  classifyQuietJob,
-  quietOpsStatus,
-  updateQuietCronTime,
-  updateQuietJobEnabled,
-  updateQuietOneShotTime,
-} from "../scripts/lib/quiet-ops.mjs";
-import { writeCronStoreFile } from "../scripts/lib/cron-store.mjs";
-import { parseQuietOpsArgs, runQuietOpsCli } from "../scripts/quiet-ops.mjs";
+import { auditQuietOps, classifyQuietJob, quietOpsStatus } from "../scripts/lib/quiet-ops.mjs";
+import { normalizeCronJob } from "../scripts/lib/live-cron.mjs";
+import { formatQuietOpsResult, parseQuietOpsArgs, runQuietOpsCli } from "../scripts/quiet-ops.mjs";
+import { FAKE_TELEGRAM_ID, createFakeOpenClawCron, sampleRawJobs } from "./fixtures/fake-openclaw-cron.mjs";
 
-function sampleStore(overrides = {}) {
-  return {
-    version: 7,
-    jobs: [
-      {
-        id: "routine-midday",
-        agentId: "health",
-        name: "Assistant routine: midday-check-in",
-        enabled: true,
-        schedule: { kind: "cron", expr: "30 12 * * *", tz: "Europe/Stockholm" },
-        payload: { kind: "agentTurn", message: "midday" },
-        delivery: { mode: "announce", to: "telegram:1029709001" },
-        state: { keep: true },
-      },
-      {
-        id: "routine-workout",
-        agentId: "health",
-        name: "Assistant routine: workout-window",
-        enabled: true,
-        schedule: { kind: "cron", expr: "30 17 * * *", tz: "Europe/Stockholm" },
-      },
-      {
-        id: "golf-weekly",
-        agentId: "personal",
-        name: "Sunday golf weekly plan",
-        enabled: true,
-        schedule: { kind: "cron", expr: "0 19 * * 0", tz: "Europe/Stockholm" },
-      },
-      {
-        id: "routine-weekly",
-        agentId: "personal",
-        name: "Assistant routine: weekly-review",
-        enabled: true,
-        schedule: { kind: "cron", expr: "0 19 * * 0", tz: "Europe/Stockholm" },
-      },
-      {
-        id: "disabled-golf",
-        agentId: "personal",
-        name: "Daily golf training schedule reminder",
-        enabled: false,
-        schedule: { kind: "cron", expr: "0 7 * * *", tz: "Europe/Stockholm" },
-      },
-      {
-        id: "one-shot",
-        agentId: "personal",
-        name: "Reminder: Renew gym card",
-        enabled: true,
-        schedule: { kind: "at", at: "2026-06-19T07:00:00.000Z" },
-        deleteAfterRun: true,
-      },
-      {
-        id: "unknown",
-        agentId: "personal",
-        name: "Mystery automation",
-        schedule: { kind: "cron", expr: "15 9 * * 1", tz: "Europe/Stockholm" },
-      },
-    ],
-    ...overrides,
-  };
+const liveJobs = (raw = sampleRawJobs()) => raw.map(normalizeCronJob);
+const run = (argv, fake, extra = {}) => runQuietOpsCli(argv, { runOpenClaw: fake.run, env: {}, ...extra });
+
+function unrelatedSnapshot(fake, exceptId) {
+  return structuredClone(fake.jobs.filter((job) => job.id !== exceptId));
 }
 
-function sampleState() {
-  return {
-    version: 1,
-    jobs: {
-      "routine-midday": {
-        state: {
-          nextRunAtMs: Date.parse("2026-06-10T10:30:00.000Z"),
-          lastStatus: "ok",
-        },
-      },
-    },
-  };
-}
+describe("quiet ops status and audit on the live Gateway", () => {
+  it("lists every live job, disabled ones included, with category and run state", async () => {
+    const fake = createFakeOpenClawCron();
+    const status = await run(["status", "--json"], fake);
 
-describe("quiet ops status", () => {
-  it("lists cron and one-shot jobs with category and state", () => {
-    const status = quietOpsStatus(sampleStore(), sampleState());
-
-    assert.equal(status.jobs.length, 7);
+    assert.equal(status.source, "openclaw-gateway");
     assert.deepEqual(
       status.jobs.map((job) => [job.id, job.category, job.enabled, job.schedule.kind]),
       [
-        ["routine-midday", "assistant-routine", true, "cron"],
+        ["wp-apply", "weekly-plan", true, "cron"],
         ["routine-workout", "assistant-routine", true, "cron"],
-        ["golf-weekly", "golf", true, "cron"],
+        ["routine-midday", "assistant-routine", true, "cron"],
         ["routine-weekly", "assistant-routine", true, "cron"],
-        ["disabled-golf", "golf", false, "cron"],
-        ["one-shot", "reminder", true, "at"],
-        ["unknown", "unknown", true, "cron"],
+        ["wp-propose", "weekly-plan", true, "cron"],
+        ["one-shot-card", "reminder", true, "at"],
+        ["weather-morning", "unknown", false, "cron"],
+        ["routine-evening", "assistant-routine", false, "cron"],
+        ["routine-morning", "assistant-routine", false, "cron"],
+        ["legacy-sunday-golf", "golf", false, "cron"],
+        ["legacy-food-every", "unknown", false, "every"],
       ],
     );
-
     const midday = status.jobs.find((job) => job.id === "routine-midday");
-    assert.deepEqual(midday.schedule, {
-      kind: "cron",
-      expr: "30 12 * * *",
-      timezone: "Europe/Stockholm",
-    });
-    assert.equal(midday.nextRunAt, "2026-06-10T10:30:00.000Z");
+    assert.deepEqual(midday.schedule, { kind: "cron", expr: "30 12 * * *", timezone: "Europe/Stockholm" });
+    assert.equal(midday.nextRunAt, new Date(1790505000000).toISOString());
     assert.equal(midday.lastStatus, "ok");
-
+    assert.deepEqual(status.jobs.find((job) => job.id === "legacy-food-every").schedule, { kind: "every", everyMs: 604800000 });
     assert.deepEqual(status.summary, {
-      totalJobs: 7,
+      totalJobs: 11,
       enabledJobs: 6,
-      disabledJobs: 1,
-      recurringJobs: 6,
+      disabledJobs: 5,
+      recurringJobs: 10,
+      intervalJobs: 1,
       oneShotJobs: 1,
+      otherScheduleJobs: 0,
       dailyRecurringJobs: 2,
     });
+    assert.deepEqual(fake.calls, [["cron", "list", "--all", "--json"]]);
+    assert.equal(JSON.stringify(status).includes(FAKE_TELEGRAM_ID), false);
   });
 
   it("classifies known job types", () => {
-    const jobs = sampleStore().jobs;
+    const jobs = liveJobs();
+    const byId = (id) => jobs.find((job) => job.id === id);
 
-    assert.equal(classifyQuietJob(jobs.find((job) => job.id === "routine-midday")), "assistant-routine");
-    assert.equal(classifyQuietJob(jobs.find((job) => job.id === "golf-weekly")), "golf");
-    assert.equal(classifyQuietJob(jobs.find((job) => job.id === "one-shot")), "reminder");
-    assert.equal(classifyQuietJob(jobs.find((job) => job.id === "unknown")), "unknown");
+    assert.equal(classifyQuietJob(byId("routine-midday")), "assistant-routine");
+    assert.equal(classifyQuietJob(byId("legacy-sunday-golf")), "golf");
+    assert.equal(classifyQuietJob(byId("one-shot-card")), "reminder");
+    assert.equal(classifyQuietJob(byId("legacy-food-every")), "unknown");
     assert.equal(classifyQuietJob({ name: "Assistant weekly plan: propose", description: "golf plan" }), "weekly-plan");
     assert.equal(classifyQuietJob({ name: "Assistant weekly plan: apply due plans" }), "weekly-plan");
   });
 
-  it("audits overlaps, disabled jobs, upcoming reminders, and daily recurring counts", () => {
-    const audit = auditQuietOps(sampleStore(), sampleState(), {
-      now: new Date("2026-06-10T08:00:00.000Z"),
-      upcomingDays: 14,
-    });
-
-    assert.equal(audit.issues.find((issue) => issue.type === "same-time-enabled").schedule.expr, "0 19 * * 0");
-    assert.deepEqual(
-      audit.issues.find((issue) => issue.type === "same-time-enabled").jobNames,
-      ["Sunday golf weekly plan", "Assistant routine: weekly-review"],
+  it("audits overlaps, disabled jobs, upcoming reminders, daily counts and unknown schedules", () => {
+    const raw = sampleRawJobs();
+    raw.push(
+      { ...raw.find((job) => job.id === "legacy-sunday-golf"), id: "golf-overlap", name: "Sunday golf check", enabled: true, schedule: { kind: "cron", expr: "0 19 * * 0", tz: "Europe/Stockholm" } },
+      { id: "watcher", name: "Build watcher", enabled: true, schedule: { kind: "on-exit", command: "make" }, payload: { kind: "command" } },
     );
-    assert.equal(audit.issues.find((issue) => issue.type === "disabled-installed").jobName, "Daily golf training schedule reminder");
-    assert.equal(audit.issues.find((issue) => issue.type === "upcoming-one-shot").jobName, "Reminder: Renew gym card");
-    assert.deepEqual(audit.issues.find((issue) => issue.type === "daily-recurring-count"), {
-      type: "daily-recurring-count",
-      severity: "info",
-      count: 2,
-      jobNames: ["Assistant routine: midday-check-in", "Assistant routine: workout-window"],
-    });
+    const audit = auditQuietOps(liveJobs(raw), { now: new Date("2028-12-10T08:00:00.000Z"), upcomingDays: 14 });
+    const issuesOf = (type) => audit.issues.filter((issue) => issue.type === type);
+
+    assert.deepEqual(issuesOf("same-time-enabled").map((issue) => issue.jobNames), [["Assistant routine: weekly-review", "Sunday golf check"]]);
+    assert.deepEqual(issuesOf("disabled-installed").map((issue) => issue.jobId), [
+      "weather-morning",
+      "routine-evening",
+      "routine-morning",
+      "legacy-sunday-golf",
+      "legacy-food-every",
+    ]);
+    assert.deepEqual(issuesOf("upcoming-one-shot").map((issue) => [issue.jobName, issue.at]), [["Renew EU health insurance card", "2028-12-18T08:00:00.000Z"]]);
+    assert.deepEqual(issuesOf("daily-recurring-count"), [
+      {
+        type: "daily-recurring-count",
+        severity: "info",
+        count: 2,
+        jobNames: ["Assistant routine: workout-window", "Assistant routine: midday-check-in"],
+      },
+    ]);
+    assert.deepEqual(issuesOf("unsupported-schedule").map((issue) => [issue.jobId, issue.schedule]), [
+      ["watcher", { kind: "on-exit", supported: false }],
+    ]);
+    assert.equal(quietOpsStatus(liveJobs(raw)).summary.otherScheduleJobs, 1);
+  });
+
+  it("reports a Gateway that cannot be read instead of an empty schedule", async () => {
+    const fake = createFakeOpenClawCron({ fail: () => new Error("openclaw cron list failed: gateway closed (1006)") });
+    await assert.rejects(run(["status", "--json"], fake), /openclaw cron list failed: gateway closed/);
   });
 });
 
-describe("quiet ops mutations", () => {
-  it("enables and disables only an exact selected job while preserving fields", () => {
-    const disabled = updateQuietJobEnabled(sampleStore(), "routine-midday", false);
-    const job = disabled.store.jobs.find((candidate) => candidate.id === "routine-midday");
+describe("quiet ops mutations on the live Gateway", () => {
+  it("disables an exact job id and enables an exact job name, touching nothing else", async () => {
+    const fake = createFakeOpenClawCron();
+    const others = unrelatedSnapshot(fake, "routine-midday");
 
-    assert.equal(disabled.store.version, 7);
-    assert.equal(job.enabled, false);
-    assert.deepEqual(job.payload, { kind: "agentTurn", message: "midday" });
-    assert.deepEqual(job.delivery, { mode: "announce", to: "telegram:1029709001" });
-    assert.deepEqual(job.state, { keep: true });
-    assert.equal(disabled.result.action, "disable");
-    assert.equal(disabled.result.jobName, "Assistant routine: midday-check-in");
+    const disabled = await run(["disable", "routine-midday"], fake);
+    assert.equal(disabled.applied, true);
+    assert.equal(disabled.restartRequired, false);
+    assert.equal(disabled.preview.before.enabled, true);
+    assert.equal(disabled.preview.after.enabled, false);
+    assert.deepEqual(disabled.result, { action: "disable", jobId: "routine-midday", jobName: "Assistant routine: midday-check-in" });
+    assert.deepEqual(disabled.verification, { changedFields: ["enabled"], unexpectedFields: [], unrelatedJobsChanged: [] });
+    assert.deepEqual(unrelatedSnapshot(fake, "routine-midday"), others);
 
-    const enabled = updateQuietJobEnabled(disabled.store, "Assistant routine: midday-check-in", true);
-    assert.equal(
-      enabled.store.jobs.find((candidate) => candidate.id === "routine-midday").enabled,
-      true,
-    );
-    assert.equal(enabled.result.action, "enable");
+    const enabled = await run(["enable", "Assistant weather: morning"], fake);
+    assert.equal(enabled.result.jobId, "weather-morning");
+    assert.equal(fake.jobs.find((job) => job.id === "weather-morning").enabled, true);
+    assert.deepEqual(fake.mutations(), [
+      ["cron", "disable", "routine-midday"],
+      ["cron", "enable", "weather-morning"],
+    ]);
   });
 
-  it("sets time for cron jobs and rejects one-shot jobs", () => {
-    const changed = updateQuietCronTime(sampleStore(), "golf-weekly", "18:45");
+  it("changes only the time of a cron job and keeps its timezone and stagger", async () => {
+    const fake = createFakeOpenClawCron();
+    const before = structuredClone(fake.jobs.find((job) => job.id === "wp-propose"));
 
-    assert.equal(
-      changed.store.jobs.find((candidate) => candidate.id === "golf-weekly").schedule.expr,
-      "45 18 * * 0",
-    );
-    assert.equal(changed.result.action, "set-time");
+    const result = await run(["set-time", "Assistant weekly plan: propose", "09:45"], fake);
+    const after = fake.jobs.find((job) => job.id === "wp-propose");
 
-    assert.throws(
-      () => updateQuietCronTime(sampleStore(), "one-shot", "08:30"),
-      /requires a cron job/i,
-    );
+    assert.deepEqual(fake.mutations(), [["cron", "edit", "wp-propose", "--cron=45 9 * * 6", "--tz=Europe/Stockholm"]]);
+    assert.deepEqual(after.schedule, { kind: "cron", expr: "45 9 * * 6", tz: "Europe/Stockholm", staggerMs: 0 });
+    assert.deepEqual({ ...after, schedule: before.schedule, updatedAtMs: before.updatedAtMs }, before);
+    assert.equal(result.result.cron, "45 9 * * 6");
+    assert.deepEqual(result.verification.unexpectedFields, []);
+    assert.deepEqual(result.verification.unrelatedJobsChanged, []);
   });
 
-  it("reschedules one-shot reminders in Stockholm time and rejects cron jobs", () => {
-    const changed = updateQuietOneShotTime(sampleStore(), "one-shot", "2026-07-01", "09:30", {
-      timezone: "Europe/Stockholm",
-    });
+  it("reschedules a one-shot reminder in Stockholm time", async () => {
+    const fake = createFakeOpenClawCron();
+    const result = await run(["reschedule", "Renew EU health insurance card", "2028-12-19", "09:30"], fake);
 
-    assert.equal(
-      changed.store.jobs.find((candidate) => candidate.id === "one-shot").schedule.at,
-      "2026-07-01T07:30:00.000Z",
-    );
-    assert.deepEqual(changed.result, {
+    assert.deepEqual(fake.mutations(), [["cron", "edit", "one-shot-card", "--at=2028-12-19T08:30:00.000Z"]]);
+    assert.deepEqual(result.result, {
       action: "reschedule",
-      jobId: "one-shot",
-      jobName: "Reminder: Renew gym card",
-      at: "2026-07-01T07:30:00.000Z",
+      jobId: "one-shot-card",
+      jobName: "Renew EU health insurance card",
+      at: "2028-12-19T08:30:00.000Z",
       timezone: "Europe/Stockholm",
     });
-
-    assert.throws(
-      () => updateQuietOneShotTime(sampleStore(), "routine-midday", "2026-07-01", "09:30"),
-      /requires a one-shot/i,
-    );
+    assert.equal(fake.jobs.find((job) => job.id === "one-shot-card").deleteAfterRun, true);
   });
 
-  it("requires exact unambiguous job references", () => {
-    assert.throws(
-      () => updateQuietJobEnabled(sampleStore(), "midday", false),
-      /No quiet-ops job matches/i,
-    );
+  it("refuses set-time on non-cron jobs and reschedule on non-one-shot jobs without calling the Gateway", async () => {
+    const fake = createFakeOpenClawCron();
 
-    const duplicateStore = sampleStore({
-      jobs: [
-        ...sampleStore().jobs,
-        { id: "duplicate-name", name: "Mystery automation", schedule: { kind: "cron", expr: "0 10 * * *" } },
-      ],
-    });
+    await assert.rejects(run(["set-time", "one-shot-card", "08:30"], fake), /requires a cron job: .* has schedule kind at/);
+    await assert.rejects(run(["set-time", "legacy-food-every", "08:30"], fake), /requires a cron job: .* has schedule kind every/);
+    await assert.rejects(run(["reschedule", "routine-midday", "2028-07-01", "09:30"], fake), /requires a one-shot at job/);
+    assert.deepEqual(fake.mutations(), []);
+  });
 
-    assert.throws(
-      () => updateQuietJobEnabled(duplicateStore, "Mystery automation", false),
-      /Ambiguous quiet-ops job reference/i,
+  it("requires an exact, unambiguous job reference", async () => {
+    const fake = createFakeOpenClawCron();
+    await assert.rejects(run(["disable", "midday"], fake), /No quiet-ops job matches exact id or name: midday/);
+
+    const raw = sampleRawJobs();
+    raw.push({ ...raw.find((job) => job.id === "weather-morning"), id: "weather-morning-2" });
+    const duplicated = createFakeOpenClawCron({ jobs: raw });
+    await assert.rejects(
+      run(["disable", "Assistant weather: morning"], duplicated),
+      /Ambiguous quiet-ops job reference: Assistant weather: morning matches weather-morning, weather-morning-2/,
     );
+    assert.deepEqual([...fake.mutations(), ...duplicated.mutations()], []);
+  });
+
+  it("runs every mutation as a dry run without any Gateway mutation", async () => {
+    const commands = [
+      ["disable", "routine-midday"],
+      ["enable", "Assistant weather: morning"],
+      ["set-time", "routine-midday", "13:15"],
+      ["reschedule", "one-shot-card", "2028-12-19", "09:30"],
+    ];
+    for (const argv of commands) {
+      const fake = createFakeOpenClawCron();
+      const before = structuredClone(fake.jobs);
+      const result = await run([...argv, "--dry-run"], fake);
+
+      assert.equal(result.dryRun, true, argv.join(" "));
+      assert.equal(result.applied, false);
+      assert.equal(result.changed, true);
+      assert.equal(result.restartRequired, false);
+      assert.deepEqual(fake.mutations(), [], argv.join(" "));
+      assert.deepEqual(fake.jobs, before);
+      assert.match(formatQuietOpsResult(result, argv[0]), /^DRY RUN .* Nothing was changed\.$/);
+    }
+  });
+
+  it("previews the change it would make in a dry run", async () => {
+    const result = await run(["set-time", "routine-midday", "13:15", "--dry-run"], createFakeOpenClawCron());
+
+    assert.deepEqual(result.preview.before.schedule, { kind: "cron", expr: "30 12 * * *", timezone: "Europe/Stockholm" });
+    assert.deepEqual(result.preview.after.schedule, { kind: "cron", expr: "15 13 * * *", timezone: "Europe/Stockholm" });
+    assert.equal(result.preview.after.nextRunAt, null);
+  });
+
+  it("does nothing when the job is already in the requested state", async () => {
+    const fake = createFakeOpenClawCron();
+    const result = await run(["enable", "routine-midday"], fake);
+
+    assert.equal(result.changed, false);
+    assert.equal(result.applied, false);
+    assert.deepEqual(fake.mutations(), []);
+    assert.match(formatQuietOpsResult(result, "enable"), /already in that state; nothing was changed/);
+  });
+
+  it("says the change is live and never asks for a Gateway restart", async () => {
+    const result = await run(["disable", "routine-midday"], createFakeOpenClawCron());
+    const text = formatQuietOpsResult(result, "disable");
+
+    assert.match(text, /It is live now; no Gateway restart is needed\./);
+    assert.doesNotMatch(text, /kickstart|restart (?:the|OpenClaw) Gateway/i);
   });
 });
 
-describe("quiet ops CLI", () => {
+describe("quiet ops CLI parsing", () => {
   it("parses status, audit, and mutation commands", () => {
     assert.deepEqual(parseQuietOpsArgs(["status", "--json"]), {
       command: "status",
@@ -257,48 +247,6 @@ describe("quiet ops CLI", () => {
       command: "reschedule",
       options: { ref: "one-shot", date: "2026-07-01", time: "09:30" },
     });
-  });
-
-  it("runs dry-run without writing", async () => {
-    let writes = 0;
-
-    const result = await runQuietOpsCli(["disable", "routine-midday", "--dry-run"], {
-      existingCronStore: sampleStore(),
-      existingCronState: sampleState(),
-      writeCronStore: () => {
-        writes += 1;
-      },
-    });
-
-    assert.equal(result.dryRun, true);
-    assert.equal(result.restartRequired, false);
-    assert.equal(result.result.action, "disable");
-    assert.equal(result.preview.before.enabled, true);
-    assert.equal(result.preview.after.enabled, false);
-    assert.equal(writes, 0);
-  });
-
-  it("writes a timestamped backup before mutating the cron store", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "quiet-ops-"));
-    const jobsPath = join(directory, "jobs.json");
-    writeFileSync(jobsPath, `${JSON.stringify(sampleStore(), null, 2)}\n`);
-
-    try {
-      const result = await runQuietOpsCli(["disable", "routine-midday"], {
-        existingCronStore: sampleStore(),
-        existingCronState: sampleState(),
-        writeCronStore: (store) =>
-          writeCronStoreFile(jobsPath, store, {
-            now: new Date("2026-06-10T09:15:30.000Z"),
-          }),
-      });
-
-      assert.equal(result.restartRequired, true);
-      assert.equal(existsSync(join(directory, "jobs.json.bak.20260610T091530000Z")), true);
-      assert.equal(JSON.parse(readFileSync(jobsPath, "utf8")).jobs[0].enabled, false);
-      assert.equal(readdirSync(directory).filter((file) => file.startsWith("jobs.json.bak.")).length, 1);
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
+    assert.throws(() => parseQuietOpsArgs(["disable", "--token=x"]), /Unknown quiet-ops option/);
   });
 });

@@ -1,27 +1,23 @@
 #!/usr/bin/env node
+/**
+ * Quiet ops against the live OpenClaw Gateway scheduler. status and audit are
+ * read-only. enable, disable, set-time and reschedule change exactly one job,
+ * named by exact id or exact name, and are live when the command returns.
+ */
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { auditQuietOps, describeQuietJob, planQuietOpsChange, quietOpsStatus } from "./lib/quiet-ops.mjs";
 import {
-  auditQuietOps,
-  describeQuietJob,
-  quietOpsStatus,
-  updateQuietCronTime,
-  updateQuietJobEnabled,
-  updateQuietOneShotTime,
-} from "./lib/quiet-ops.mjs";
-import {
-  readExistingCronState,
-  readExistingCronStore,
-  resolveCronStorePath,
-  writeCronStoreFile,
-} from "./lib/cron-store.mjs";
-import { resolveOpenClawStateDir } from "./lib/commands.mjs";
+  LIVE_CRON_RESTART_REQUIRED,
+  LIVE_CRON_SOURCE,
+  createGatewayCron,
+  executeJobChange,
+} from "./lib/live-cron.mjs";
 import { projectPath } from "./lib/config.mjs";
 import { mergedEnv } from "./lib/env.mjs";
 
 const currentFile = fileURLToPath(import.meta.url);
 const projectRoot = resolve(dirname(currentFile), "..");
-const mutationCommands = new Set(["enable", "disable", "set-time", "reschedule"]);
 
 export function parseQuietOpsArgs(argv) {
   const [command = "status", ...rest] = argv;
@@ -73,65 +69,44 @@ export async function runQuietOpsCli(
   {
     root = projectRoot,
     env = mergedEnv(projectPath(root, ".env")),
-    stateDir = resolveOpenClawStateDir(env, root),
-    cronStorePath = resolveCronStorePath(stateDir),
-    existingCronStore = readExistingCronStore(cronStorePath),
-    existingCronState = readExistingCronState(stateDir),
-    writeCronStore = (store) => writeCronStoreFile(cronStorePath, store),
+    cron,
+    runOpenClaw,
     now = new Date(),
     timezone = "Europe/Stockholm",
   } = {},
 ) {
   const parsed = parseQuietOpsArgs(argv);
+  const liveCron = cron ?? createGatewayCron({ root, env, runOpenClaw });
+  const jobs = await liveCron.list();
 
   if (parsed.command === "status") {
-    return quietOpsStatus(existingCronStore, existingCronState);
+    return quietOpsStatus(jobs);
   }
 
   if (parsed.command === "audit") {
-    return auditQuietOps(existingCronStore, existingCronState, { now });
+    return auditQuietOps(jobs, { now });
   }
 
-  const update = quietOpsMutation(parsed, existingCronStore, { timezone });
+  const { plan, result } = planQuietOpsChange(jobs, parsed, { timezone });
   const dryRun = parsed.options.dryRun === true;
-
-  if (!dryRun) {
-    writeCronStore(update.store);
-  }
+  const outcome = await executeJobChange(liveCron, plan, { beforeJobs: jobs, dryRun });
 
   return {
+    source: LIVE_CRON_SOURCE,
     dryRun,
-    restartRequired: !dryRun,
-    result: update.result,
+    changed: outcome.changed,
+    applied: outcome.applied,
+    restartRequired: LIVE_CRON_RESTART_REQUIRED,
+    result,
     preview: {
-      before: describeQuietJob(update.before, existingCronState),
-      after: describeQuietJob(update.after, existingCronState),
+      before: describeQuietJob(outcome.before),
+      after: describeQuietJob(outcome.after),
     },
+    ...(outcome.verification ? { verification: outcome.verification } : {}),
   };
 }
 
-function quietOpsMutation(parsed, existingCronStore, { timezone }) {
-  switch (parsed.command) {
-    case "enable":
-      return updateQuietJobEnabled(existingCronStore, parsed.options.ref, true);
-    case "disable":
-      return updateQuietJobEnabled(existingCronStore, parsed.options.ref, false);
-    case "set-time":
-      return updateQuietCronTime(existingCronStore, parsed.options.ref, parsed.options.time);
-    case "reschedule":
-      return updateQuietOneShotTime(
-        existingCronStore,
-        parsed.options.ref,
-        parsed.options.date,
-        parsed.options.time,
-        { timezone },
-      );
-    default:
-      throw new Error(`Unsupported quiet-ops mutation: ${parsed.command}`);
-  }
-}
-
-function formatQuietOpsResult(result, command) {
+export function formatQuietOpsResult(result, command) {
   if (command === "status") return formatQuietOpsStatus(result);
   if (command === "audit") return formatQuietOpsAudit(result);
   return formatQuietOpsMutation(result);
@@ -144,7 +119,7 @@ function formatQuietOpsStatus(result) {
   });
   lines.push(
     `Summary: ${result.summary.enabledJobs}/${result.summary.totalJobs} enabled, ` +
-      `${result.summary.dailyRecurringJobs} enabled daily recurring jobs.`,
+      `${result.summary.dailyRecurringJobs} enabled daily recurring jobs (live Gateway scheduler).`,
   );
   return lines.join("\n");
 }
@@ -166,21 +141,44 @@ function formatQuietOpsAudit(result) {
       if (issue.type === "daily-recurring-count") {
         return `INFO daily-recurring-count ${issue.count}: ${issue.jobNames.join(" | ")}`;
       }
+      if (issue.type === "unsupported-schedule") {
+        return `INFO unsupported-schedule ${formatSchedule(issue.schedule)}: ${issue.jobName} [${issue.jobId}]`;
+      }
       return `${issue.severity?.toUpperCase() ?? "INFO"} ${issue.type}`;
     })
     .join("\n");
 }
 
 function formatQuietOpsMutation(result) {
-  const dryRun = result.dryRun ? "DRY RUN " : "";
-  const restart = result.restartRequired ? " Restart OpenClaw Gateway for the scheduler to reload." : "";
-  return `${dryRun}${result.result.action} ${result.result.jobName} [${result.result.jobId}].${restart}`;
+  const target = `${result.result.action} ${result.result.jobName} [${result.result.jobId}]`;
+  if (!result.changed) return `${target}: already in that state; nothing was changed.`;
+  if (result.dryRun) return `DRY RUN ${target}. Nothing was changed.`;
+
+  const notes = [];
+  const { unexpectedFields = [], unrelatedJobsChanged = [] } = result.verification ?? {};
+  if (unexpectedFields.length > 0) notes.push(`The Gateway also changed: ${unexpectedFields.join(", ")}.`);
+  if (unrelatedJobsChanged.length > 0) {
+    notes.push(`Other jobs changed meanwhile: ${unrelatedJobsChanged.map((job) => `${job.name} [${job.id}]`).join(", ")}.`);
+  }
+  const restart = result.restartRequired ? "Restart the Gateway to apply it." : "It is live now; no Gateway restart is needed.";
+  return [`${target}. ${restart}`, ...notes].join(" ");
 }
 
 function formatSchedule(schedule) {
   if (schedule.kind === "cron") return `cron=${schedule.expr} tz=${schedule.timezone ?? "unknown"}`;
   if (schedule.kind === "at") return `at=${schedule.at}`;
-  return `schedule=${schedule.kind}`;
+  if (schedule.kind === "every") return `every=${formatInterval(schedule.everyMs)}`;
+  return `schedule=${schedule.kind} (not understood by quiet-ops)`;
+}
+
+function formatInterval(ms) {
+  const units = [
+    ["d", 86_400_000],
+    ["h", 3_600_000],
+    ["m", 60_000],
+  ];
+  const [unit, size] = units.find(([, unitMs]) => ms % unitMs === 0) ?? ["ms", 1];
+  return `${ms / size}${unit}`;
 }
 
 if (process.argv[1] && currentFile === resolve(process.argv[1])) {
@@ -189,9 +187,6 @@ if (process.argv[1] && currentFile === resolve(process.argv[1])) {
     const parsed = parseQuietOpsArgs(argv);
     const result = await runQuietOpsCli(argv);
     console.log(parsed.options.json ? JSON.stringify(result, null, 2) : formatQuietOpsResult(result, parsed.command));
-    if (mutationCommands.has(parsed.command) && !parsed.options.dryRun) {
-      console.log("Restart with: launchctl kickstart -k gui/501/ai.openclaw.gateway");
-    }
   } catch (error) {
     console.error(error.message);
     process.exit(1);

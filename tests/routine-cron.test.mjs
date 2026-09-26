@@ -1,22 +1,19 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
-  buildRoutineCronCommands,
   buildRoutineCronJobs,
+  findRoutineJob,
   maskCronCommandForDisplay,
+  planRoutineInstall,
   routineCronStatus,
-  updateRoutineCronEnabled,
-  updateRoutineCronTime,
-  upsertRoutineCronJobs,
 } from "../scripts/lib/routine-cron.mjs";
+import { normalizeCronJob } from "../scripts/lib/live-cron.mjs";
 import {
   formatRoutineCronCliResult,
   parseRoutineCronArgs,
   runRoutineCronCli,
 } from "../scripts/routines-cron.mjs";
+import { FAKE_TELEGRAM_ID, createFakeOpenClawCron, sampleRawJobs } from "./fixtures/fake-openclaw-cron.mjs";
 
 const schedules = {
   timezone: "Europe/Stockholm",
@@ -60,9 +57,43 @@ const schedules = {
   },
 };
 
-describe("routine cron jobs", () => {
+const env = { TELEGRAM_USER_ID: FAKE_TELEGRAM_ID };
+const desiredJobs = () => buildRoutineCronJobs(schedules, { telegramUserId: FAKE_TELEGRAM_ID });
+
+/** A live routine job exactly as the Gateway imported it from the old store: no stagger field. */
+function rawRoutineJob(spec, id, overrides = {}) {
+  return {
+    id,
+    name: spec.name,
+    description: spec.description,
+    enabled: spec.enabled,
+    createdAtMs: 1780000000000,
+    updatedAtMs: 1780000000000,
+    agentId: spec.agentId,
+    sessionKey: spec.sessionKey,
+    schedule: { kind: "cron", expr: spec.schedule.expr, tz: spec.schedule.tz },
+    sessionTarget: spec.sessionTarget,
+    wakeMode: spec.wakeMode,
+    payload: { kind: "agentTurn", message: spec.message, timeoutSeconds: spec.timeoutSeconds, model: "openai/kept-model" },
+    delivery: { mode: "announce", ...spec.delivery },
+    state: { nextRunAtMs: 1790505000000, lastRunAtMs: 1790418600021, lastRunStatus: "ok", lastStatus: "ok" },
+    ...overrides,
+  };
+}
+
+const unrelatedRawJobs = () => sampleRawJobs().filter((job) => !job.name.startsWith("Assistant routine:"));
+
+/** The Gateway as it is when every routine matches config, plus the unrelated jobs. */
+function gatewayWithRoutines(overridesById = {}) {
+  const routines = desiredJobs().map((spec) => rawRoutineJob(spec, `live-${spec.routineId}`, overridesById[spec.routineId]));
+  return [...unrelatedRawJobs(), ...routines];
+}
+
+const cli = (argv, fake, extra = {}) => runRoutineCronCli(argv, { schedules, env, runOpenClaw: fake.run, ...extra });
+
+describe("routine job specs", () => {
   it("builds Telegram cron jobs from the routine schedule", () => {
-    const jobs = buildRoutineCronJobs(schedules, { telegramUserId: "1029709001" });
+    const jobs = desiredJobs();
 
     assert.deepEqual(
       jobs.map((job) => [job.routineId, job.agentId, job.schedule.expr, job.enabled]),
@@ -81,7 +112,7 @@ describe("routine cron jobs", () => {
       assert.equal(job.wakeMode, "now");
       assert.equal(job.delivery.channel, "telegram");
       assert.equal(job.delivery.accountId, "main");
-      assert.equal(job.delivery.to, "telegram:1029709001");
+      assert.equal(job.delivery.to, `telegram:${FAKE_TELEGRAM_ID}`);
       assert.equal(job.delivery.bestEffort, true);
       assert.match(job.name, /^Assistant routine:/);
       assert.match(job.message, new RegExp(`^Scheduled assistant routine: ${job.routineId}\\.`));
@@ -98,16 +129,12 @@ describe("routine cron jobs", () => {
       assert.notEqual(contextGatheringIndex, -1);
       assert.notEqual(skipStoreIndex, -1);
       assert.match(job.message, /NO_REPLY/);
-      assert.match(
-        job.message,
-        new RegExp(`inspect ${job.routineId} for today's Europe/Stockholm date`),
-      );
+      assert.match(job.message, new RegExp(`inspect ${job.routineId} for today's Europe/Stockholm date`));
       assert.ok(skipCommandIndex < routineCommandIndex);
       assert.ok(noReplyIndex < routineCommandIndex);
       assert.ok(noReplyIndex < contextGatheringIndex);
       assert.ok(skipStoreIndex < routineCommandIndex);
       assert.ok(skipStoreIndex < contextGatheringIndex);
-      assert.match(job.message, /skip store/i);
       assert.match(job.message, /No side effects without approval/i);
       assert.match(job.message, /feedback/i);
       assert.match(job.message, /ask before storing/i);
@@ -117,220 +144,273 @@ describe("routine cron jobs", () => {
     }
   });
 
-  it("plans add commands for missing routine jobs", () => {
-    const [job] = buildRoutineCronJobs(schedules, { telegramUserId: "1029709001" });
-    const [command] = buildRoutineCronCommands([job], {
-      openclawCommand: "openclaw",
-      gatewayToken: "secret-token",
-      existingJobs: [],
-    });
-
-    assert.equal(command.action, "add");
-    assert.equal(command.jobName, "Assistant routine: morning-brief");
-    assert.deepEqual(command.args.slice(0, 2), ["cron", "add"]);
-    assert.ok(command.args.includes("--announce"));
-    assert.ok(command.args.includes("--best-effort-deliver"));
-    assert.ok(command.args.includes("--disabled"));
-    assert.ok(command.args.includes("--exact"));
-    assert.ok(command.args.includes("--json"));
-    assert.ok(command.args.includes("--token"));
-    assert.ok(command.args.includes("secret-token"));
+  it("refuses a Telegram user id that is not numeric", () => {
+    assert.throws(() => buildRoutineCronJobs(schedules, { telegramUserId: "" }), /TELEGRAM_USER_ID is required/);
+    assert.throws(() => buildRoutineCronJobs(schedules, { telegramUserId: "12 --disable" }), /must be a numeric Telegram user id/);
   });
 
-  it("plans edit commands for existing routine jobs", () => {
-    const [job] = buildRoutineCronJobs(schedules, { telegramUserId: "1029709001" });
-    const [command] = buildRoutineCronCommands([job], {
-      openclawCommand: "openclaw",
-      existingJobs: [{ id: "existing-job-id", name: "Assistant routine: morning-brief" }],
-    });
-
-    assert.equal(command.action, "edit");
-    assert.deepEqual(command.args.slice(0, 3), ["cron", "edit", "existing-job-id"]);
-    assert.ok(command.args.includes("--disable"));
-    assert.ok(command.args.includes("--name"));
-  });
-
-  it("masks gateway tokens in displayed commands", () => {
+  it("keeps masking tokens for the weekly plan's command display", () => {
     const displayed = maskCronCommandForDisplay({
       command: "openclaw",
       args: ["cron", "add", "--token", "secret-token", "--name", "Routine"],
     });
-
     assert.equal(displayed, "openclaw cron add --token <redacted> --name Routine");
-  });
-
-  it("upserts routine jobs into an OpenClaw cron store without touching unrelated jobs", () => {
-    const jobs = buildRoutineCronJobs(schedules, { telegramUserId: "1029709001" });
-    const result = upsertRoutineCronJobs(
-      {
-        version: 1,
-        jobs: [
-          {
-            id: "unrelated",
-            name: "Daily golf training schedule reminder",
-            createdAtMs: 1,
-            schedule: { kind: "cron", expr: "0 7 * * *", tz: "Europe/Stockholm" },
-          },
-          {
-            id: "existing-morning",
-            name: "Assistant routine: morning-brief",
-            createdAtMs: 2,
-            schedule: { kind: "cron", expr: "15 8 * * *", tz: "Europe/Stockholm" },
-            state: { note: "preserve" },
-          },
-        ],
-      },
-      jobs,
-      {
-        nowMs: 1779900000000,
-        idGenerator: () => "new-routine-id",
-      },
-    );
-
-    assert.equal(result.store.jobs.length, 6);
-    assert.deepEqual(
-      result.results.map((entry) => [entry.action, entry.jobName]),
-      [
-        ["edit", "Assistant routine: morning-brief"],
-        ["add", "Assistant routine: midday-check-in"],
-        ["add", "Assistant routine: workout-window"],
-        ["add", "Assistant routine: evening-review"],
-        ["add", "Assistant routine: weekly-review"],
-      ],
-    );
-
-    const unrelated = result.store.jobs.find((job) => job.id === "unrelated");
-    assert.equal(unrelated.name, "Daily golf training schedule reminder");
-
-    const morning = result.store.jobs.find((job) => job.name === "Assistant routine: morning-brief");
-    assert.equal(morning.id, "existing-morning");
-    assert.equal(morning.createdAtMs, 2);
-    assert.deepEqual(morning.state, { note: "preserve" });
-    assert.equal(morning.schedule.expr, "0 8 * * *");
-    assert.equal(morning.enabled, false);
-    assert.equal(morning.payload.kind, "agentTurn");
-    assert.match(morning.payload.message, /morning-brief/);
-    assert.equal(morning.delivery.mode, "announce");
-  });
-
-  it("reports routine status with next run information", () => {
-    const jobs = buildRoutineCronJobs(schedules, { telegramUserId: "1029709001" });
-    const upserted = upsertRoutineCronJobs({ version: 1, jobs: [] }, jobs, {
-      nowMs: 1779900000000,
-      idGenerator: () => "routine-id",
-    }).store;
-    const morning = upserted.jobs.find((job) => job.name === "Assistant routine: morning-brief");
-
-    const status = routineCronStatus(upserted, {
-      jobs: {
-        [morning.id]: {
-          state: {
-            nextRunAtMs: 1779948000000,
-            lastStatus: "ok",
-          },
-        },
-      },
-    });
-
-    assert.equal(status.length, 5);
-    assert.deepEqual(status[0], {
-      routineId: "morning-brief",
-      name: "Assistant routine: morning-brief",
-      enabled: false,
-      cron: "0 8 * * *",
-      timezone: "Europe/Stockholm",
-      nextRunAt: "2026-05-28T06:00:00.000Z",
-      lastStatus: "ok",
-      skippedToday: false,
-      skipDate: null,
-    });
-  });
-
-  it("marks enabled routines skipped today without disabling them", () => {
-    const jobs = buildRoutineCronJobs(schedules, { telegramUserId: "1029709001" });
-    const upserted = upsertRoutineCronJobs({ version: 1, jobs: [] }, jobs, {
-      nowMs: 1779900000000,
-      idGenerator: () => "routine-id",
-    }).store;
-
-    const status = routineCronStatus(upserted, { jobs: {} }, {
-      skipStore: {
-        version: 1,
-        skips: [
-          {
-            routineId: "workout-window",
-            date: "2026-06-11",
-            timezone: "Europe/Stockholm",
-            source: "telegram",
-            createdAt: "2026-06-10T20:15:00.000Z",
-          },
-        ],
-      },
-      now: new Date("2026-06-11T10:00:00.000Z"),
-      timezone: "Europe/Stockholm",
-    });
-
-    const workout = status.find((routine) => routine.routineId === "workout-window");
-    assert.equal(workout.enabled, true);
-    assert.equal(workout.skippedToday, true);
-    assert.equal(workout.skipDate, "2026-06-11");
-  });
-
-  it("enables and disables only the selected routine job", () => {
-    const jobs = buildRoutineCronJobs(schedules, { telegramUserId: "1029709001" });
-    const upserted = upsertRoutineCronJobs({ version: 1, jobs: [] }, jobs, {
-      nowMs: 1779900000000,
-      idGenerator: () => "routine-id",
-    }).store;
-
-    const disabled = updateRoutineCronEnabled(upserted, "workout-window", false);
-    assert.equal(
-      disabled.store.jobs.find((job) => job.name === "Assistant routine: workout-window").enabled,
-      false,
-    );
-    assert.equal(
-      disabled.store.jobs.find((job) => job.name === "Assistant routine: morning-brief").enabled,
-      false,
-    );
-    assert.equal(disabled.result.action, "disable");
-
-    const enabled = updateRoutineCronEnabled(disabled.store, "workout-window", true);
-    assert.equal(
-      enabled.store.jobs.find((job) => job.name === "Assistant routine: workout-window").enabled,
-      true,
-    );
-    assert.equal(enabled.result.action, "enable");
-  });
-
-  it("updates daily and weekly routine times", () => {
-    const jobs = buildRoutineCronJobs(schedules, { telegramUserId: "1029709001" });
-    const upserted = upsertRoutineCronJobs({ version: 1, jobs: [] }, jobs, {
-      nowMs: 1779900000000,
-      idGenerator: () => "routine-id",
-    }).store;
-
-    const daily = updateRoutineCronTime(upserted, "morning-brief", "08:30");
-    assert.equal(
-      daily.store.jobs.find((job) => job.name === "Assistant routine: morning-brief").schedule.expr,
-      "30 8 * * *",
-    );
-
-    const weekly = updateRoutineCronTime(daily.store, "weekly-review", "18:45");
-    assert.equal(
-      weekly.store.jobs.find((job) => job.name === "Assistant routine: weekly-review").schedule.expr,
-      "45 18 * * 0",
-    );
-    assert.equal(weekly.result.action, "set-time");
   });
 });
 
-describe("routine cron CLI", () => {
-  it("parses plan and install commands", () => {
-    assert.deepEqual(parseRoutineCronArgs(["plan"]), { command: "plan", options: {} });
-    assert.deepEqual(parseRoutineCronArgs(["install", "--dry-run"]), {
-      command: "install",
-      options: { dryRun: true },
+describe("routine install plan against live jobs", () => {
+  it("leaves routines that already match config alone", () => {
+    const steps = planRoutineInstall(desiredJobs(), gatewayWithRoutines().map(normalizeCronJob));
+
+    assert.deepEqual(steps.map((step) => [step.routineId, step.action]), [
+      ["morning-brief", "unchanged"],
+      ["midday-check-in", "unchanged"],
+      ["workout-window", "unchanged"],
+      ["evening-review", "unchanged"],
+      ["weekly-review", "unchanged"],
+    ]);
+  });
+
+  it("edits only the fields that differ and adds a missing routine", () => {
+    const live = gatewayWithRoutines({
+      "workout-window": { schedule: { kind: "cron", expr: "0 17 * * *", tz: "Europe/Stockholm" } },
+      "midday-check-in": { enabled: false },
+    }).filter((job) => job.id !== "live-weekly-review");
+
+    const steps = planRoutineInstall(desiredJobs(), live.map(normalizeCronJob));
+    const byId = Object.fromEntries(steps.map((step) => [step.routineId, step]));
+
+    assert.deepEqual(byId["workout-window"].args, ["--cron=30 17 * * *", "--tz=Europe/Stockholm", "--exact"]);
+    assert.deepEqual(byId["workout-window"].changes, [
+      { field: "schedule", before: "cron 0 17 * * * Europe/Stockholm", after: "cron 30 17 * * * Europe/Stockholm" },
+    ]);
+    assert.deepEqual(byId["midday-check-in"].args, ["--enable"]);
+    assert.equal(byId["weekly-review"].action, "add");
+    assert.ok(byId["weekly-review"].args.includes("--cron=0 19 * * 0"));
+    assert.equal(byId["morning-brief"].action, "unchanged");
+  });
+
+  it("stops before any change when a routine name matches two live jobs", () => {
+    const live = gatewayWithRoutines();
+    live.push({ ...live.find((job) => job.id === "live-midday-check-in"), id: "live-midday-copy" });
+
+    assert.throws(
+      () => planRoutineInstall(desiredJobs(), live.map(normalizeCronJob)),
+      /Several live Gateway jobs are named "Assistant routine: midday-check-in" \(live-midday-check-in, live-midday-copy\)/,
+    );
+  });
+
+  it("refuses to turn a job with a routine's name but another payload into a routine", () => {
+    const live = gatewayWithRoutines({ "workout-window": { payload: { kind: "command", argv: ["true"] } } });
+    assert.throws(() => planRoutineInstall(desiredJobs(), live.map(normalizeCronJob)), /runs a command payload; refusing to turn it into a routine/);
+  });
+});
+
+describe("routines CLI against the live Gateway", () => {
+  it("plans without changing anything and prints no Telegram id or prompt text", async () => {
+    const fake = createFakeOpenClawCron({
+      jobs: gatewayWithRoutines({ "workout-window": { payload: { kind: "agentTurn", message: "old prompt", timeoutSeconds: 180 } } }),
     });
+    const plan = await cli(["plan"], fake);
+
+    assert.deepEqual(fake.mutations(), []);
+    const workout = plan.steps.find((step) => step.routineId === "workout-window");
+    assert.equal(workout.action, "edit");
+    assert.deepEqual(workout.changes.map((change) => change.field), ["payload"]);
+    assert.match(workout.display, /^openclaw cron edit live-workout-window --message=<\d+ chars> --timeout-seconds=180$/);
+    assert.equal(JSON.stringify(plan).includes(FAKE_TELEGRAM_ID), false);
+  });
+
+  it("installs missing routines with a true upsert and leaves unrelated jobs untouched", async () => {
+    const fake = createFakeOpenClawCron({ jobs: unrelatedRawJobs() });
+    const unrelatedBefore = structuredClone(fake.jobs);
+
+    const result = await cli(["install"], fake);
+
+    assert.equal(result.dryRun, false);
+    assert.equal(result.restartRequired, false);
+    assert.deepEqual(result.results.map((entry) => [entry.routineId, entry.action]), [
+      ["morning-brief", "add"],
+      ["midday-check-in", "add"],
+      ["workout-window", "add"],
+      ["evening-review", "add"],
+      ["weekly-review", "add"],
+    ]);
+    assert.deepEqual(result.verification, { remainingDifferences: [], unrelatedJobsChanged: [] });
+
+    const adds = fake.mutations().filter((args) => args[1] === "add");
+    assert.equal(adds.length, 5);
+    for (const args of adds) {
+      assert.ok(args.includes("--exact"));
+      assert.ok(args.includes("--announce"));
+      assert.ok(args.includes(`--to=telegram:${FAKE_TELEGRAM_ID}`));
+      assert.ok(args.includes("--json"));
+      assert.ok(!args.some((arg) => arg.startsWith("--token")), "the CLI reads the token from config");
+    }
+    assert.ok(adds.find((args) => args.includes("--name=Assistant routine: morning-brief")).includes("--disabled"));
+    assert.ok(!adds.find((args) => args.includes("--name=Assistant routine: midday-check-in")).includes("--disabled"));
+
+    const routineJobs = fake.jobs.filter((job) => job.name.startsWith("Assistant routine:"));
+    assert.equal(routineJobs.length, 5);
+    assert.equal(new Set(routineJobs.map((job) => job.name)).size, 5);
+    assert.deepEqual(fake.jobs.filter((job) => !job.name.startsWith("Assistant routine:")), unrelatedBefore);
+  });
+
+  it("edits an existing routine in place, keeps fields it does not own, and creates no duplicate", async () => {
+    const fake = createFakeOpenClawCron({
+      jobs: gatewayWithRoutines({
+        "workout-window": { schedule: { kind: "cron", expr: "0 17 * * *", tz: "Europe/Stockholm" } },
+        "morning-brief": { enabled: true },
+      }),
+    });
+    const before = structuredClone(fake.jobs.find((job) => job.id === "live-workout-window"));
+
+    const first = await cli(["install"], fake);
+    assert.deepEqual(first.results.filter((entry) => entry.action !== "unchanged").map((entry) => [entry.routineId, entry.action]), [
+      ["morning-brief", "edit"],
+      ["workout-window", "edit"],
+    ]);
+    assert.deepEqual(fake.mutations(), [
+      ["cron", "edit", "live-morning-brief", "--disable"],
+      ["cron", "edit", "live-workout-window", "--cron=30 17 * * *", "--tz=Europe/Stockholm", "--exact"],
+    ]);
+    const after = fake.jobs.find((job) => job.id === "live-workout-window");
+    assert.deepEqual(after.schedule, { kind: "cron", expr: "30 17 * * *", tz: "Europe/Stockholm", staggerMs: 0 });
+    assert.equal(after.payload.model, "openai/kept-model");
+    assert.deepEqual({ ...after, schedule: before.schedule, updatedAtMs: before.updatedAtMs }, before);
+
+    const second = await cli(["install"], fake);
+    assert.ok(second.results.every((entry) => entry.action === "unchanged"));
+    assert.equal(fake.mutations().length, 2, "a second install changes nothing");
+    assert.equal(fake.jobs.filter((job) => job.name.startsWith("Assistant routine:")).length, 5);
+  });
+
+  it("previews an install without mutating the Gateway", async () => {
+    const fake = createFakeOpenClawCron({ jobs: unrelatedRawJobs() });
+    const result = await cli(["install", "--dry-run"], fake);
+
+    assert.equal(result.dryRun, true);
+    assert.equal(result.steps.length, 5);
+    assert.deepEqual(fake.mutations(), []);
+    assert.equal(JSON.stringify(result).includes(FAKE_TELEGRAM_ID), false);
+  });
+
+  it("refuses to install over duplicated routine jobs", async () => {
+    const jobs = gatewayWithRoutines();
+    jobs.push({ ...jobs.find((job) => job.id === "live-weekly-review"), id: "live-weekly-review-copy" });
+    const fake = createFakeOpenClawCron({ jobs });
+
+    await assert.rejects(cli(["install"], fake), /Several live Gateway jobs are named "Assistant routine: weekly-review"/);
+    assert.deepEqual(fake.mutations(), []);
+  });
+
+  it("reports live routine status, run state, skips, missing and duplicated routines", async () => {
+    const jobs = gatewayWithRoutines().filter((job) => job.id !== "live-evening-review");
+    jobs.push({ ...jobs.find((job) => job.id === "live-weekly-review"), id: "live-weekly-review-copy" });
+    const fake = createFakeOpenClawCron({ jobs });
+
+    const status = await cli(["status"], fake, {
+      now: new Date("2026-06-11T10:00:00.000Z"),
+      readSkipStoreForStatus: () => ({
+        version: 1,
+        skips: [{ routineId: "workout-window", date: "2026-06-11", timezone: "Europe/Stockholm", source: "telegram", createdAt: "2026-06-10T20:15:00.000Z" }],
+      }),
+    });
+
+    assert.equal(status.source, "openclaw-gateway");
+    assert.deepEqual(status.notInstalled, ["evening-review"]);
+    assert.deepEqual(status.duplicates, ["weekly-review"]);
+    const workout = status.routines.find((routine) => routine.routineId === "workout-window");
+    assert.deepEqual(workout, {
+      routineId: "workout-window",
+      jobId: "live-workout-window",
+      name: "Assistant routine: workout-window",
+      enabled: true,
+      cron: "30 17 * * *",
+      timezone: "Europe/Stockholm",
+      nextRunAt: new Date(1790505000000).toISOString(),
+      lastRunAt: new Date(1790418600021).toISOString(),
+      lastStatus: "ok",
+      skippedToday: true,
+      skipDate: "2026-06-11",
+    });
+    assert.equal(status.routines.find((routine) => routine.routineId === "morning-brief").enabled, false);
+    assert.deepEqual(fake.mutations(), []);
+  });
+
+  it("disables and enables one routine live, with no restart", async () => {
+    const fake = createFakeOpenClawCron({ jobs: gatewayWithRoutines() });
+
+    const disabled = await cli(["disable", "midday-check-in"], fake);
+    assert.equal(disabled.applied, true);
+    assert.equal(disabled.restartRequired, false);
+    assert.deepEqual(disabled.result, {
+      action: "disable",
+      routineId: "midday-check-in",
+      jobId: "live-midday-check-in",
+      jobName: "Assistant routine: midday-check-in",
+    });
+    assert.deepEqual(disabled.verification.unrelatedJobsChanged, []);
+    assert.equal(JSON.stringify(disabled).includes(FAKE_TELEGRAM_ID), false);
+
+    const again = await cli(["disable", "midday-check-in"], fake);
+    assert.equal(again.changed, false);
+
+    await cli(["enable", "midday-check-in"], fake);
+    assert.deepEqual(fake.mutations(), [
+      ["cron", "disable", "live-midday-check-in"],
+      ["cron", "enable", "live-midday-check-in"],
+    ]);
+  });
+
+  it("changes one routine's time and keeps its day and timezone", async () => {
+    const fake = createFakeOpenClawCron({ jobs: gatewayWithRoutines() });
+    const result = await cli(["set-time", "weekly-review", "18:45"], fake);
+
+    assert.equal(result.result.cron, "45 18 * * 0");
+    assert.deepEqual(fake.mutations(), [["cron", "edit", "live-weekly-review", "--cron=45 18 * * 0", "--tz=Europe/Stockholm"]]);
+    assert.deepEqual(result.verification.unexpectedFields, []);
+  });
+
+  it("previews enable, disable and set-time without mutating the Gateway", async () => {
+    for (const argv of [["disable", "midday-check-in"], ["enable", "morning-brief"], ["set-time", "midday-check-in", "13:15"]]) {
+      const fake = createFakeOpenClawCron({ jobs: gatewayWithRoutines() });
+      const result = await cli([...argv, "--dry-run"], fake);
+
+      assert.equal(result.dryRun, true);
+      assert.equal(result.applied, false);
+      assert.equal(result.changed, true);
+      assert.deepEqual(fake.mutations(), [], argv.join(" "));
+    }
+  });
+
+  it("names a routine that is not installed", async () => {
+    const fake = createFakeOpenClawCron({ jobs: unrelatedRawJobs() });
+    await assert.rejects(cli(["disable", "workout-window"], fake), /Routine cron job not installed: Assistant routine: workout-window/);
+    await assert.rejects(cli(["disable", "../x"], fake), /Invalid routine id/);
+  });
+
+  it("finds a routine job by its exact name only", () => {
+    const jobs = gatewayWithRoutines().map(normalizeCronJob);
+    assert.equal(findRoutineJob(jobs, "weekly-review").id, "live-weekly-review");
+    assert.throws(() => findRoutineJob(jobs, "weekly"), /not installed/);
+  });
+
+  it("reports routine status from normalized jobs directly", () => {
+    const status = routineCronStatus(gatewayWithRoutines().map(normalizeCronJob), { now: new Date("2026-06-11T10:00:00.000Z") });
+    assert.equal(status.length, 5);
+    assert.ok(status.every((routine) => routine.skippedToday === false));
+  });
+});
+
+describe("routine skips stay local", () => {
+  const gatewayMustNotBeCalled = async () => {
+    throw new Error("skip commands must not call the Gateway");
+  };
+
+  it("parses routine commands", () => {
+    assert.deepEqual(parseRoutineCronArgs(["plan"]), { command: "plan", options: {} });
+    assert.deepEqual(parseRoutineCronArgs(["install", "--dry-run"]), { command: "install", options: { dryRun: true } });
     assert.deepEqual(parseRoutineCronArgs(["status"]), { command: "status", options: {} });
     assert.deepEqual(parseRoutineCronArgs(["disable", "workout-window"]), {
       command: "disable",
@@ -340,10 +420,7 @@ describe("routine cron CLI", () => {
       command: "set-time",
       options: { routineId: "morning-brief", time: "08:30" },
     });
-    assert.deepEqual(parseRoutineCronArgs(["skips", "--json"]), {
-      command: "skips",
-      options: { json: true },
-    });
+    assert.deepEqual(parseRoutineCronArgs(["skips", "--json"]), { command: "skips", options: { json: true } });
     assert.deepEqual(parseRoutineCronArgs(["skip", "workout-window", "2026-06-11", "--dry-run"]), {
       command: "skip",
       options: { routineId: "workout-window", date: "2026-06-11", dryRun: true },
@@ -354,126 +431,12 @@ describe("routine cron CLI", () => {
     });
   });
 
-  it("runs a dry-run install without spawning OpenClaw", async () => {
-    const result = await runRoutineCronCli(["install", "--dry-run"], {
-      schedules,
-      env: { TELEGRAM_USER_ID: "1029709001" },
-      config: { gateway: { remote: { token: "secret-token" } } },
-      existingJobs: [],
-      spawn: () => {
-        throw new Error("spawn should not run during dry-run");
-      },
-    });
-
-    assert.equal(result.dryRun, true);
-    assert.equal(result.commands.length, 5);
-    assert.equal(result.commands[0].display.includes("secret-token"), false);
-    assert.match(result.commands[0].display, /<redacted>/);
-  });
-
-  it("installs routine jobs by writing an updated cron store", async () => {
-    let writtenStore;
-    const result = await runRoutineCronCli(["install"], {
-      schedules,
-      env: { TELEGRAM_USER_ID: "1029709001" },
-      config: { gateway: { remote: { token: "secret-token" } } },
-      existingCronStore: { version: 1, jobs: [] },
-      writeCronStore: (store) => {
-        writtenStore = store;
-      },
-      nowMs: 1779900000000,
-      idGenerator: () => "generated-id",
-    });
-
-    assert.equal(result.dryRun, false);
-    assert.equal(result.results.length, 5);
-    assert.equal(writtenStore.jobs.length, 5);
-    assert.equal(writtenStore.jobs[0].name, "Assistant routine: morning-brief");
-  });
-
-  it("runs status and control commands against the cron store", async () => {
-    const jobs = buildRoutineCronJobs(schedules, { telegramUserId: "1029709001" });
-    const existingCronStore = upsertRoutineCronJobs({ version: 1, jobs: [] }, jobs, {
-      nowMs: 1779900000000,
-      idGenerator: () => "routine-id",
-    }).store;
-    let writtenStore;
-
-    const status = await runRoutineCronCli(["status"], {
-      schedules,
-      env: { TELEGRAM_USER_ID: "1029709001" },
-      existingCronStore,
-      existingCronState: { jobs: {} },
-    });
-    assert.equal(status.routines.length, 5);
-
-    const disabled = await runRoutineCronCli(["disable", "midday-check-in"], {
-      schedules,
-      env: { TELEGRAM_USER_ID: "1029709001" },
-      existingCronStore,
-      writeCronStore: (store) => {
-        writtenStore = store;
-      },
-    });
-    assert.equal(disabled.result.action, "disable");
-    assert.equal(
-      writtenStore.jobs.find((job) => job.name === "Assistant routine: midday-check-in").enabled,
-      false,
-    );
-
-    const changed = await runRoutineCronCli(["set-time", "midday-check-in", "13:15"], {
-      schedules,
-      env: { TELEGRAM_USER_ID: "1029709001" },
-      existingCronStore: writtenStore,
-      writeCronStore: (store) => {
-        writtenStore = store;
-      },
-    });
-    assert.equal(changed.result.action, "set-time");
-    assert.equal(
-      writtenStore.jobs.find((job) => job.name === "Assistant routine: midday-check-in").schedule.expr,
-      "15 13 * * *",
-    );
-  });
-
-  it("reports skipped routines in routine status", async () => {
-    const jobs = buildRoutineCronJobs(schedules, { telegramUserId: "1029709001" });
-    const existingCronStore = upsertRoutineCronJobs({ version: 1, jobs: [] }, jobs, {
-      nowMs: 1779900000000,
-      idGenerator: () => "routine-id",
-    }).store;
-
-    const status = await runRoutineCronCli(["status"], {
-      schedules,
-      env: { TELEGRAM_USER_ID: "1029709001" },
-      existingCronStore,
-      existingCronState: { jobs: {} },
-      now: new Date("2026-06-11T10:00:00.000Z"),
-      readSkipStoreForStatus: () => ({
-        version: 1,
-        skips: [
-          {
-            routineId: "workout-window",
-            date: "2026-06-11",
-            timezone: "Europe/Stockholm",
-            source: "telegram",
-            createdAt: "2026-06-10T20:15:00.000Z",
-          },
-        ],
-      }),
-    });
-
-    const workout = status.routines.find((routine) => routine.routineId === "workout-window");
-    assert.equal(workout.enabled, true);
-    assert.equal(workout.skippedToday, true);
-    assert.equal(workout.skipDate, "2026-06-11");
-  });
-
-  it("writes a routine skip without requiring an OpenClaw restart", async () => {
+  it("writes a routine skip without calling the Gateway or requiring a restart", async () => {
     let writtenStore;
 
     const result = await runRoutineCronCli(["skip", "workout-window", "2026-06-11"], {
       schedules,
+      runOpenClaw: gatewayMustNotBeCalled,
       now: new Date("2026-06-10T20:15:00.000Z"),
       readSkipStoreForMutation: () => ({ version: 1, skips: [] }),
       writeSkipStore: (store) => {
@@ -497,11 +460,12 @@ describe("routine cron CLI", () => {
     });
   });
 
-  it("removes a routine skip without requiring an OpenClaw restart", async () => {
+  it("removes a routine skip without calling the Gateway or requiring a restart", async () => {
     let writtenStore;
 
     const result = await runRoutineCronCli(["unskip", "workout-window", "2026-06-11"], {
       schedules,
+      runOpenClaw: gatewayMustNotBeCalled,
       readSkipStoreForMutation: () => ({
         version: 1,
         skips: [
@@ -528,33 +492,22 @@ describe("routine cron CLI", () => {
   it("formats skip and unskip confirmations with no-restart guidance", () => {
     assert.match(
       formatRoutineCronCliResult("skip", {
-        result: {
-          action: "skip",
-          added: true,
-          routineId: "workout-window",
-          date: "2026-06-12",
-          timezone: "Europe/Stockholm",
-        },
+        result: { action: "skip", added: true, routineId: "workout-window", date: "2026-06-12", timezone: "Europe/Stockholm" },
       }),
       /No gateway restart is required/i,
     );
     assert.match(
       formatRoutineCronCliResult("unskip", {
-        result: {
-          action: "unskip",
-          removed: true,
-          routineId: "workout-window",
-          date: "2026-06-12",
-          timezone: "Europe/Stockholm",
-        },
+        result: { action: "unskip", removed: true, routineId: "workout-window", date: "2026-06-12", timezone: "Europe/Stockholm" },
       }),
       /No gateway restart is required/i,
     );
   });
 
-  it("reports routine skip status for today", async () => {
+  it("reports routine skip status for today without calling the Gateway", async () => {
     const result = await runRoutineCronCli(["skips", "--json"], {
       schedules,
+      runOpenClaw: gatewayMustNotBeCalled,
       now: new Date("2026-06-10T22:30:00.000Z"),
       readSkipStoreForStatus: () => ({
         version: 1,
@@ -629,25 +582,5 @@ describe("routine cron CLI", () => {
     assert.equal(result.dryRun, true);
     assert.equal(result.result.action, "skip");
     assert.equal(result.result.added, true);
-  });
-
-  it("does not load cron state for skip status commands", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "routine-cron-lazy-"));
-
-    try {
-      mkdirSync(join(directory, "cron"), { recursive: true });
-      writeFileSync(join(directory, "cron/jobs.json"), "{ nope");
-
-      const result = await runRoutineCronCli(["skips", "--json"], {
-        schedules,
-        stateDir: directory,
-        readSkipStoreForStatus: () => ({ version: 1, skips: [] }),
-      });
-
-      assert.equal(result.length, 5);
-      assert.equal(result.find((entry) => entry.routineId === "workout-window").skippedToday, false);
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
   });
 });

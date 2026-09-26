@@ -16,7 +16,11 @@ This repo is the source of truth for Hilla's prompts, config templates, safety p
 - `.openclaw/openclaw.json`: rendered config.
 - `.openclaw/workspace-*`: generated per-agent workspaces.
 - `.openclaw/agents/*`: generated OpenClaw agent directories.
-- `.openclaw/state`: runtime state, logs, cron store, memories, weekly plans (`weekly-plan/`), and Telegram state.
+- `.openclaw/state`: runtime state, including the Gateway's SQLite database (cron jobs and their run history), memories, weekly plans (`weekly-plan/`), and Telegram state.
+
+## Scheduled Jobs
+
+The running Gateway's scheduler is the only source of truth for cron jobs and reminders. Scripts read and change it only through `scripts/lib/live-cron.mjs`, which calls the supported `openclaw cron` CLI. The old `.openclaw/state/cron/jobs.json` was migrated into the Gateway's database (renamed `jobs.json.migrated`) and is not read by anything.
 
 Generated runtime files are local and private. They are ignored by git and should not be committed.
 

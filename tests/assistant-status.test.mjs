@@ -18,6 +18,9 @@ import {
   runAssistantStatusCli,
 } from "../scripts/assistant-status.mjs";
 import { runWeeklyPlanCli } from "../scripts/weekly-plan.mjs";
+import { createLiveCron, loadLiveCronSnapshot, normalizeCronJob } from "../scripts/lib/live-cron.mjs";
+import { runQuietOpsCli } from "../scripts/quiet-ops.mjs";
+import { FAKE_TELEGRAM_ID, createFakeOpenClawCron } from "./fixtures/fake-openclaw-cron.mjs";
 
 function sampleConfig() {
   return {
@@ -54,48 +57,49 @@ function sampleConfig() {
   };
 }
 
-function sampleCronStore() {
-  return {
-    version: 1,
-    jobs: [
-      {
-        id: "routine-midday",
-        agentId: "health",
-        name: "Assistant routine: midday-check-in",
-        enabled: true,
-        schedule: { kind: "cron", expr: "30 12 * * *", tz: "Europe/Stockholm" },
-      },
-      {
-        id: "routine-evening",
-        agentId: "personal",
-        name: "Assistant routine: evening-review",
-        enabled: false,
-        schedule: { kind: "cron", expr: "0 21 * * *", tz: "Europe/Stockholm" },
-      },
-      {
-        id: "renew-gym",
-        agentId: "personal",
-        name: "Reminder: Renew gym card",
-        enabled: true,
-        schedule: { kind: "at", at: "2026-06-19T07:00:00.000Z" },
-      },
-    ],
-  };
-}
-
-function sampleCronState() {
-  return {
-    version: 1,
-    jobs: {
-      "routine-midday": {
-        state: {
-          nextRunAtMs: Date.parse("2026-06-11T10:30:00.000Z"),
-          lastStatus: "ok",
-          lastRunAtMs: Date.parse("2026-06-10T10:30:00.000Z"),
-        },
+// Raw jobs as `openclaw cron list --all --json` returns them.
+function sampleLiveRawJobs() {
+  return [
+    {
+      id: "routine-midday",
+      agentId: "health",
+      name: "Assistant routine: midday-check-in",
+      enabled: true,
+      schedule: { kind: "cron", expr: "30 12 * * *", tz: "Europe/Stockholm" },
+      sessionKey: `agent:health:telegram:main:direct:${FAKE_TELEGRAM_ID}`,
+      payload: { kind: "agentTurn", message: "midday" },
+      delivery: { mode: "announce", channel: "telegram", to: `telegram:${FAKE_TELEGRAM_ID}` },
+      state: {
+        nextRunAtMs: Date.parse("2026-06-11T10:30:00.000Z"),
+        lastStatus: "ok",
+        lastRunAtMs: Date.parse("2026-06-10T10:30:00.000Z"),
       },
     },
-  };
+    {
+      id: "routine-evening",
+      agentId: "personal",
+      name: "Assistant routine: evening-review",
+      enabled: false,
+      schedule: { kind: "cron", expr: "0 21 * * *", tz: "Europe/Stockholm" },
+      state: {},
+    },
+    {
+      id: "renew-gym",
+      agentId: "personal",
+      name: "Reminder: Renew gym card",
+      enabled: true,
+      schedule: { kind: "at", at: "2026-06-19T07:00:00.000Z" },
+      state: {},
+    },
+  ];
+}
+
+function liveSnapshot(rawJobs = sampleLiveRawJobs(), scheduler = { enabled: true, storage: "sqlite", jobCount: rawJobs.length, nextWakeAt: null }) {
+  return { available: true, source: "openclaw-gateway", jobs: rawJobs.map(normalizeCronJob), scheduler, error: null };
+}
+
+function loadLiveSnapshotFrom(fake) {
+  return loadLiveCronSnapshot(createLiveCron({ run: fake.run }));
 }
 
 function sampleLogs() {
@@ -118,15 +122,14 @@ describe("assistant status aggregation", () => {
     ]);
   });
 
-  it("builds a redacted running status from local config, cron state, and logs", () => {
+  it("builds a redacted running status from local config, live Gateway jobs, and logs", () => {
     const status = buildAssistantStatus({
       env: {
         HILLA_TELEGRAM_BOT_TOKEN: "891055:SECRET",
         TELEGRAM_USER_ID: "1029709001",
       },
       config: sampleConfig(),
-      cronStore: sampleCronStore(),
-      cronState: sampleCronState(),
+      liveCron: liveSnapshot(),
       skipStore: {
         version: 1,
         skips: [
@@ -172,8 +175,12 @@ describe("assistant status aggregation", () => {
     assert.equal(status.recentActivity.telegramProviderStartedAt, "2026-06-10T22:53:46.030+02:00");
     assert.equal(status.recentIssues.length, 1);
     assert.equal(status.recentIssues[0].type, "fetch-timeout");
+    assert.equal(status.checks.find((check) => check.id === "live-scheduler").status, "ok");
+    assert.equal(status.automation.source, "openclaw-gateway");
+    assert.equal(status.recentActivity.lastScheduledRunAt, "2026-06-10T10:30:00.000Z");
     assert.equal(JSON.stringify(status).includes("891055:SECRET"), false);
     assert.equal(JSON.stringify(status).includes("gateway-secret-token"), false);
+    assert.equal(JSON.stringify(status).includes(FAKE_TELEGRAM_ID), false);
     assert.ok(status.suggestedActions.some((action) => action.command.includes("npm run routines:status")));
     assert.ok(status.suggestedActions.some((action) => action.command.includes("npm run doctor")));
   });
@@ -182,8 +189,6 @@ describe("assistant status aggregation", () => {
     const status = buildAssistantStatus({
       env: {},
       config: {},
-      cronStore: { version: 1, jobs: [] },
-      cronState: { version: 1, jobs: {} },
       gatewayLogText: "",
       gatewayErrLogText: "",
       paths: {
@@ -210,8 +215,6 @@ describe("assistant status aggregation", () => {
         TELEGRAM_USER_ID: "1029709001",
       },
       config: sampleConfig(),
-      cronStore: { version: 1, jobs: [] },
-      cronState: { version: 1, jobs: {} },
       gatewayLogText: "",
       gatewayErrLogText: "",
       paths: {
@@ -243,30 +246,32 @@ describe("assistant status aggregation", () => {
     const status = buildAssistantStatus({
       env: { TELEGRAM_USER_ID: "1029709001" },
       config,
-      cronStore: {
-        version: 1,
-        jobs: [
-          {
-            id: "hourly-check",
-            name: "Hourly check",
-            enabled: true,
-            schedule: { kind: "cron", expr: "0 * * * *", tz: "Europe/Stockholm" },
-          },
-          {
-            id: "disabled-daily-check",
-            name: "Disabled daily check",
-            enabled: false,
-            schedule: { kind: "cron", expr: "0 8 * * *", tz: "Europe/Stockholm" },
-          },
-          {
-            id: "daily-check",
-            name: "Daily check",
-            enabled: true,
-            schedule: { kind: "cron", expr: "30 12 * * *", tz: "Europe/Stockholm" },
-          },
-        ],
-      },
-      cronState: { version: 1, jobs: {} },
+      liveCron: liveSnapshot([
+        {
+          id: "hourly-check",
+          name: "Hourly check",
+          enabled: true,
+          schedule: { kind: "cron", expr: "0 * * * *", tz: "Europe/Stockholm" },
+        },
+        {
+          id: "quarter-hour-check",
+          name: "Quarter-hour check",
+          enabled: true,
+          schedule: { kind: "cron", expr: "*/15 * * * *", tz: "Europe/Stockholm" },
+        },
+        {
+          id: "disabled-daily-check",
+          name: "Disabled daily check",
+          enabled: false,
+          schedule: { kind: "cron", expr: "0 8 * * *", tz: "Europe/Stockholm" },
+        },
+        {
+          id: "daily-check",
+          name: "Daily check",
+          enabled: true,
+          schedule: { kind: "cron", expr: "30 12 * * *", tz: "Europe/Stockholm" },
+        },
+      ]),
       paths: {
         configPath: ".openclaw/openclaw.json",
         stateDir: ".openclaw/state",
@@ -281,26 +286,15 @@ describe("assistant status aggregation", () => {
     assert.equal(status.checks.find((check) => check.id === "telegram-env").status, "fail");
   });
 
-  it("keeps returning degraded status when cron state timestamps are invalid", () => {
+  it("keeps returning degraded status when the Gateway reports invalid run timestamps", () => {
+    const [midday, ...rest] = sampleLiveRawJobs();
     const status = buildAssistantStatus({
       env: {
         HILLA_TELEGRAM_BOT_TOKEN: "891055:SECRET",
         TELEGRAM_USER_ID: "1029709001",
       },
       config: sampleConfig(),
-      cronStore: sampleCronStore(),
-      cronState: {
-        version: 1,
-        jobs: {
-          "routine-midday": {
-            state: {
-              nextRunAtMs: "not-a-date",
-              lastRunAtMs: 1e100,
-              lastStatus: "ok",
-            },
-          },
-        },
-      },
+      liveCron: liveSnapshot([{ ...midday, state: { nextRunAtMs: "not-a-date", lastRunAtMs: 1e100, lastStatus: "ok" } }, ...rest]),
       paths: {
         configPath: ".openclaw/openclaw.json",
         stateDir: ".openclaw/state",
@@ -318,7 +312,7 @@ describe("assistant status aggregation", () => {
     assert.equal(status.recentIssues.some((issue) => issue.type === "invalid-state-timestamp"), true);
   });
 
-  it("reports malformed JSON state as a recent issue and keeps returning status", () => {
+  it("reports malformed skip state and never reads the retired cron/jobs.json", () => {
     const directory = mkdtempSync(join(tmpdir(), "assistant-status-"));
     const stateDir = join(directory, ".openclaw/state");
     const configPath = join(directory, ".openclaw/openclaw.json");
@@ -341,8 +335,10 @@ describe("assistant status aggregation", () => {
       });
 
       assert.equal(status.overall, "degraded");
-      assert.equal(status.automation.summary.totalJobs, 0);
-      assert.equal(status.recentIssues.find((issue) => issue.type === "malformed-json").path.endsWith("jobs.json"), true);
+      assert.equal("cronStore" in inputs, false);
+      assert.equal(status.automation.available, false);
+      assert.equal(status.automation.summary, null, "an unread scheduler is not reported as 0 jobs");
+      assert.equal(status.recentIssues.some((issue) => String(issue.path ?? "").endsWith("jobs.json")), false);
       assert.equal(inputs.skipStore.skips.length, 0);
       assert.equal(inputs.paths.skipStorePath.endsWith("routines/skips.json"), true);
       assert.equal(
@@ -473,8 +469,7 @@ describe("assistant status CLI", () => {
       loadInputs: () => ({
         env: { HILLA_TELEGRAM_BOT_TOKEN: "891055:SECRET", TELEGRAM_USER_ID: "1029709001" },
         config: sampleConfig(),
-        cronStore: sampleCronStore(),
-        cronState: sampleCronState(),
+        liveCron: liveSnapshot(),
         gatewayLogText: sampleLogs(),
         gatewayErrLogText: "",
         paths: {
@@ -491,7 +486,7 @@ describe("assistant status CLI", () => {
     assert.equal(JSON.stringify(result).includes("891055:SECRET"), false);
   });
 
-  it("accepts launchd-style absolute OpenClaw paths inside the project", async () => {
+  it("accepts launchd-style absolute OpenClaw paths and reports the live jobs, not a stale jobs.json", async () => {
     const directory = mkdtempSync(join(tmpdir(), "assistant-status-cli-"));
     const configPath = join(directory, ".openclaw/openclaw.json");
     const stateDir = join(directory, ".openclaw/state");
@@ -499,9 +494,10 @@ describe("assistant status CLI", () => {
     mkdirSync(join(stateDir, "logs"), { recursive: true });
     mkdirSync(join(stateDir, "telegram"), { recursive: true });
     writeFileSync(configPath, `${JSON.stringify(sampleConfig())}\n`);
-    writeFileSync(join(stateDir, "cron/jobs.json"), `${JSON.stringify(sampleCronStore())}\n`);
-    writeFileSync(join(stateDir, "cron/jobs-state.json"), `${JSON.stringify(sampleCronState())}\n`);
+    // A leftover of the old file store; the Gateway no longer reads it and neither does status.
+    writeFileSync(join(stateDir, "cron/jobs.json"), `${JSON.stringify({ version: 1, jobs: sampleLiveRawJobs() })}\n`);
     writeFileSync(join(stateDir, "logs/gateway.log"), `${sampleLogs()}\n`);
+    const fake = createFakeOpenClawCron();
 
     try {
       const result = await runAssistantStatusCli(["--json"], {
@@ -512,15 +508,122 @@ describe("assistant status CLI", () => {
           HILLA_TELEGRAM_BOT_TOKEN: "891055:SECRET",
           TELEGRAM_USER_ID: "1029709001",
         },
+        runOpenClaw: fake.run,
         now: new Date("2026-06-11T07:00:00.000Z"),
       });
 
       assert.equal(result.checks.find((check) => check.id === "config-file").status, "ok");
       assert.equal(result.checks.find((check) => check.id === "state-dir").status, "ok");
       assert.equal(result.telegram.enabled, true);
+      assert.equal(result.automation.summary.totalJobs, 11);
+      assert.equal(result.automation.jobs.some((job) => job.id === "renew-gym"), false);
+      assert.deepEqual(fake.mutations(), []);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  it("reports the live Gateway jobs: weekly plan, routines, one-shots and disabled jobs", async () => {
+    const fake = createFakeOpenClawCron();
+    const result = await runAssistantStatusCli(["--json"], {
+      loadInputs: async () => ({
+        env: { TELEGRAM_USER_ID: FAKE_TELEGRAM_ID },
+        config: sampleConfig(),
+        liveCron: await loadLiveSnapshotFrom(fake),
+        paths: {},
+        exists: () => true,
+      }),
+      now: new Date("2026-09-26T11:00:00.000Z"),
+    });
+    const jobNames = result.automation.jobs.map((job) => job.name);
+
+    assert.equal(result.automation.available, true);
+    assert.deepEqual(result.automation.summary, {
+      totalJobs: 11,
+      enabledJobs: 6,
+      disabledJobs: 5,
+      cronJobs: 9,
+      intervalJobs: 1,
+      oneTimeJobs: 1,
+      otherScheduleJobs: 0,
+      dailyRecurringJobs: 2,
+    });
+    assert.ok(jobNames.includes("Assistant weekly plan: propose"));
+    assert.ok(jobNames.includes("Assistant weekly plan: apply due plans"));
+    assert.ok(jobNames.includes("Renew EU health insurance card"));
+    assert.equal(result.automation.jobs.find((job) => job.name === "Assistant weather: morning").enabled, false);
+    assert.deepEqual(result.automation.routines.map((routine) => [routine.routineId, routine.enabled]), [
+      ["workout-window", true],
+      ["midday-check-in", true],
+      ["weekly-review", true],
+      ["evening-review", false],
+      ["morning-brief", false],
+    ]);
+    assert.equal(result.automation.jobs.find((job) => job.id === "routine-workout").lastErrorReason, "auth");
+    assert.equal(result.recentActivity.lastScheduledRunAt, new Date(1790423100019).toISOString());
+    assert.equal(result.automation.scheduler.storage, "sqlite");
+    assert.equal(JSON.stringify(result).includes(FAKE_TELEGRAM_ID), false);
+    assert.match(formatAssistantStatus(result), /Automation: 6\/11 automatic jobs enabled; 2 enabled daily recurring jobs \(live Gateway scheduler\)\./);
+  });
+
+  it("agrees with quiet-ops about the same live jobs", async () => {
+    const fake = createFakeOpenClawCron();
+    const status = buildAssistantStatus({ liveCron: await loadLiveSnapshotFrom(fake), paths: {}, exists: () => true });
+    const quiet = await runQuietOpsCli(["status"], { runOpenClaw: fake.run, env: {} });
+
+    for (const key of ["totalJobs", "enabledJobs", "disabledJobs", "oneShotJobs", "dailyRecurringJobs"]) {
+      const statusKey = key === "oneShotJobs" ? "oneTimeJobs" : key;
+      assert.equal(status.automation.summary[statusKey], quiet.summary[key], key);
+    }
+    assert.deepEqual(
+      status.automation.jobs.map((job) => [job.id, job.enabled]),
+      quiet.jobs.map((job) => [job.id, job.enabled]),
+    );
+  });
+
+  it("reports a live scheduler it cannot read as a clear issue, never as 0 jobs", async () => {
+    const fake = createFakeOpenClawCron({ fail: () => new Error("openclaw cron list failed: gateway closed (1006)") });
+    const directory = mkdtempSync(join(tmpdir(), "assistant-status-down-"));
+    const stateDir = join(directory, ".openclaw/state");
+    mkdirSync(join(stateDir, "cron"), { recursive: true });
+    writeFileSync(join(directory, ".openclaw/openclaw.json"), `${JSON.stringify(sampleConfig())}\n`);
+    writeFileSync(join(stateDir, "cron/jobs.json"), `${JSON.stringify({ version: 1, jobs: sampleLiveRawJobs() })}\n`);
+
+    try {
+      const result = await runAssistantStatusCli(["--json"], {
+        root: directory,
+        env: { HILLA_TELEGRAM_BOT_TOKEN: "891055:SECRET", TELEGRAM_USER_ID: "1029709001" },
+        runOpenClaw: fake.run,
+        now: new Date("2026-06-11T07:00:00.000Z"),
+      });
+
+      assert.equal(result.automation.available, false);
+      assert.equal(result.automation.summary, null);
+      assert.deepEqual(result.automation.jobs, []);
+      assert.match(result.automation.error, /gateway closed/);
+      assert.equal(result.checks.find((check) => check.id === "live-scheduler").status, "warn");
+      assert.ok(
+        result.recentIssues.some((issue) => issue.checkId === "live-scheduler" && /could not be read: openclaw cron list failed/.test(issue.message)),
+      );
+      assert.notEqual(result.overall, "running");
+      const text = formatAssistantStatus(result);
+      assert.match(text, /Automation: live Gateway scheduler unavailable \(openclaw cron list failed: gateway closed \(1006\)\)\./);
+      assert.match(text, /Routines: unknown while the live scheduler is unavailable\./);
+      assert.doesNotMatch(text, /0\/0|no assistant routines installed/);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("warns when the Gateway scheduler itself is disabled", () => {
+    const status = buildAssistantStatus({
+      liveCron: liveSnapshot(sampleLiveRawJobs(), { enabled: false, storage: "sqlite", jobCount: 3, nextWakeAt: null }),
+      paths: {},
+      exists: () => true,
+    });
+
+    assert.equal(status.checks.find((check) => check.id === "live-scheduler").status, "warn");
+    assert.match(formatAssistantStatus(status), /\(live Gateway scheduler, which is disabled\)/);
   });
 
   it("includes bounded redacted log lines only when requested", async () => {
@@ -528,8 +631,7 @@ describe("assistant status CLI", () => {
       loadInputs: () => ({
         env: { HILLA_TELEGRAM_BOT_TOKEN: "891055:SECRET", TELEGRAM_USER_ID: "1029709001" },
         config: sampleConfig(),
-        cronStore: sampleCronStore(),
-        cronState: sampleCronState(),
+        liveCron: liveSnapshot(),
         gatewayLogText: sampleLogs(),
         gatewayErrLogText: "2026-06-10T23:30:00.000+02:00 [gateway] error token 891055:SECRET",
         paths: {
@@ -589,7 +691,7 @@ describe("assistant status CLI", () => {
 
 describe("canonical Telegram bot token variable", () => {
   const config = sampleConfig();
-  const base = { config, cronStore: sampleCronStore(), cronState: sampleCronState(), now: new Date() };
+  const base = { config, liveCron: liveSnapshot(), now: new Date() };
 
   function telegramCheck(env) {
     const status = buildAssistantStatus({ ...base, env });
