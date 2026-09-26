@@ -565,9 +565,10 @@ export function scheduleOverlay(entries, snapshot) {
       return { label, state };
     });
     const onCount = jobs.filter((job) => job.state === "on").length;
+    const missingCount = jobs.filter((job) => job.state === "missing").length;
     overlay[entry.id] = {
       mode,
-      state: onCount === jobs.length ? "on" : onCount === 0 ? "off" : "partly_on",
+      state: onCount === jobs.length ? "on" : missingCount === jobs.length ? "missing" : onCount === 0 ? "off" : "partly_on",
       jobs,
       ...(schedulerOff ? { schedulerOff: true } : {}),
     };
@@ -719,16 +720,23 @@ export function describeSchedule(schedule) {
   if (schedule.schedulerOff) return "The scheduler is switched off, so none of this runs right now.";
 
   const labelsWith = (state) => schedule.jobs.filter((job) => job.state === state).map((job) => job.label);
-  if (schedule.mode === "all") {
-    if (schedule.state === "on") return "Switched on.";
-    if (schedule.state === "off") return "Switched off right now.";
-    const notOn = [...labelsWith("off"), ...labelsWith("missing")];
-    return `Only partly on right now: ${joinWords(notOn)} ${notOn.length === 1 ? "is" : "are"} off.`;
-  }
-
   const on = labelsWith("on");
   const off = labelsWith("off");
   const missing = labelsWith("missing");
+
+  // One feature made of several jobs: a job that was never installed is "not
+  // set up", which is not the same as one that was switched off.
+  if (schedule.mode === "all") {
+    if (schedule.state === "on") return "Switched on.";
+    if (schedule.state === "missing") return "Not set up here.";
+    if (on.length === 0 && missing.length === 0) return "Switched off right now.";
+    const parts = [
+      off.length > 0 ? `${joinWords(off)} ${off.length === 1 ? "is" : "are"} off` : null,
+      missing.length > 0 ? `${joinWords(missing)} ${missing.length === 1 ? "isn't" : "aren't"} set up` : null,
+    ].filter(Boolean);
+    return `${on.length === 0 ? "Not running right now" : "Only partly on right now"}: ${parts.join(", and ")}.`;
+  }
+
   return [
     on.length > 0 ? `On now: ${joinWords(on)}.` : "None are on right now.",
     off.length > 0 ? `Off: ${joinWords(off)}.` : null,

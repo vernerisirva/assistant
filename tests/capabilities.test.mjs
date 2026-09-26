@@ -445,8 +445,29 @@ describe("capability overlays", () => {
     const overlay = scheduleOverlay(CAPABILITIES, { available: true, jobs: partly, scheduler: { enabled: true } });
     assert.equal(describeSchedule(overlay["weekly-plan.plan"]), "Only partly on right now: the automatic apply check is off.");
 
+    const noApply = partly.filter((job) => job.name !== WEEKLY_PLAN_APPLY_JOB);
+    const missingApply = scheduleOverlay(CAPABILITIES, { available: true, jobs: noApply, scheduler: { enabled: true } });
+    assert.equal(describeSchedule(missingApply["weekly-plan.plan"]), "Only partly on right now: the automatic apply check isn't set up.");
+
+    // A job that was switched off is not the same as one that was never installed.
+    const disabled = liveJobs.map((job) => (job.name.startsWith("Assistant weekly plan:") ? { ...job, enabled: false } : job));
+    const offPlan = scheduleOverlay(CAPABILITIES, { available: true, jobs: disabled, scheduler: { enabled: true } });
+    assert.equal(offPlan["weekly-plan.plan"].state, "off");
+    assert.equal(describeSchedule(offPlan["weekly-plan.plan"]), "Switched off right now.");
+
+    const mixed = scheduleOverlay(CAPABILITIES, {
+      available: true,
+      jobs: [{ name: WEEKLY_PLAN_PROPOSE_JOB, enabled: false }],
+      scheduler: { enabled: true },
+    });
+    assert.equal(
+      describeSchedule(mixed["weekly-plan.plan"]),
+      "Not running right now: the Saturday proposal is off, and the automatic apply check isn't set up.",
+    );
+
     const noPlan = scheduleOverlay(CAPABILITIES, { available: true, jobs: [], scheduler: { enabled: true } });
-    assert.equal(describeSchedule(noPlan["weekly-plan.plan"]), "Switched off right now.");
+    assert.equal(noPlan["weekly-plan.plan"].state, "missing");
+    assert.equal(describeSchedule(noPlan["weekly-plan.plan"]), "Not set up here.");
     assert.equal(
       describeSchedule(noPlan["routines.check-ins"]),
       "None are on right now. Not set up: morning brief, midday check-in, workout window, evening review and Sunday weekly review.",
