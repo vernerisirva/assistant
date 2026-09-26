@@ -179,8 +179,11 @@ function createContext({
   let planningCache;
   let todoistCache;
   const openclawCommand = () => resolveGatewayOpenClawCommand(env);
+  // Like the Gateway wrapper: the repo .env values (for example the Telegram
+  // bot token the rendered config refers to) plus the project config and state.
   const openclawEnv = () => ({
     ...process.env,
+    ...env,
     OPENCLAW_CONFIG_PATH: resolveOpenClawConfigPath(env, root),
     OPENCLAW_STATE_DIR: resolvedStateDir,
   });
@@ -188,6 +191,7 @@ function createContext({
     runOpenClaw ??
     (async (args, { timeoutMs = 60_000 } = {}) => {
       const { stdout } = await execFileAsync(openclawCommand(), args, {
+        cwd: root,
         env: openclawEnv(),
         timeout: timeoutMs,
         maxBuffer: 4 * 1024 * 1024,
