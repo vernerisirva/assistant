@@ -15,6 +15,8 @@ npm run --silent assistant:status -- --json
 
 Use this before changing schedules or restarting the gateway. The command is read-only and redacts local secrets.
 
+It reads the gateway log the running service actually writes: the installed LaunchAgent's `StandardOutPath`, then OpenClaw's default `~/Library/Logs/openclaw/gateway.log`, then the legacy `.openclaw/state/logs/gateway.log`. It prints which file it used. The gateway counts as up from its last `[gateway] ready` line until a later shutdown line, however long ago that start was, because hot config reloads do not log a new start.
+
 Render config after changing `.env` or `config/agents.json`:
 
 ```bash

@@ -1,8 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import * as assistantStatusModule from "../scripts/lib/assistant-status.mjs";
 import { REQUIRED_ENV_KEYS, requiredEnvReport } from "../scripts/lib/env.mjs";
 import {
@@ -398,6 +399,50 @@ describe("assistant status log parsing", () => {
     assert.equal(parsed.issues[0].type, "fetch-timeout");
   });
 
+  it("keeps a long-running gateway ready after its start line is more than a day old", () => {
+    const logText = [
+      "2026-09-20T08:00:00.000+02:00 [gateway] ready",
+      "2026-09-20T08:00:00.200+02:00 [telegram] [main] starting provider (@hilla_assistant_bot)",
+      "2026-09-26T12:19:24.426+02:00 [agents/auth-profiles] adopted newer OAuth credentials from main agent",
+    ].join("\n");
+    const now = new Date("2026-09-26T11:00:00.000Z");
+
+    const parsed = parseGatewayLogText(logText, { now, recentHours: 24 });
+    assert.equal(parsed.gatewayReadyAt, "2026-09-20T08:00:00.000+02:00");
+    assert.equal(parsed.telegramProvider, "@hilla_assistant_bot");
+
+    const status = buildAssistantStatus({
+      env: { HILLA_TELEGRAM_BOT_TOKEN: "891055:SECRET", TELEGRAM_USER_ID: "1029709001" },
+      config: sampleConfig(),
+      gatewayLogText: logText,
+      paths: { configPath: ".openclaw/openclaw.json", stateDir: ".openclaw/state", telegramDir: ".openclaw/state/telegram" },
+      exists: () => true,
+      now,
+    });
+    assert.equal(status.checks.find((check) => check.id === "gateway-ready-log").status, "ok");
+    assert.equal(status.overall, "running");
+  });
+
+  it("treats a start followed by a shutdown as stopped until the next start", () => {
+    const stopped = [
+      "2026-09-26T12:00:00.000+02:00 [gateway] ready",
+      "2026-09-26T12:00:00.100+02:00 [telegram] [main] starting provider (@hilla_assistant_bot)",
+      "2026-09-26T12:26:51.223+02:00 [gateway] received SIGTERM; shutting down",
+      "2026-09-26T12:26:51.284+02:00 [shutdown] started: gateway stopping",
+    ];
+    const now = new Date("2026-09-26T11:00:00.000Z");
+
+    const whileStopped = parseGatewayLogText(stopped.join("\n"), { now, recentHours: 24 });
+    assert.equal(whileStopped.gatewayReadyAt, null);
+    assert.equal(whileStopped.telegramProvider, null);
+
+    const restarted = parseGatewayLogText(
+      [...stopped, "2026-09-26T12:26:59.022+02:00 [gateway] ready"].join("\n"),
+      { now, recentHours: 24 },
+    );
+    assert.equal(restarted.gatewayReadyAt, "2026-09-26T12:26:59.022+02:00");
+  });
+
   it("redacts known secrets and Telegram bot URL token forms", () => {
     const text = "token=abc123 https://api.telegram.org/bot891055:SECRET/getMe gateway-secret-token";
     const redacted = redactSensitiveText(text, ["abc123", "gateway-secret-token"]);
@@ -660,6 +705,240 @@ describe("assistant status weekly plan", () => {
       assert.match(formatAssistantStatus(status), /Weekly plan: none yet\./);
     } finally {
       rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("assistant status gateway log discovery", () => {
+  const liveNow = new Date("2026-09-26T11:00:00.000Z");
+
+  function createLogFixture() {
+    const directory = mkdtempSync(join(tmpdir(), "assistant-status-logs-"));
+    const fixture = {
+      directory,
+      home: join(directory, "home"),
+      stateDir: join(directory, ".openclaw/state"),
+      configPath: join(directory, ".openclaw/openclaw.json"),
+    };
+    mkdirSync(join(fixture.stateDir, "telegram"), { recursive: true });
+    writeFileSync(fixture.configPath, `${JSON.stringify(sampleConfig())}\n`);
+    return fixture;
+  }
+
+  function writeFileAt(path, text) {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, text);
+  }
+
+  function launchAgentPlist({ stdoutPath, stderrPath }) {
+    return [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+      '<plist version="1.0">',
+      "<dict>",
+      "  <key>Label</key>",
+      "  <string>ai.openclaw.gateway</string>",
+      "  <key>StandardOutPath</key>",
+      `  <string>${stdoutPath}</string>`,
+      "  <key>StandardErrorPath</key>",
+      `  <string>${stderrPath}</string>`,
+      "</dict>",
+      "</plist>",
+      "",
+    ].join("\n");
+  }
+
+  // A clean start as OpenClaw 2026.7 writes it to the LaunchAgent log.
+  function healthyLiveLog() {
+    return [
+      "2026-09-26T12:26:56.719+02:00 [gateway] loading configuration…",
+      "2026-09-26T12:26:58.825+02:00 [gateway] agent model: openai/gpt-5.6-sol (thinking=medium, fast=off)",
+      "2026-09-26T12:26:59.022+02:00 [gateway] ready",
+      "2026-09-26T12:26:59.134+02:00 [telegram] [main] starting provider (@hilla_assistant_bot)",
+      "",
+    ].join("\n");
+  }
+
+  // What the repo-local file still holds after the service moved elsewhere:
+  // its last start, then the shutdown when the old service was removed.
+  function staleLegacyLog() {
+    return [
+      "2026-07-22T22:17:00.000+02:00 [gateway] ready",
+      "2026-07-22T22:18:23.036+02:00 [gateway] received SIGTERM; shutting down",
+      "2026-07-22T22:18:23.070+02:00 [shutdown] started: gateway stopping",
+      "2026-07-22T22:18:28.403+02:00 [shutdown] completed cleanly in 5334ms",
+      "",
+    ].join("\n");
+  }
+
+  const liveLogPath = (home, name = "gateway.log") => join(home, "Library/Logs/openclaw", name);
+  const plistPath = (home) => join(home, "Library/LaunchAgents/ai.openclaw.gateway.plist");
+  const legacyLogPath = (stateDir) => join(stateDir, "logs/gateway.log");
+  const liveEnv = (home, extra = {}) => ({
+    HOME: home,
+    HILLA_TELEGRAM_BOT_TOKEN: "891055:SECRET",
+    TELEGRAM_USER_ID: "1029709001",
+    ...extra,
+  });
+
+  function loadFor(fixture, { env, platform = "darwin" }) {
+    return loadAssistantStatusInputs({
+      env,
+      projectRoot: fixture.directory,
+      configPath: fixture.configPath,
+      stateDir: fixture.stateDir,
+      platform,
+    });
+  }
+
+  function statusFor(fixture, options) {
+    return buildAssistantStatus({ ...loadFor(fixture, options), now: liveNow });
+  }
+
+  it("reads the log the installed LaunchAgent writes instead of the stale repo-local copy", () => {
+    const fixture = createLogFixture();
+    try {
+      writeFileAt(liveLogPath(fixture.home), healthyLiveLog());
+      writeFileAt(plistPath(fixture.home), launchAgentPlist({ stdoutPath: liveLogPath(fixture.home), stderrPath: "/dev/null" }));
+      writeFileAt(legacyLogPath(fixture.stateDir), staleLegacyLog());
+
+      const status = statusFor(fixture, { env: liveEnv(fixture.home) });
+
+      assert.equal(status.logs.source, "launchd");
+      assert.equal(status.logs.stdoutPath, liveLogPath(fixture.home));
+      assert.equal(status.logs.stderrPath, null);
+      assert.equal(status.recentActivity.gatewayReadyAt, "2026-09-26T12:26:59.022+02:00");
+      assert.equal(status.telegram.provider, "@hilla_assistant_bot");
+      assert.equal(status.checks.find((check) => check.id === "gateway-ready-log").status, "ok");
+      assert.deepEqual(status.recentIssues, []);
+      assert.equal(status.overall, "running");
+      assert.match(formatAssistantStatus(status), /Gateway log: .*Library\/Logs\/openclaw\/gateway\.log \(launchd\)\./);
+
+      // Reading only the stale repo-local copy is what used to report a healthy gateway as degraded.
+      const legacyOnly = statusFor(fixture, { env: liveEnv(fixture.home), platform: "linux" });
+      assert.equal(legacyOnly.logs.source, "legacy");
+      assert.equal(legacyOnly.overall, "degraded");
+    } finally {
+      rmSync(fixture.directory, { recursive: true, force: true });
+    }
+  });
+
+  it("uses OpenClaw's default LaunchAgent log location when no plist is installed", () => {
+    const fixture = createLogFixture();
+    try {
+      writeFileAt(liveLogPath(fixture.home), healthyLiveLog());
+      writeFileAt(legacyLogPath(fixture.stateDir), staleLegacyLog());
+
+      const status = statusFor(fixture, { env: liveEnv(fixture.home) });
+      assert.equal(status.logs.source, "openclaw-default");
+      assert.equal(status.logs.stdoutPath, liveLogPath(fixture.home));
+      assert.equal(status.overall, "running");
+
+      writeFileAt(liveLogPath(fixture.home, "custom.log"), healthyLiveLog());
+      const prefixed = statusFor(fixture, { env: liveEnv(fixture.home, { OPENCLAW_LOG_PREFIX: "custom" }) });
+      assert.equal(prefixed.logs.stdoutPath, liveLogPath(fixture.home, "custom.log"));
+    } finally {
+      rmSync(fixture.directory, { recursive: true, force: true });
+    }
+  });
+
+  it("reads a binary LaunchAgent plist too", { skip: process.platform !== "darwin" && "needs macOS plutil" }, () => {
+    const fixture = createLogFixture();
+    try {
+      // A non-default file name proves the path came from the plist, not the default location.
+      const customLog = liveLogPath(fixture.home, "custom-gateway.log");
+      writeFileAt(customLog, healthyLiveLog());
+      writeFileAt(plistPath(fixture.home), launchAgentPlist({ stdoutPath: customLog, stderrPath: "/dev/null" }));
+      execFileSync("/usr/bin/plutil", ["-convert", "binary1", plistPath(fixture.home)]);
+      writeFileAt(legacyLogPath(fixture.stateDir), staleLegacyLog());
+
+      const status = statusFor(fixture, { env: liveEnv(fixture.home) });
+      assert.equal(status.logs.source, "launchd");
+      assert.equal(status.logs.stdoutPath, customLog);
+      assert.equal(status.overall, "running");
+    } finally {
+      rmSync(fixture.directory, { recursive: true, force: true });
+    }
+  });
+
+  it("skips a LaunchAgent log path that does not exist", () => {
+    const fixture = createLogFixture();
+    try {
+      writeFileAt(plistPath(fixture.home), launchAgentPlist({ stdoutPath: liveLogPath(fixture.home, "missing.log"), stderrPath: "/dev/null" }));
+      writeFileAt(liveLogPath(fixture.home), healthyLiveLog());
+
+      const status = statusFor(fixture, { env: liveEnv(fixture.home) });
+      assert.equal(status.logs.source, "openclaw-default");
+      assert.equal(status.logs.stdoutPath, liveLogPath(fixture.home));
+    } finally {
+      rmSync(fixture.directory, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to the legacy repo-local logs, which are also OpenClaw's default off macOS", () => {
+    const fixture = createLogFixture();
+    try {
+      writeFileAt(legacyLogPath(fixture.stateDir), healthyLiveLog());
+
+      const status = statusFor(fixture, { env: liveEnv(fixture.home) });
+      assert.equal(status.logs.source, "legacy");
+      assert.equal(status.logs.stdoutPath, legacyLogPath(fixture.stateDir));
+      assert.equal(status.recentActivity.gatewayReadyAt, "2026-09-26T12:26:59.022+02:00");
+      assert.equal(status.overall, "running");
+
+      writeFileAt(liveLogPath(fixture.home), staleLegacyLog());
+      const offMac = statusFor(fixture, { env: liveEnv(fixture.home), platform: "linux" });
+      assert.equal(offMac.logs.source, "legacy");
+
+      const withoutHome = statusFor(fixture, { env: liveEnv(undefined) });
+      assert.equal(withoutHome.logs.source, "legacy");
+    } finally {
+      rmSync(fixture.directory, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps returning status when no gateway log exists anywhere", () => {
+    const fixture = createLogFixture();
+    try {
+      const status = statusFor(fixture, { env: liveEnv(fixture.home) });
+
+      assert.equal(status.logs.source, null);
+      assert.equal(status.logs.stdoutPath, null);
+      assert.equal(status.logs.checked.includes(liveLogPath(fixture.home)), true);
+      assert.equal(status.logs.checked.includes(legacyLogPath(fixture.stateDir)), true);
+      assert.equal(status.checks.find((check) => check.id === "gateway-ready-log").status, "warn");
+      assert.equal(status.overall, "degraded");
+      assert.match(formatAssistantStatus(status), /Gateway log: not found\./);
+    } finally {
+      rmSync(fixture.directory, { recursive: true, force: true });
+    }
+  });
+
+  it("redacts secrets in lines read from the discovered log", async () => {
+    const fixture = createLogFixture();
+    try {
+      writeFileAt(
+        liveLogPath(fixture.home),
+        [
+          healthyLiveLog().trimEnd(),
+          "2026-09-26T12:40:00.000+02:00 [telegram] error polling https://api.telegram.org/bot891055:SECRET/getUpdates with 891055:SECRET",
+          "2026-09-26T12:41:00.000+02:00 [gateway] error auth gateway-secret-token rejected",
+          "",
+        ].join("\n"),
+      );
+
+      const result = await runAssistantStatusCli(["--include-logs"], {
+        loadInputs: () => loadFor(fixture, { env: liveEnv(fixture.home) }),
+        now: liveNow,
+      });
+
+      assert.equal(result.logs.source, "openclaw-default");
+      assert.equal(result.recentIssues.filter((issue) => issue.type === "log-error").length, 2);
+      assert.equal(result.recentLogs.some((entry) => entry.line.includes("<redacted>")), true);
+      assert.equal(JSON.stringify(result).includes("891055:SECRET"), false);
+      assert.equal(JSON.stringify(result).includes("gateway-secret-token"), false);
+    } finally {
+      rmSync(fixture.directory, { recursive: true, force: true });
     }
   });
 });

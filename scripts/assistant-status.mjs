@@ -142,10 +142,17 @@ export function formatAssistantStatus(status) {
     `Routines: ${routineText}.`,
     `Weekly plan: ${describeWeeklyPlan(status.weeklyPlan)}.`,
     `Recent activity: gateway ready at ${status.recentActivity?.gatewayReadyAt ?? "unknown"}; last scheduled run ${status.recentActivity?.lastScheduledRunAt ?? "unknown"}.`,
+    ...describeGatewayLog(status.logs),
     `Recent issues: ${issueText}.`,
     `Controls: ${controlText}`,
     ...logLines,
   ].join("\n");
+}
+
+function describeGatewayLog(logs) {
+  if (!logs) return [];
+  const path = logs.stdoutPath ?? logs.stderrPath;
+  return [path ? `Gateway log: ${path} (${logs.source}).` : "Gateway log: not found."];
 }
 
 function describeWeeklyPlan(weeklyPlan) {
