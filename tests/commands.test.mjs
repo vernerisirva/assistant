@@ -112,6 +112,19 @@ describe("OpenClaw runtime resolution", () => {
     );
   });
 
+  it("ignores the OPENCLAW_CLI=1 marker the Gateway sets inside agent turns", () => {
+    // Every live-scheduler command an agent ran resolved to a command named "1"
+    // and failed with "OpenClaw CLI not found at 1".
+    const { home, managed, nvmBin } = machine();
+    fakeExecutable(managed, "2026.7.1-2");
+    for (const marker of ["1", " 1 ", "true", "0", "FALSE", "yes", "on"]) {
+      assert.equal(resolveOpenClawCommand({ HOME: home, PATH: nvmBin, OPENCLAW_CLI: marker }), managed, marker);
+      assert.equal(resolveOpenClawRuntime({ env: { HOME: home, PATH: nvmBin, OPENCLAW_CLI: marker } }).source, "managed", marker);
+    }
+    // A real command name is still an override.
+    assert.equal(resolveOpenClawCommand({ HOME: home, PATH: nvmBin, OPENCLAW_CLI: "openclaw" }), "openclaw");
+  });
+
   it("accepts openclaw on PATH only when it is new enough", () => {
     const { home, nvmBin } = machine();
     const onPath = fakeExecutable(join(nvmBin, "openclaw"), "2026.5.12");

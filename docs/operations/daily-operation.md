@@ -289,7 +289,7 @@ npm run install:launchd                # install or refresh; restarts only when 
 
 The installer uses the OpenClaw that normal Gateway operations use, checked in this order:
 
-1. `OPENCLAW_CLI`, if set;
+1. `OPENCLAW_CLI`, if set to a path or command (the `OPENCLAW_CLI=1` marker the Gateway sets in agent turns is ignored);
 2. the managed `~/.openclaw/bin/openclaw`;
 3. an `openclaw` on PATH, but only if it reports 2026.7.1 or newer.
 

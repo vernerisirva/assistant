@@ -235,7 +235,7 @@ describe("capability boundaries", () => {
     for (const entry of calendar.filter((candidate) => candidate.status === "available")) {
       assert.equal(entry.effect, "none", `${entry.id} must not claim a Calendar write`);
     }
-    assert.match(capabilityById("calendar.preview").summary, /Creating it isn't supported yet/);
+    assert.match(capabilityById("calendar.preview").summary, /Creating it isn't currently supported/);
     assert.match(capabilityById("calendar.preview").examples[0], /^Preview/);
     assert.equal(capabilityById("calendar.write").status, "not_available");
   });
@@ -287,8 +287,8 @@ describe("capability boundaries", () => {
 
     assert.equal(plan.approval, "standing");
     assert.match(plan.summary, /^every Saturday/);
-    assert.match(plan.summary, /change, OK or cancel it before its Todoist tasks are added/);
-    assert.match(plan.limit, /Unless you cancel, its Todoist tasks are added 12 hours after you last saw it, or right away when you say OK/);
+    assert.match(plan.summary, /unless you cancel, its Todoist tasks are added 12 hours after you last saw it/);
+    assert.match(plan.limit, /Say OK to add them right away, or ask for a change, which restarts the 12 hours/);
     assert.match(plan.limit, /It only adds new tasks of your own: nothing is edited or deleted, and Calendar and email are never touched/);
 
     // It is the only standing authorization and the only automatic writer.
@@ -370,7 +370,7 @@ describe("capability views", () => {
     assert.match(text, /- Not supported: pay for, cancel or check in to a booking\. I stop before payment; you finish it in Min Golf\./);
 
     const calendar = formatCapabilityView(viewFor({ tag: "calendar" }));
-    assert.match(calendar, /- Preview a new event — check one new event's details\. Creating it isn't supported yet\./);
+    assert.match(calendar, /- Preview a new event — check one new event's details\. Creating it isn't currently supported\./);
     assert.match(calendar, /- Not supported: create or change Calendar events\. I can preview a new event or suggest a change for you to make\./);
 
     const todoist = ids(viewFor({ tag: "todoist" }).capabilities);

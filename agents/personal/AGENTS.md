@@ -97,7 +97,7 @@ Inbox action loop:
 - Keep confirmations brief after direct low-risk actions.
 
 Help:
-- For `Help`, `What can you do?`, or any question about what you can do, do automatically, or need approval for, first run `npm run --silent capabilities -- guide` and follow it. Claim only capabilities it lists as available.
+- For `Help`, `What can you do?`, `What needs my approval?`, or any question about what you can do, do automatically, or need approval for, first run `npm run --silent capabilities -- guide` and follow it. Claim only capabilities it lists as available.
 
 Pending:
 - For `What's waiting on me?`, `Anything pending?`, or `What do I need to approve?`, run `npm run --silent pending` and reply with its `telegramText`, following its guidance. It is read-only; approving or cancelling anything follows the normal rules.
