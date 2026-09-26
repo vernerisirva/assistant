@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { routineCronStatus } from "./routine-cron.mjs";
 import { readRoutineSkipStore, resolveRoutineSkipStorePath } from "./routine-skips.mjs";
 import { formatLocalDateTime, nextWeekStart } from "./weekly-plan.mjs";
@@ -8,6 +8,7 @@ import { createWeeklyPlanStore, summarizeWeeklyPlans } from "./weekly-plan-store
 const defaultCronStore = { version: 1, jobs: [] };
 const defaultCronState = { version: 1, jobs: {} };
 const defaultSkipStore = { version: 1, skips: [] };
+const DEFAULT_LAUNCHD_LABEL = "ai.openclaw.gateway";
 
 export function buildAssistantStatus({
   env = {},
@@ -20,6 +21,7 @@ export function buildAssistantStatus({
   gatewayErrLogText = "",
   loadIssues = [],
   paths = {},
+  logSource = null,
   exists = existsSync,
   now = new Date(),
   recentHours = 24,
@@ -69,6 +71,14 @@ export function buildAssistantStatus({
       lastScheduledRunAt: lastScheduledRunAt(safeCronState),
     },
     recentIssues,
+    logs: logSource
+      ? {
+          source: logSource.source ?? null,
+          stdoutPath: logSource.stdoutPath ?? null,
+          stderrPath: logSource.stderrPath ?? null,
+          checked: logSource.checked ?? [],
+        }
+      : null,
     suggestedActions: buildSuggestedActions(),
   };
 }
@@ -78,10 +88,12 @@ export function loadAssistantStatusInputs({
   projectRoot = process.cwd(),
   configPath,
   stateDir,
+  platform = process.platform,
 } = {}) {
   const resolvedConfigPath = configPath ?? join(projectRoot, ".openclaw", "openclaw.json");
   const resolvedStateDir = stateDir ?? join(projectRoot, ".openclaw", "state");
   const skipStorePath = resolveRoutineSkipStorePath(resolvedStateDir);
+  const logSource = resolveGatewayLogSource({ env, stateDir: resolvedStateDir, platform });
   const loadIssues = [];
   const config = readJsonFile(resolvedConfigPath, {}, loadIssues);
   const cronStore = normalizeCronStore(
@@ -100,8 +112,9 @@ export function loadAssistantStatusInputs({
     cronState,
     skipStore,
     weeklyPlans,
-    gatewayLogText: readTextFile(join(resolvedStateDir, "logs", "gateway.log")),
-    gatewayErrLogText: readTextFile(join(resolvedStateDir, "logs", "gateway.err.log")),
+    gatewayLogText: logSource.stdoutPath ? readTextFile(logSource.stdoutPath) : "",
+    gatewayErrLogText: logSource.stderrPath ? readTextFile(logSource.stderrPath) : "",
+    logSource,
     loadIssues,
     paths: {
       projectRoot,
@@ -112,6 +125,75 @@ export function loadAssistantStatusInputs({
     },
     exists: existsSync,
   };
+}
+
+/**
+ * Finds the log files the running gateway actually writes, in this order:
+ *
+ * 1. the installed LaunchAgent's StandardOutPath/StandardErrorPath, which is
+ *    the explicit launch configuration (/dev/null is ignored);
+ * 2. OpenClaw's own LaunchAgent default, ~/Library/Logs/openclaw/<prefix>.log;
+ * 3. the legacy <stateDir>/logs used by the repo's launchd installer, which is
+ *    also OpenClaw's default off macOS.
+ *
+ * The first candidate with an existing file wins. The macOS candidates need
+ * env.HOME, so a caller that passes no HOME only looks in the state directory.
+ */
+function resolveGatewayLogSource({ env = {}, stateDir, platform }) {
+  const candidates = [];
+  const home = typeof env.HOME === "string" && env.HOME.trim().length > 0 ? env.HOME.trim() : null;
+  if (platform === "darwin" && home) {
+    const label = env.OPENCLAW_LAUNCHD_LABEL?.trim() || DEFAULT_LAUNCHD_LABEL;
+    const launchAgentPaths = readLaunchAgentLogPaths(join(home, "Library", "LaunchAgents", `${label}.plist`));
+    if (launchAgentPaths) candidates.push({ source: "launchd", ...launchAgentPaths });
+    const prefix = env.OPENCLAW_LOG_PREFIX?.trim() || "gateway";
+    const logDir = join(home, "Library", "Logs", "openclaw");
+    candidates.push({
+      source: "openclaw-default",
+      stdoutPath: join(logDir, `${prefix}.log`),
+      stderrPath: join(logDir, `${prefix}.err.log`),
+    });
+  }
+  candidates.push({
+    source: "legacy",
+    stdoutPath: join(stateDir, "logs", "gateway.log"),
+    stderrPath: join(stateDir, "logs", "gateway.err.log"),
+  });
+
+  const checked = candidates.flatMap((candidate) => [candidate.stdoutPath, candidate.stderrPath].filter(Boolean));
+  const found = candidates.find((candidate) =>
+    [candidate.stdoutPath, candidate.stderrPath].some((path) => path && existsSync(path)),
+  );
+  if (!found) return { source: null, stdoutPath: null, stderrPath: null, checked };
+  return {
+    source: found.source,
+    stdoutPath: found.stdoutPath && existsSync(found.stdoutPath) ? found.stdoutPath : null,
+    stderrPath: found.stderrPath && existsSync(found.stderrPath) ? found.stderrPath : null,
+    checked,
+  };
+}
+
+function readLaunchAgentLogPaths(plistPath) {
+  const plist = readTextFile(plistPath);
+  if (!plist) return null;
+  const stdoutPath = plistLogPath(plist, "StandardOutPath");
+  const stderrPath = plistLogPath(plist, "StandardErrorPath");
+  return stdoutPath || stderrPath ? { stdoutPath, stderrPath } : null;
+}
+
+/** Reads one string value from an XML plist. A binary plist yields nothing. */
+function plistLogPath(plist, key) {
+  const match = new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`).exec(plist);
+  const value = match
+    ? match[1]
+        .trim()
+        .replaceAll("&lt;", "<")
+        .replaceAll("&gt;", ">")
+        .replaceAll("&quot;", '"')
+        .replaceAll("&apos;", "'")
+        .replaceAll("&amp;", "&")
+    : "";
+  return isAbsolute(value) && value !== "/dev/null" ? value : null;
 }
 
 export function parseGatewayLogText(text = "", { now = new Date(), recentHours = 24, secrets = [] } = {}) {
@@ -132,17 +214,25 @@ export function parseGatewayLogText(text = "", { now = new Date(), recentHours =
     const timestamp = leadingTimestamp(line);
     if (!timestamp) continue;
     const timestampMs = timestamp ? Date.parse(timestamp) : NaN;
-    if (Number.isFinite(timestampMs) && timestampMs < cutoffMs) continue;
 
+    // A gateway that is still up logged "ready" at its last start, however long
+    // ago that was; hot reloads do not log it again. Only a later shutdown
+    // means that start is over.
     if (line.includes("[gateway] ready")) {
-      result.gatewayReadyAt = timestamp ?? result.gatewayReadyAt;
+      result.gatewayReadyAt = timestamp;
+    } else if (isGatewayShutdownLine(line)) {
+      result.gatewayReadyAt = null;
+      result.telegramProviderStartedAt = null;
+      result.telegramProvider = null;
     }
 
     const providerMatch = line.match(/\[telegram\].*starting provider\s+\(([^)]+)\)/i);
     if (providerMatch) {
-      result.telegramProviderStartedAt = timestamp ?? result.telegramProviderStartedAt;
+      result.telegramProviderStartedAt = timestamp;
       result.telegramProvider = providerMatch[1];
     }
+
+    if (Number.isFinite(timestampMs) && timestampMs < cutoffMs) continue;
 
     if (isInboundTelegramLine(line)) {
       result.lastInboundTelegramAt = timestamp ?? result.lastInboundTelegramAt;
@@ -209,7 +299,9 @@ function buildChecks({ env, config, paths, exists, parsedLogs, telegram }) {
     {
       id: "gateway-ready-log",
       status: parsedLogs.gatewayReadyAt ? "ok" : "warn",
-      message: parsedLogs.gatewayReadyAt ? "Gateway ready log found." : "No recent gateway ready log was found.",
+      message: parsedLogs.gatewayReadyAt
+        ? "Gateway ready log found."
+        : "No gateway start without a later shutdown was found in the gateway log.",
     },
   ];
 }
@@ -447,6 +539,10 @@ function filterIssuesSinceLatestGatewayReady(issues, gatewayReadyAt) {
     const issueMs = Date.parse(issue.at);
     return !Number.isFinite(issueMs) || issueMs >= readyMs;
   });
+}
+
+function isGatewayShutdownLine(line) {
+  return /\[gateway\] received SIG[A-Z]+; shutting down|\[shutdown\] started/.test(line);
 }
 
 function isInboundTelegramLine(line) {
