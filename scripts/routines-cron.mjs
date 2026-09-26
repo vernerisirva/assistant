@@ -25,6 +25,7 @@ import {
   LIVE_CRON_SOURCE,
   changedJobs,
   createGatewayCron,
+  createSecretRedactor,
   executeJobChange,
   maskCronCommandForDisplay,
   planCronExpressionChange,
@@ -165,6 +166,7 @@ export async function runRoutineCronCli(
   }
 
   if (parsed.command === "status") {
+    const redact = liveCron().redact ?? ((text) => text);
     const routines = routineCronStatus(await liveCron().list(), {
       skipStore: readSkipStoreForStatus(),
       now,
@@ -174,9 +176,9 @@ export async function runRoutineCronCli(
     for (const routine of routines) counts.set(routine.routineId, (counts.get(routine.routineId) ?? 0) + 1);
     return {
       source: LIVE_CRON_SOURCE,
-      routines,
+      routines: routines.map((routine) => ({ ...routine, routineId: redact(routine.routineId), name: redact(routine.name) })),
       notInstalled: configuredRoutineIds.filter((routineId) => !counts.has(routineId)),
-      duplicates: [...counts].filter(([, count]) => count > 1).map(([routineId]) => routineId),
+      duplicates: [...counts].filter(([, count]) => count > 1).map(([routineId]) => redact(routineId)),
     };
   }
 
@@ -347,7 +349,7 @@ if (process.argv[1] && currentFile === resolve(process.argv[1])) {
       parsed.options.json ? JSON.stringify(result, null, 2) : formatRoutineCronCliResult(parsed.command, result),
     );
   } catch (error) {
-    console.error(error.message);
+    console.error(createSecretRedactor({ env: mergedEnv(projectPath(projectRoot, ".env")) })(error.message));
     process.exit(1);
   }
 }

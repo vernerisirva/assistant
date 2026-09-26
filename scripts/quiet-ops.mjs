@@ -11,6 +11,7 @@ import {
   LIVE_CRON_RESTART_REQUIRED,
   LIVE_CRON_SOURCE,
   createGatewayCron,
+  createSecretRedactor,
   executeJobChange,
 } from "./lib/live-cron.mjs";
 import { projectPath } from "./lib/config.mjs";
@@ -193,7 +194,7 @@ if (process.argv[1] && currentFile === resolve(process.argv[1])) {
     const result = await runQuietOpsCli(argv);
     console.log(parsed.options.json ? JSON.stringify(result, null, 2) : formatQuietOpsResult(result, parsed.command));
   } catch (error) {
-    console.error(error.message);
+    console.error(createSecretRedactor({ env: mergedEnv(projectPath(projectRoot, ".env")) })(error.message));
     process.exit(1);
   }
 }

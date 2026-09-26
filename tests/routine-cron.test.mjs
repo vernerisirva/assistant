@@ -190,6 +190,20 @@ describe("routine install plan against live jobs", () => {
     assert.equal(byId["morning-brief"].action, "unchanged");
   });
 
+  it("previews a session change without printing the session key", async () => {
+    const fake = createFakeOpenClawCron({
+      jobs: gatewayWithRoutines({ "midday-check-in": { sessionKey: "agent:health:telegram:main:direct:987654321" } }),
+    });
+    const plan = await cli(["plan"], fake);
+    const midday = plan.steps.find((step) => step.routineId === "midday-check-in");
+
+    assert.deepEqual(midday.changes, [
+      { field: "session", before: "isolated wake=now session key set (not shown)", after: "isolated wake=now session key set (not shown)" },
+    ]);
+    assert.match(midday.display, /--session-key=<redacted>/);
+    assert.doesNotMatch(JSON.stringify(plan), /agent:health:telegram|987654321|123456789/);
+  });
+
   it("stops before any change when a routine name matches two live jobs", () => {
     const live = gatewayWithRoutines();
     live.push({ ...live.find((job) => job.id === "live-midday-check-in"), id: "live-midday-copy" });
@@ -336,6 +350,15 @@ describe("routines CLI against the live Gateway", () => {
     });
     assert.equal(status.routines.find((routine) => routine.routineId === "morning-brief").enabled, false);
     assert.deepEqual(fake.mutations(), []);
+  });
+
+  it("masks the Telegram id in routine status names", async () => {
+    const jobs = gatewayWithRoutines();
+    jobs.push({ ...jobs.find((job) => job.id === "live-weekly-review"), id: "odd-routine", name: `Assistant routine: ${FAKE_TELEGRAM_ID}` });
+    const status = await cli(["status"], createFakeOpenClawCron({ jobs }));
+
+    assert.ok(status.routines.some((routine) => routine.name === "Assistant routine: <telegram-id>" && routine.routineId === "<telegram-id>"));
+    assert.equal(JSON.stringify(status).includes(FAKE_TELEGRAM_ID), false);
   });
 
   it("disables and enables one routine live, with no restart", async () => {

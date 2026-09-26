@@ -338,6 +338,7 @@ function buildTelegramStatus({ env, config, parsedLogs }) {
 }
 
 function buildAutomation(liveCron, { skipStore, now, secrets }) {
+  const redact = (text) => redactSensitiveText(text, secrets);
   if (!liveCron?.available) {
     return {
       source: LIVE_CRON_SOURCE,
@@ -356,12 +357,12 @@ function buildAutomation(liveCron, { skipStore, now, secrets }) {
     error: null,
     scheduler: liveCron.scheduler ?? null,
     summary: summarizeCronJobs(liveCron.jobs),
-    jobs: liveCron.jobs.map((job) => publicCronJob(job, { redact: (text) => redactSensitiveText(text, secrets) })),
+    jobs: liveCron.jobs.map((job) => publicCronJob(job, { redact })),
     routines: routineCronStatus(liveCron.jobs, {
       skipStore,
       now,
       timezone: "Europe/Stockholm",
-    }),
+    }).map((routine) => ({ ...routine, routineId: redact(routine.routineId), name: redact(routine.name) })),
   };
 }
 

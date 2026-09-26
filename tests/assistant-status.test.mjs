@@ -645,6 +645,18 @@ describe("assistant status CLI", () => {
     assert.equal(JSON.stringify(status).includes(FAKE_TELEGRAM_ID), false);
     assert.equal(status.automation.jobs.find((job) => job.id === "renew-gym").name, "Reminder for <redacted>");
     assert.equal(status.automation.jobs.find((job) => job.id === "routine-midday").lastErrorReason, "other");
+
+    const routineNamedById = buildAssistantStatus({
+      env: { TELEGRAM_USER_ID: FAKE_TELEGRAM_ID },
+      liveCron: liveSnapshot([{ ...first, name: `Assistant routine: ${FAKE_TELEGRAM_ID}` }]),
+      paths: {},
+      exists: () => true,
+    });
+    assert.deepEqual(
+      routineNamedById.automation.routines.map((routine) => [routine.routineId, routine.name]),
+      [["<redacted>", "Assistant routine: <redacted>"]],
+    );
+    assert.equal(JSON.stringify(routineNamedById).includes(FAKE_TELEGRAM_ID), false);
   });
 
   it("warns when the Gateway scheduler itself is disabled", () => {

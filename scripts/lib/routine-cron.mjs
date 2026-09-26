@@ -220,7 +220,8 @@ const ROUTINE_FIELDS = [
     name: "session",
     differs: (live, spec) =>
       live.sessionTarget !== spec.sessionTarget || live.sessionKey !== spec.sessionKey || live.wakeMode !== spec.wakeMode,
-    show: (job) => `${job.sessionTarget} ${maskRoute(job.sessionKey)} wake=${job.wakeMode}`,
+    // The session key names the Telegram chat, so a preview only says whether one is set.
+    show: (job) => `${job.sessionTarget} wake=${job.wakeMode} session key ${job.sessionKey ? "set (not shown)" : "unset"}`,
     args: (spec) => [`--session=${spec.sessionTarget}`, `--session-key=${spec.sessionKey}`, `--wake=${spec.wakeMode}`],
   },
   {
