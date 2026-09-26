@@ -103,6 +103,18 @@
       "memory"
     ]
   },
+  "pendingActions": {
+    "readOnly": true,
+    "sources": ["weekly-plan", "focus"],
+    "neverIncludes": [
+      "todoist-tasks",
+      "recommendations",
+      "inferred-obligations",
+      "stored-payloads-or-ids",
+      "secrets"
+    ],
+    "unreadableSourceIs": "reported-as-unchecked"
+  },
   "personalPlaybooks": {
     "storage": "existing-memory-store",
     "fields": ["name", "domain", "trigger", "steps", "cue"],

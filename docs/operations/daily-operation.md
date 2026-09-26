@@ -125,6 +125,17 @@ npm run --silent focus -- end      # clear the record
 
 A session counts as overtime for two hours after its planned end and as stale after that. A stale session is ignored until it is ended or replaced.
 
+## Pending Actions
+
+See what Hilla is waiting on from you. The command is read-only:
+
+```bash
+npm run --silent pending -- --text   # what the agent replies with
+npm run --silent pending             # the same as JSON: items, notes, checked and unavailable sources
+```
+
+It covers a weekly plan awaiting review and a running focus session. An unreadable source shows up under `unavailable`, not as an empty list.
+
 ## Personal Playbooks
 
 Saved routines live in the memory store. Reading them is safe; saving or changing one needs the user's exact words and goes through the guide's quoted-heredoc commands.

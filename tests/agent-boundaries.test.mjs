@@ -847,3 +847,25 @@ describe("playbook and debrief prompts", () => {
     }
   });
 });
+
+describe("pending actions prompt", () => {
+  const promptFor = (id) => readFileSync(`${agents.find((agent) => agent.id === id).promptDir}/AGENTS.md`, "utf8");
+  const personalPrompt = promptFor("personal");
+  const from = personalPrompt.indexOf("\nPending:\n");
+  const pointer = personalPrompt.slice(from, personalPrompt.indexOf("\n\n", from + 1));
+
+  it("keeps the pending view read-only and inside the one visible assistant", () => {
+    assert.ok(from >= 0, "missing Pending section");
+    assert.match(pointer, /For `What's waiting on me\?`, `Anything pending\?`, or `What do I need to approve\?`, run `npm run --silent pending` and reply with its `telegramText`, following its guidance/);
+    assert.match(pointer, /It is read-only; approving or cancelling anything follows the normal rules/);
+    assert.ok(Buffer.byteLength(pointer) < 320, `pending pointer is ${Buffer.byteLength(pointer)} bytes`);
+    assert.deepEqual(pointer.match(/npm run [^`]+/g), ["npm run --silent pending"]);
+    for (const grant of [/without (a second |extra |further |any )?approval/i, /counts? as (an )?approval/i, /pre-?approved/i, /auto-?appl(y|ies)/i, /--approved/]) {
+      assert.doesNotMatch(pointer, grant);
+    }
+    for (const id of ["admin", "health", "research"]) {
+      assert.doesNotMatch(promptFor(id), /npm run --silent pending/, id);
+    }
+    assert.ok(from < personalPrompt.indexOf("\nConfirm-before-action:\n"));
+  });
+});

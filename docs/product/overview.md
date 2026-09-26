@@ -34,6 +34,10 @@ Hilla keeps the user's own routines so coaching stops inventing a new method eac
 
 Playbooks live in the normal memory store. They hold behaviour, never conclusions about the person: `Before presentations: review the opening sentence for two minutes`, not `lacks confidence`.
 
+## What's Waiting On You
+
+`What are you waiting on from me?`, `Anything pending?`, or `What do I need to approve?` gets one read-only list of the things Hilla is genuinely waiting on: a weekly plan awaiting review, with the time it applies, and a running focus session. The list is built from stored state, never from conversation guesses, so a task that is due or a habit Hilla could suggest is not "pending". If a source cannot be read, Hilla says so instead of claiming nothing is waiting. Approval questions asked in chat are not stored; Hilla adds one only if it asked it earlier in the same conversation.
+
 ## Focus And Next Action
 
 Tell Hilla the situation and it helps pick the next action:
