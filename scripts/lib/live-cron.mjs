@@ -49,21 +49,22 @@ export class LiveCronError extends Error {
  * runtime becomes a clear error from the first call.
  */
 export function createGatewayCron({ root, env = {}, runOpenClaw } = {}) {
-  if (runOpenClaw) return createLiveCron({ run: runOpenClaw });
-
-  const configPath = resolveOpenClawConfigPath(env, root);
-  const stateDir = resolveOpenClawStateDir(env, root);
-  return createLiveCron({
-    run: createOpenClawCliRunner({
+  if (!root && !runOpenClaw) throw new LiveCronError("createGatewayCron needs the project root.");
+  const configPath = root ? resolveOpenClawConfigPath(env, root) : null;
+  const redact = createSecretRedactor({ env, config: configPath ? readJsonQuietly(configPath) : {} });
+  const run =
+    runOpenClaw ??
+    createOpenClawCliRunner({
       command: () => resolveOpenClawCommand(env),
       cwd: root,
-      env: { ...process.env, ...env, OPENCLAW_CONFIG_PATH: configPath, OPENCLAW_STATE_DIR: stateDir },
-      redact: createSecretRedactor({ env, config: readJsonQuietly(configPath) }),
-    }),
-  });
+      env: { ...process.env, ...env, OPENCLAW_CONFIG_PATH: configPath, OPENCLAW_STATE_DIR: resolveOpenClawStateDir(env, root) },
+      redact,
+    });
+  return createLiveCron({ run, redact });
 }
 
-export function createLiveCron({ run }) {
+/** `redact` masks secrets and the Telegram id; views printed for people should pass through it. */
+export function createLiveCron({ run, redact = (text) => text }) {
   const runJson = async (args, label) => parseCliJson(await run(args), label);
 
   const mutate = async (id, args, label) => {
@@ -104,6 +105,7 @@ export function createLiveCron({ run }) {
   }
 
   return {
+    redact,
     list,
     get,
     schedulerStatus,
@@ -122,14 +124,24 @@ export function createLiveCron({ run }) {
   };
 }
 
-/** A read-only snapshot for status views. A failure is reported, never replaced by stale data. */
+/**
+ * A read-only snapshot for status views. A failed job list makes the snapshot
+ * unavailable; a failed scheduler-state read is reported next to a live job
+ * list. Neither is replaced by stale data.
+ */
 export async function loadLiveCronSnapshot(cron) {
-  try {
-    const [jobs, scheduler] = await Promise.all([cron.list(), cron.schedulerStatus().catch(() => null)]);
-    return { available: true, source: LIVE_CRON_SOURCE, jobs, scheduler, error: null };
-  } catch (error) {
-    return { available: false, source: LIVE_CRON_SOURCE, jobs: [], scheduler: null, error: error.message };
+  const [listed, scheduler] = await Promise.allSettled([cron.list(), cron.schedulerStatus()]);
+  if (listed.status === "rejected") {
+    return { available: false, source: LIVE_CRON_SOURCE, jobs: [], scheduler: null, schedulerError: null, error: errorMessage(listed.reason) };
   }
+  return {
+    available: true,
+    source: LIVE_CRON_SOURCE,
+    jobs: listed.value,
+    scheduler: scheduler.status === "fulfilled" ? scheduler.value : null,
+    schedulerError: scheduler.status === "rejected" ? errorMessage(scheduler.reason) : null,
+    error: null,
+  };
 }
 
 /**
@@ -271,11 +283,15 @@ export function normalizeCronJob(raw) {
   return job;
 }
 
-/** What a status view may print: no description, Telegram destination, session key, prompt text or command line. */
-export function publicCronJob(job) {
+/**
+ * What a status view may print: no description, Telegram destination, session
+ * key, prompt text or command line. The name goes through `redact`, and an
+ * error reason is shown only when it is a plain reason code such as `auth`.
+ */
+export function publicCronJob(job, { redact = (text) => text } = {}) {
   return {
     id: job.id,
-    name: job.name,
+    name: redact(job.name),
     agentId: job.agentId,
     enabled: job.enabled,
     status: job.status,
@@ -285,8 +301,13 @@ export function publicCronJob(job) {
     nextRunAt: job.nextRunAt,
     lastRunAt: job.lastRunAt,
     lastStatus: job.lastStatus,
-    lastErrorReason: job.lastErrorReason,
+    lastErrorReason: safeReasonCode(job.lastErrorReason),
   };
+}
+
+export function safeReasonCode(reason) {
+  if (reason === null || reason === undefined) return null;
+  return /^[A-Za-z][A-Za-z0-9_.-]{0,39}$/.test(reason) ? reason : "other";
 }
 
 export function summarizeCronJobs(jobs) {
@@ -568,6 +589,10 @@ function collectConfigSecrets(value, secrets, key = "") {
       collectConfigSecrets(childValue, secrets, compoundKey);
     }
   }
+}
+
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function readJsonQuietly(path) {

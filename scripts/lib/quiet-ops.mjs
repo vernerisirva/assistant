@@ -12,8 +12,9 @@ import {
 
 const DEFAULT_TIMEZONE = "Europe/Stockholm";
 
-export function quietOpsStatus(jobs) {
-  const statusJobs = cronJobs(jobs).map((job) => describeQuietJob(job));
+/** `redact` masks secrets and the Telegram id in printed names; matching always uses the real name. */
+export function quietOpsStatus(jobs, { redact } = {}) {
+  const statusJobs = cronJobs(jobs).map((job) => describeQuietJob(job, { redact }));
 
   return {
     source: LIVE_CRON_SOURCE,
@@ -22,13 +23,13 @@ export function quietOpsStatus(jobs) {
   };
 }
 
-export function auditQuietOps(jobs, { now = new Date(), upcomingDays = 14 } = {}) {
-  const status = quietOpsStatus(jobs);
+export function auditQuietOps(jobs, { now = new Date(), upcomingDays = 14, redact } = {}) {
+  const status = quietOpsStatus(jobs, { redact });
   const issues = [
     ...sameTimeEnabledIssues(status.jobs),
     ...disabledInstalledIssues(status.jobs),
     ...upcomingOneShotIssues(status.jobs, { now, upcomingDays }),
-    ...dailyRecurringCountIssues(cronJobs(jobs)),
+    ...dailyRecurringCountIssues(status.jobs),
     ...unsupportedScheduleIssues(status.jobs),
   ];
 
@@ -51,10 +52,10 @@ export function classifyQuietJob(job) {
   return "unknown";
 }
 
-export function describeQuietJob(job) {
+export function describeQuietJob(job, { redact = (text) => text } = {}) {
   return {
     id: job.id,
-    name: job.name,
+    name: redact(job.name),
     category: classifyQuietJob(job),
     enabled: job.enabled,
     agentId: job.agentId ?? null,

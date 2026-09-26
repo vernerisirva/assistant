@@ -206,6 +206,7 @@ async function controlRoutine(parsed, cron) {
 
   const dryRun = parsed.options.dryRun === true;
   const outcome = await executeJobChange(cron, plan, { beforeJobs: jobs, dryRun });
+  const redact = cron.redact ?? ((text) => text);
   return {
     source: LIVE_CRON_SOURCE,
     dryRun,
@@ -219,9 +220,15 @@ async function controlRoutine(parsed, cron) {
       jobName: job.name,
       ...(parsed.command === "set-time" ? { cron: plan.preview.schedule.expr } : {}),
     },
-    preview: { before: publicCronJob(outcome.before), after: publicCronJob(outcome.after) },
-    ...(outcome.verification ? { verification: outcome.verification } : {}),
+    preview: { before: publicCronJob(outcome.before, { redact }), after: publicCronJob(outcome.after, { redact }) },
+    ...(outcome.verification
+      ? { verification: { ...outcome.verification, unrelatedJobsChanged: redactNames(outcome.verification.unrelatedJobsChanged, redact) } }
+      : {}),
   };
+}
+
+function redactNames(jobs, redact) {
+  return jobs.map((job) => ({ ...job, name: redact(job.name) }));
 }
 
 /**
@@ -289,7 +296,7 @@ async function installRoutines(parsed, { cron, desired }) {
     results,
     verification: {
       remainingDifferences: [],
-      unrelatedJobsChanged: changedJobs(unrelated(beforeJobs), unrelated(afterJobs)),
+      unrelatedJobsChanged: redactNames(changedJobs(unrelated(beforeJobs), unrelated(afterJobs)), cron.redact ?? ((text) => text)),
     },
   };
 }

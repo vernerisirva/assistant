@@ -356,10 +356,7 @@ function buildAutomation(liveCron, { skipStore, now, secrets }) {
     error: null,
     scheduler: liveCron.scheduler ?? null,
     summary: summarizeCronJobs(liveCron.jobs),
-    jobs: liveCron.jobs.map((job) => {
-      const view = publicCronJob(job);
-      return { ...view, name: redactSensitiveText(view.name, secrets) };
-    }),
+    jobs: liveCron.jobs.map((job) => publicCronJob(job, { redact: (text) => redactSensitiveText(text, secrets) })),
     routines: routineCronStatus(liveCron.jobs, {
       skipStore,
       now,
@@ -377,6 +374,18 @@ function liveSchedulerChecks(liveCron, secrets) {
         id: "live-scheduler",
         status: "warn",
         message: redactSensitiveText(`Live Gateway scheduler could not be read: ${liveCron.error ?? "unknown error"}`, secrets),
+      },
+    ];
+  }
+  if (liveCron.schedulerError) {
+    return [
+      {
+        id: "live-scheduler",
+        status: "warn",
+        message: redactSensitiveText(
+          `Live Gateway jobs were read, but the scheduler state could not be: ${liveCron.schedulerError}`,
+          secrets,
+        ),
       },
     ];
   }
@@ -521,6 +530,8 @@ function collectSecrets({ env, config }) {
     env.TELEGRAM_BOT_TOKEN,
     env.OPENCLAW_GATEWAY_TOKEN,
     env.GATEWAY_TOKEN,
+    // The user's Telegram id is private too; job names and Gateway errors can carry it.
+    /^\d{5,}$/.test(String(env.TELEGRAM_USER_ID ?? "").trim()) ? String(env.TELEGRAM_USER_ID).trim() : null,
   ]);
   collectSecretValues(config, secrets);
   return [...secrets].filter((secret) => typeof secret === "string" && secret.length > 0);

@@ -615,6 +615,38 @@ describe("assistant status CLI", () => {
     }
   });
 
+  it("warns when the job list is live but the scheduler state could not be read", () => {
+    const status = buildAssistantStatus({
+      liveCron: { ...liveSnapshot(), scheduler: null, schedulerError: "openclaw cron status failed: timed out after 30s." },
+      paths: {},
+      exists: () => true,
+    });
+
+    const check = status.checks.find((entry) => entry.id === "live-scheduler");
+    assert.equal(check.status, "warn");
+    assert.match(check.message, /Live Gateway jobs were read, but the scheduler state could not be: openclaw cron status failed/);
+    assert.equal(status.automation.available, true);
+    assert.equal(status.automation.summary.totalJobs, 3);
+  });
+
+  it("masks the Telegram id in live job names and never prints free-text error reasons", () => {
+    const [first, ...rest] = sampleLiveRawJobs();
+    const status = buildAssistantStatus({
+      env: { TELEGRAM_USER_ID: FAKE_TELEGRAM_ID },
+      liveCron: liveSnapshot([
+        { ...first, name: `Assistant routine: midday-check-in`, state: { ...first.state, lastErrorReason: `failed for chat ${FAKE_TELEGRAM_ID}` } },
+        { ...rest[1], name: `Reminder for ${FAKE_TELEGRAM_ID}` },
+        rest[0],
+      ]),
+      paths: {},
+      exists: () => true,
+    });
+
+    assert.equal(JSON.stringify(status).includes(FAKE_TELEGRAM_ID), false);
+    assert.equal(status.automation.jobs.find((job) => job.id === "renew-gym").name, "Reminder for <redacted>");
+    assert.equal(status.automation.jobs.find((job) => job.id === "routine-midday").lastErrorReason, "other");
+  });
+
   it("warns when the Gateway scheduler itself is disabled", () => {
     const status = buildAssistantStatus({
       liveCron: liveSnapshot(sampleLiveRawJobs(), { enabled: false, storage: "sqlite", jobCount: 3, nextWakeAt: null }),

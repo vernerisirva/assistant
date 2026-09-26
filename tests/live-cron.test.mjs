@@ -133,6 +133,22 @@ describe("live cron adapter: reading the Gateway", () => {
     await assert.rejects(cron.list(), /returned 1 of 2 jobs; a partial list cannot be used/);
   });
 
+  it("redacts the printed name and shows only plain error reason codes", () => {
+    const job = normalizeCronJob({
+      id: "odd",
+      name: `Reminder for ${FAKE_TELEGRAM_ID}`,
+      schedule: { kind: "at", at: "2028-01-01T00:00:00.000Z" },
+      state: { lastErrorReason: "request failed with token abc123 for telegram:123456789" },
+    });
+    const redact = createSecretRedactor({ env: { TELEGRAM_USER_ID: FAKE_TELEGRAM_ID } });
+    const view = publicCronJob(job, { redact });
+
+    assert.equal(view.name, "Reminder for <telegram-id>");
+    assert.equal(view.lastErrorReason, "other");
+    assert.equal(publicCronJob({ ...job, lastErrorReason: "auth" }).lastErrorReason, "auth");
+    assert.equal(job.name, `Reminder for ${FAKE_TELEGRAM_ID}`, "matching keeps the real name");
+  });
+
   it("drops the CLI's delivery previews and prints no Telegram id in the public view", async () => {
     const jobs = await liveCronFor(createFakeOpenClawCron()).list();
     const views = jobs.map(publicCronJob);
@@ -207,8 +223,19 @@ describe("live cron adapter: CLI failures", () => {
       source: "openclaw-gateway",
       jobs: [],
       scheduler: null,
+      schedulerError: null,
       error: "openclaw cron list failed: gateway closed (1006)",
     });
+  });
+
+  it("keeps a live job list but reports a scheduler state it could not read", async () => {
+    const fake = createFakeOpenClawCron({ fail: (args) => (args[1] === "status" ? new Error("openclaw cron status failed: timed out after 30s.") : null) });
+    const snapshot = await loadLiveCronSnapshot(liveCronFor(fake));
+
+    assert.equal(snapshot.available, true);
+    assert.equal(snapshot.jobs.length, 11);
+    assert.equal(snapshot.scheduler, null);
+    assert.equal(snapshot.schedulerError, "openclaw cron status failed: timed out after 30s.");
   });
 
   it("runs an injected runner instead of a real process", async () => {

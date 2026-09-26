@@ -213,6 +213,7 @@ function collectCliSecrets(env, config) {
     env.TELEGRAM_BOT_TOKEN,
     env.OPENCLAW_GATEWAY_TOKEN,
     env.GATEWAY_TOKEN,
+    /^\d{5,}$/.test(String(env.TELEGRAM_USER_ID ?? "").trim()) ? String(env.TELEGRAM_USER_ID).trim() : null,
   ]);
   collectSecretValues(config, secrets);
   return [...secrets].filter((secret) => typeof secret === "string" && secret.length > 0);

@@ -97,6 +97,23 @@ describe("quiet ops status and audit on the live Gateway", () => {
     assert.equal(quietOpsStatus(liveJobs(raw)).summary.otherScheduleJobs, 1);
   });
 
+  it("masks the Telegram id in printed job names but still resolves the exact name", async () => {
+    const raw = sampleRawJobs();
+    raw.push({ ...raw.find((job) => job.id === "one-shot-card"), id: "one-shot-chat", name: `Reminder for ${FAKE_TELEGRAM_ID}` });
+    const fake = createFakeOpenClawCron({ jobs: raw });
+    const env = { TELEGRAM_USER_ID: FAKE_TELEGRAM_ID };
+
+    const status = await run(["status"], fake, { env });
+    const audit = await run(["audit"], fake, { env, now: new Date("2028-12-10T08:00:00.000Z") });
+    const change = await run(["disable", `Reminder for ${FAKE_TELEGRAM_ID}`, "--dry-run"], fake, { env });
+
+    assert.ok(status.jobs.some((job) => job.name === "Reminder for <telegram-id>"));
+    assert.equal(change.result.jobId, "one-shot-chat");
+    assert.equal(change.result.jobName, "Reminder for <telegram-id>");
+    for (const output of [status, audit, change]) assert.equal(JSON.stringify(output).includes(FAKE_TELEGRAM_ID), false);
+    assert.deepEqual(fake.mutations(), []);
+  });
+
   it("reports a Gateway that cannot be read instead of an empty schedule", async () => {
     const fake = createFakeOpenClawCron({ fail: () => new Error("openclaw cron list failed: gateway closed (1006)") });
     await assert.rejects(run(["status", "--json"], fake), /openclaw cron list failed: gateway closed/);

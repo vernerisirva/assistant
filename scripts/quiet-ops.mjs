@@ -77,19 +77,24 @@ export async function runQuietOpsCli(
 ) {
   const parsed = parseQuietOpsArgs(argv);
   const liveCron = cron ?? createGatewayCron({ root, env, runOpenClaw });
+  const redact = liveCron.redact ?? ((text) => text);
   const jobs = await liveCron.list();
 
   if (parsed.command === "status") {
-    return quietOpsStatus(jobs);
+    return quietOpsStatus(jobs, { redact });
   }
 
   if (parsed.command === "audit") {
-    return auditQuietOps(jobs, { now });
+    return auditQuietOps(jobs, { now, redact });
   }
 
   const { plan, result } = planQuietOpsChange(jobs, parsed, { timezone });
   const dryRun = parsed.options.dryRun === true;
   const outcome = await executeJobChange(liveCron, plan, { beforeJobs: jobs, dryRun });
+  const verification = outcome.verification && {
+    ...outcome.verification,
+    unrelatedJobsChanged: outcome.verification.unrelatedJobsChanged.map((job) => ({ ...job, name: redact(job.name) })),
+  };
 
   return {
     source: LIVE_CRON_SOURCE,
@@ -97,12 +102,12 @@ export async function runQuietOpsCli(
     changed: outcome.changed,
     applied: outcome.applied,
     restartRequired: LIVE_CRON_RESTART_REQUIRED,
-    result,
+    result: { ...result, jobName: redact(result.jobName) },
     preview: {
-      before: describeQuietJob(outcome.before),
-      after: describeQuietJob(outcome.after),
+      before: describeQuietJob(outcome.before, { redact }),
+      after: describeQuietJob(outcome.after, { redact }),
     },
-    ...(outcome.verification ? { verification: outcome.verification } : {}),
+    ...(verification ? { verification } : {}),
   };
 }
 
