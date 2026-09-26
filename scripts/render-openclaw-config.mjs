@@ -10,6 +10,19 @@ import { readJson, projectPath, safeGeneratedPath, safeOpenClawPath } from "./li
 const currentFile = fileURLToPath(import.meta.url);
 const projectRoot = resolve(dirname(currentFile), "..");
 
+// Values OpenClaw accepts for agents.list[].thinkingDefault. Rejecting anything
+// else at render time keeps a registry typo from producing a config the
+// gateway refuses to load.
+const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "adaptive", "max", "ultra"]);
+
+function agentThinkingDefault(agent) {
+  if (agent.thinkingDefault === undefined) return {};
+  if (!THINKING_LEVELS.has(agent.thinkingDefault)) {
+    throw new Error(`Unknown thinkingDefault for agent ${agent.id}: ${agent.thinkingDefault}`);
+  }
+  return { thinkingDefault: agent.thinkingDefault };
+}
+
 export function buildOpenClawConfig(env, root = projectRoot) {
   const agents = readJson(projectPath(root, "config/agents.json"));
   const telegramUserId = env.TELEGRAM_USER_ID;
@@ -64,6 +77,7 @@ export function buildOpenClawConfig(env, root = projectRoot) {
         workspace: projectPath(root, agent.workspace),
         agentDir: projectPath(root, agent.agentDir),
         model: env[agent.modelEnv],
+        ...agentThinkingDefault(agent),
       })),
     },
     bindings: [

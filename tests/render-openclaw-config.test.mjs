@@ -88,6 +88,35 @@ describe("buildOpenClawConfig", () => {
     assert.equal(config.agents.defaults.models["provider/reliable-admin-model"].alias, "provider/reliable-admin-model");
   });
 
+  it("pins the personal agent's thinking level and leaves specialists on their defaults", () => {
+    const config = buildOpenClawConfig(env, projectRoot);
+
+    assert.deepEqual(
+      config.agents.list.map((agent) => [agent.id, agent.thinkingDefault]),
+      [
+        ["personal", "medium"],
+        ["admin", undefined],
+        ["health", undefined],
+        ["research", undefined],
+      ],
+    );
+    assert.equal(config.agents.defaults.thinkingDefault, undefined);
+  });
+
+  it("refuses to write a config with an unknown agent thinking level", () => {
+    const root = createTempProjectRoot();
+    const agentsPath = join(root, "config", "agents.json");
+    const agents = JSON.parse(readFileSync(agentsPath, "utf8"));
+    agents[0].thinkingDefault = "meduim";
+    writeFileSync(agentsPath, `${JSON.stringify(agents, null, 2)}\n`);
+
+    assert.throws(
+      () => writeOpenClawConfig(completeEnv, root),
+      /Unknown thinkingDefault for agent personal: meduim/,
+    );
+    assert.equal(existsSync(join(root, ".openclaw/openclaw.json")), false);
+  });
+
   it("enables the runtime plugins used by the assistant", () => {
     const config = buildOpenClawConfig(env, projectRoot);
 

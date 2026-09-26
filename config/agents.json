@@ -6,7 +6,8 @@
     "workspace": ".openclaw/workspace-personal",
     "agentDir": ".openclaw/agents/personal/agent",
     "promptDir": "agents/personal",
-    "modelEnv": "PRIMARY_MODEL"
+    "modelEnv": "PRIMARY_MODEL",
+    "thinkingDefault": "medium"
   },
   {
     "id": "admin",
