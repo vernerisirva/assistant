@@ -127,6 +127,19 @@ npm run todoist -- exact-update --match-content "Gym workout" --action complete
 
 If `--match-content` resolves multiple tasks, ask one clarifying question instead of editing.
 
+## Weekly Plan
+
+Every Saturday at 09:00 Hilla sends next week's editable plan: food, grocery shopping, gym, stretching, golf rounds and golf practice. Unless it is changed or cancelled, its Todoist tasks are created 12 hours after the latest version was shown. An explicit OK creates them immediately. Full behavior and the standing authorization are in `docs/setup/routines.md` and `docs/security/approval-model.md`.
+
+```bash
+npm run --silent weekly-plan -- status            # pending? when does it apply? which version? applied?
+npm run --silent weekly-plan -- show              # current plan text
+npm run --silent weekly-plan -- status --jobs     # also show the two installed Gateway jobs
+npm run --silent weekly-plan -- install --dry-run # preview job installation
+```
+
+State lives in `.openclaw/state/weekly-plan/`. A plan file is the authority for what will be created. Never edit it by hand: the apply step refuses a plan whose content changed after it was shown.
+
 Run a routine manually:
 
 ```bash

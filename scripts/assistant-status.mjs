@@ -140,11 +140,27 @@ export function formatAssistantStatus(status) {
     `Telegram: ${status.telegram?.enabled ? "enabled" : "disabled"}${status.telegram?.provider ? ` for ${status.telegram.provider}` : ""}; ${status.telegram?.allowFromCount ?? 0} allowlisted user(s).`,
     `Automation: ${summary.enabledJobs ?? 0}/${summary.totalJobs ?? 0} automatic jobs enabled; ${summary.dailyRecurringJobs ?? 0} enabled daily recurring jobs.`,
     `Routines: ${routineText}.`,
+    `Weekly plan: ${describeWeeklyPlan(status.weeklyPlan)}.`,
     `Recent activity: gateway ready at ${status.recentActivity?.gatewayReadyAt ?? "unknown"}; last scheduled run ${status.recentActivity?.lastScheduledRunAt ?? "unknown"}.`,
     `Recent issues: ${issueText}.`,
     `Controls: ${controlText}`,
     ...logLines,
   ].join("\n");
+}
+
+function describeWeeklyPlan(weeklyPlan) {
+  const pending = weeklyPlan?.pending ?? [];
+  if (pending.length > 0) {
+    return pending
+      .map((plan) =>
+        plan.status === "pending"
+          ? `${plan.weekId} pending (v${plan.currentVersion}), applies at ${plan.reviewDeadlineLocal}`
+          : `${plan.weekId} ${plan.status} (v${plan.currentVersion})`,
+      )
+      .join("; ");
+  }
+  const latest = weeklyPlan?.latest;
+  return latest ? `none pending; last ${latest.weekId} ${latest.status}` : "none yet";
 }
 
 function tagLogLines(source, text) {

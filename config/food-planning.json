@@ -32,5 +32,202 @@
       "realistic-portions",
       "easy-default-meals"
     ]
+  },
+  "weeklyMealPlan": {
+    "portionsPerPrep": 3,
+    "meals": [
+      {
+        "id": "chicken-rice-veg",
+        "name": "Chicken, rice and vegetables",
+        "portions": 3,
+        "ingredients": [
+          {
+            "name": "Chicken breast",
+            "section": "protein",
+            "perPortion": 150,
+            "unit": "g"
+          },
+          {
+            "name": "Rice",
+            "section": "carbs",
+            "perPortion": 75,
+            "unit": "g"
+          },
+          {
+            "name": "Broccoli",
+            "section": "vegetables"
+          },
+          {
+            "name": "Peppers",
+            "section": "vegetables"
+          }
+        ]
+      },
+      {
+        "id": "salmon-potatoes-veg",
+        "name": "Salmon, potatoes and vegetables",
+        "portions": 2,
+        "ingredients": [
+          {
+            "name": "Salmon fillet",
+            "section": "protein",
+            "perPortion": 125,
+            "unit": "g"
+          },
+          {
+            "name": "Potatoes",
+            "section": "carbs",
+            "perPortion": 250,
+            "unit": "g"
+          },
+          {
+            "name": "Green beans",
+            "section": "vegetables"
+          }
+        ]
+      },
+      {
+        "id": "beef-chili-rice",
+        "name": "Beef chili with rice",
+        "portions": 3,
+        "ingredients": [
+          {
+            "name": "Minced beef",
+            "section": "protein",
+            "perPortion": 125,
+            "unit": "g"
+          },
+          {
+            "name": "Kidney beans",
+            "section": "pantry",
+            "quantity": "1 tin"
+          },
+          {
+            "name": "Chopped tomatoes",
+            "section": "pantry",
+            "quantity": "2 tins"
+          },
+          {
+            "name": "Onion",
+            "section": "vegetables"
+          },
+          {
+            "name": "Rice",
+            "section": "carbs",
+            "perPortion": 75,
+            "unit": "g"
+          }
+        ]
+      },
+      {
+        "id": "turkey-pasta",
+        "name": "Turkey mince pasta with tomato sauce",
+        "portions": 3,
+        "ingredients": [
+          {
+            "name": "Turkey mince",
+            "section": "protein",
+            "perPortion": 125,
+            "unit": "g"
+          },
+          {
+            "name": "Pasta",
+            "section": "carbs",
+            "perPortion": 90,
+            "unit": "g"
+          },
+          {
+            "name": "Passata",
+            "section": "pantry",
+            "quantity": "1 carton"
+          },
+          {
+            "name": "Spinach",
+            "section": "vegetables"
+          }
+        ]
+      }
+    ],
+    "breakfast": [
+      {
+        "label": "Skyr + berries",
+        "items": [
+          {
+            "name": "Skyr",
+            "section": "dairy-or-alternatives",
+            "quantity": "2 kg"
+          },
+          {
+            "name": "Frozen berries",
+            "section": "fruit",
+            "quantity": "1 bag"
+          }
+        ]
+      },
+      {
+        "label": "Eggs + bread",
+        "items": [
+          {
+            "name": "Eggs",
+            "section": "protein",
+            "quantity": "12"
+          },
+          {
+            "name": "Wholegrain bread",
+            "section": "breakfast",
+            "quantity": "1 loaf"
+          }
+        ]
+      }
+    ],
+    "snacks": [
+      {
+        "label": "Fruit",
+        "items": [
+          {
+            "name": "Apples",
+            "section": "fruit",
+            "quantity": "6"
+          }
+        ]
+      },
+      {
+        "label": "Cottage cheese",
+        "items": [
+          {
+            "name": "Cottage cheese",
+            "section": "dairy-or-alternatives",
+            "quantity": "2 tubs"
+          }
+        ]
+      }
+    ],
+    "backup": [
+      {
+        "label": "Easy tuna pasta",
+        "items": [
+          {
+            "name": "Pasta",
+            "section": "backup-meals",
+            "quantity": "1 pack"
+          },
+          {
+            "name": "Tinned tuna",
+            "section": "backup-meals",
+            "quantity": "2 tins"
+          }
+        ]
+      },
+      {
+        "label": "Omelette with frozen vegetables",
+        "items": [
+          {
+            "name": "Frozen vegetables",
+            "section": "backup-meals",
+            "quantity": "1 bag"
+          }
+        ]
+      }
+    ]
   }
 }

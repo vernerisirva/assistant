@@ -75,6 +75,25 @@ Ask a clarifying question when the target is ambiguous, such as `change my tasks
 
 Telegram approval is still required for Todoist deletes, reopens, moves between projects/sections, bulk edits, shared/project-wide changes, sensitive content, inferred update content, or changes that affect other people.
 
+## Standing Authorization: Weekly Plan
+
+The user explicitly authorized one trusted routine on 2026-09-26. It is recorded as `trustedRoutines` → `weekly-plan` in `config/approval-policy.json` and enforced in code by `checkWeeklyPlanOperation` and a Todoist gateway that can only read open tasks and create tasks.
+
+Hilla may create the user's own Todoist tasks from the latest weekly planning proposal without another approval, provided:
+
+- the proposal was displayed to the user;
+- the full 12-hour review window elapsed after its latest substantive revision, or the user explicitly accepted that displayed version (`OK`, `Looks good`, `Create it`, `Yes`, `Go ahead`);
+- the proposal was not cancelled;
+- execution is exactly the stored, displayed version, verified by digest;
+- the actions only create the user's own Todoist tasks;
+- no unrelated action is added.
+
+The review window is 12 elapsed hours from the moment the latest version was shown, rounded up to the next 15-minute apply check. Each substantive change stores a new version and restarts the window. The Telegram message always states the local apply time in Europe/Stockholm. Around a DST change the window is still 12 real hours, so the local clock time can differ by an hour from a naive "+12".
+
+The digest check catches a plan file that changed after it was shown, such as an accidental edit or a partial write. It is not a signature. Anything that can write the private state directory could also call Todoist directly, so what limits the damage is the create-only Todoist gateway and the operation guard, not the digest.
+
+This authorization does not permit deleting, completing, moving or editing existing Todoist tasks. It does not permit Calendar writes, Gmail writes, bookings, purchases, browser submissions, memory writes, arbitrary shell mutations, or creating anything that was not in the displayed proposal. The apply step never calls a model and never regenerates the plan. Everything else stays confirm-before-action.
+
 ## Feedback Capture
 
 Explicit local feedback can be captured without a second approval. The feedback log is local-only and append-only at `.openclaw/state/feedback/feedback.jsonl`. Each entry contains only `timestamp`, `type`, `message`, and `source`.

@@ -313,6 +313,37 @@ describe("agent configuration", () => {
     assert.match(prompt, /never send feedback externally/i);
   });
 
+  it("teaches the personal agent the weekly plan workflow and its narrow authorization", () => {
+    const personalAgent = agents.find((agent) => agent.id === "personal");
+    const prompt = readFileSync(`${personalAgent.promptDir}/AGENTS.md`, "utf8");
+    const section = prompt.slice(prompt.indexOf("Weekly plan:"), prompt.indexOf("Quiet Ops:"));
+
+    assert.match(section, /stored plan is the authority, not the chat history/);
+    assert.match(section, /npm run --silent weekly-plan -- status --json/);
+    assert.match(section, /revise --expect-version N --changes-json-stdin/);
+    assert.match(section, /restarts the 12-hour review window and never touches Todoist/);
+    assert.match(section, /`Gym 3 times` → `\{"targets":\{"gym":3\}\}`/);
+    assert.match(section, /`Move Friday gym to Sunday` → `\{"moves":\[\{"activity":"gym","from":"friday","to":"sunday"\}\]\}`/);
+    assert.match(section, /`Don't use salmon` → `\{"excludeIngredients":\["salmon"\]\}`/);
+    assert.match(section, /accept --version N --reply-text/);
+    assert.match(section, /`ok but no salmon` is a change/);
+    assert.match(section, /a `yes` that answers another prompt are not acceptance/);
+    assert.match(section, /weekly-plan -- cancel/);
+    assert.match(section, /A cancelled plan never applies/);
+    assert.match(section, /exactly the stored Todoist tasks of that shown version/);
+    assert.match(section, /never deletes, completes, moves or edits existing tasks/);
+    assert.match(section, /never writes Calendar, Gmail or memory, books, buys, or submits forms/);
+    assert.match(section, /Never create weekly-plan tasks yourself with the Todoist helper/);
+    assert.match(section, /never rebuild the plan at apply time/);
+  });
+
+  it("keeps the health agent out of weekly plan task creation", () => {
+    const healthAgent = agents.find((agent) => agent.id === "health");
+    const prompt = readFileSync(`${healthAgent.promptDir}/AGENTS.md`, "utf8");
+
+    assert.match(prompt, /must not create, change or apply its Todoist tasks/);
+  });
+
   it("teaches the personal agent to run memory-aware daily routines", () => {
     const personalAgent = agents.find((agent) => agent.id === "personal");
     const prompt = readFileSync(`${personalAgent.promptDir}/AGENTS.md`, "utf8");

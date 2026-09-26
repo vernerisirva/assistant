@@ -16,6 +16,7 @@ import {
   parseAssistantStatusArgs,
   runAssistantStatusCli,
 } from "../scripts/assistant-status.mjs";
+import { runWeeklyPlanCli } from "../scripts/weekly-plan.mjs";
 
 function sampleConfig() {
   return {
@@ -613,6 +614,52 @@ describe("canonical Telegram bot token variable", () => {
       });
 
       assert.ok(!JSON.stringify(status).includes("891055:SECRET"), `leaked via ${key}`);
+    }
+  });
+});
+
+describe("assistant status weekly plan", () => {
+  it("reports a pending weekly plan with its version and local apply time", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "assistant-status-plan-"));
+    const stateDir = join(directory, ".openclaw/state");
+    const now = new Date("2026-09-26T07:00:00.000Z");
+    try {
+      await runWeeklyPlanCli(["propose", "--send"], {
+        stateDir,
+        env: { TELEGRAM_USER_ID: "1029709001" },
+        todoistClient: { getTasks: async () => [] },
+        sendMessage: async () => ({ messageId: 1 }),
+        now: () => now,
+        random: () => "abc123",
+      });
+      const inputs = loadAssistantStatusInputs({ env: {}, projectRoot: directory, stateDir });
+      const status = buildAssistantStatus({ ...inputs, now });
+
+      assert.equal(status.weeklyPlan.pending.length, 1);
+      assert.equal(status.weeklyPlan.pending[0].planId, "wp-2026-W40-abc123");
+      assert.equal(status.weeklyPlan.pending[0].currentVersion, 1);
+      assert.equal(status.weeklyPlan.pending[0].reviewDeadlineLocal, "21:00 on Saturday 26 Sep");
+      assert.equal(status.weeklyPlan.upcomingWeek.status, "pending");
+      assert.match(formatAssistantStatus(status), /Weekly plan: 2026-W40 pending \(v1\), applies at 21:00 on Saturday 26 Sep\./);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("reports unreadable weekly plan state as an issue instead of failing", () => {
+    const directory = mkdtempSync(join(tmpdir(), "assistant-status-plan-"));
+    const stateDir = join(directory, ".openclaw/state");
+    mkdirSync(join(stateDir, "weekly-plan/plans"), { recursive: true });
+    writeFileSync(join(stateDir, "weekly-plan/plans/wp-2026-W40-abc123.json"), "{ broken");
+    try {
+      const inputs = loadAssistantStatusInputs({ env: {}, projectRoot: directory, stateDir });
+      const status = buildAssistantStatus({ ...inputs, now: new Date("2026-09-26T07:00:00.000Z") });
+
+      assert.deepEqual(status.weeklyPlan.pending, []);
+      assert.ok(status.recentIssues.some((issue) => issue.type === "weekly-plan-read-failed"));
+      assert.match(formatAssistantStatus(status), /Weekly plan: none yet\./);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
     }
   });
 });

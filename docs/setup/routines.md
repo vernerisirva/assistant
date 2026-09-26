@@ -138,6 +138,44 @@ npm run quiet:reschedule -- "Reminder: Renew gym card" 2026-06-19 09:00
 
 Add `--dry-run` to preview a mutation without writing. Mutating commands write `.openclaw/state/cron/jobs.json`, preserve the rest of each job, create a timestamped backup beside the store, and require an OpenClaw Gateway restart before the scheduler reloads the change.
 
+## Weekly Plan
+
+The weekly plan is the one routine that creates Todoist tasks on its own, under a narrow standing authorization the user granted explicitly (see `docs/security/approval-model.md`).
+
+Every Saturday at 09:00 Europe/Stockholm Hilla proposes next week's (Monday-Sunday) plan for food, grocery shopping, gym, stretching, golf rounds and golf practice, sends it to Telegram, and creates the resulting Todoist tasks after a 12-hour review window unless the plan is changed or cancelled.
+
+How it works:
+
+1. `Assistant weekly plan: propose` (Saturday 09:00, model-backed, personal agent) gathers read-only context: next week's Calendar load, non-sensitive memory, last week's plan. It passes that context as structured JSON to `npm run weekly-plan -- propose --send`. It does not run a questionnaire.
+2. The planner (`scripts/lib/weekly-plan.mjs`) is deterministic. It picks activity counts from the agent's input, then last week's plan, then `config/weekly-plan.json` defaults. It places activities around busy days, treats golf as physical load, spreads gym and meal prep, fills meals from the catalog in `config/food-planning.json`, derives one grocery list from those meals, and builds the exact Todoist payloads through the shared task pipeline. Existing Todoist tasks for the week count toward the targets and are never changed.
+3. The plan is written to `.openclaw/state/weekly-plan/plans/<planId>.json` as a `draft` before it is sent. Only after Telegram confirms the send does it become `pending`, with a review deadline 12 elapsed hours later, rounded up to the next quarter-hour apply check. If the send fails, it stays a draft and never applies.
+4. Replies in Telegram go to the personal agent. A change such as "Gym 3 times", "Move Friday gym to Sunday", "No salmon" or "Add bananas" becomes a structured `revise`. That stores a new version, shows it with its new deadline, and restarts the 12-hour window, for example from 20:30 Saturday to 08:30 Sunday. Changes never touch Todoist.
+5. An explicit "OK", "Looks good", "Create it", "Yes" or "Go ahead" to the displayed version applies it immediately. "Skip this week", "Cancel the weekly plan" or "Don't create these" cancels it, and a cancelled plan never applies.
+6. `Assistant weekly plan: apply due plans` is a command job that runs every 15 minutes with no model. It runs `node scripts/weekly-plan.mjs apply-due` and prints `NO_REPLY` when nothing is due. When a pending plan's deadline has passed, it creates exactly the stored operations of the displayed version and sends a per-item summary.
+
+Todoist tasks: `Gym — Tuesday`, `Golf round — Sunday`, `Golf practice — Thursday`, `Stretch — Monday` (15 min with concrete movements), `Meal prep — Tuesday`, plus one `Grocery shopping for next week` task whose description is the grouped list for the latest food plan. Each task is due on its day.
+
+Idempotency and failures:
+
+- Each operation has a stable id (`gym:2026-09-29`), a persisted outcome, and a deterministic Todoist request id. Finished operations are never repeated, even if the check fires twice or the gateway restarts.
+- If the process stops mid-apply, the plan stays `applying`. The next check resumes it: an interrupted operation is re-checked against Todoist before it is attempted again.
+- Tasks that already exist with the same title and date are recorded as `already_exists`, never duplicated. The same title on another date, such as last week's session, is a different task.
+- Transient Todoist errors (429, 5xx, network) are retried at most twice, and Todoist is re-checked before each retry. Other errors are not retried.
+- If some operations fail, the plan ends `applied_with_errors` and the summary lists each failed item. If none succeed, it ends `failed`. Neither is retried automatically. Operations whose date has already passed are recorded as `skipped_past_date` instead of creating overdue tasks.
+
+Commands:
+
+```bash
+npm run --silent weekly-plan -- status            # pending? when? which version? applied?
+npm run --silent weekly-plan -- show              # the current plan text
+npm run --silent weekly-plan -- propose           # preview only; stores nothing, never applies
+npm run --silent weekly-plan -- install --dry-run # preview the two Gateway cron jobs
+npm run --silent weekly-plan -- install           # install or update them through the Gateway
+npm run --silent weekly-plan -- status --jobs     # plan status plus installed job state
+```
+
+The two jobs are installed through the Gateway cron CLI, `openclaw cron add/edit`, because the Gateway keeps its own cron store. `routines:install` and the quiet-ops mutations still edit the old `cron/jobs.json`, which this OpenClaw version no longer reads.
+
 ## Telegram Use
 
 The personal agent should use the routine output as a briefing template, then gather live context from configured tools where appropriate: Calendar, Gmail, Todoist, memory, food planning, and health context. Scheduled cron jobs should return the final Telegram text only; they must not call Telegram or message-sending tools themselves because cron delivery sends the final answer.

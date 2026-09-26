@@ -18,6 +18,7 @@ Hilla currently has:
 - Memory helper for explicit local preferences and sensitive-memory approval flow.
 - Routine helpers for morning brief, midday check-in, workout window, evening review, weekly review, routine skips, and scheduled routine cron jobs.
 - Quiet-ops helpers for inspecting, auditing, enabling/disabling, and rescheduling local OpenClaw cron/reminder jobs.
+- Weekly plan automation: a Saturday proposal for food, shopping, gym, stretching, golf and golf practice. Natural Telegram changes create new versions. The displayed version's Todoist tasks are created after a 12-hour review window under a narrow standing authorization. This is the only automation that writes on its own; the user wants to try this level before anything more is added.
 - Research agent instructions for source-backed lookup and comparisons.
 
 ## Phase 1: Stabilize Current Assistant

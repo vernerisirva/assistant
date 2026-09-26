@@ -16,7 +16,7 @@ This repo is the source of truth for Hilla's prompts, config templates, safety p
 - `.openclaw/openclaw.json`: rendered config.
 - `.openclaw/workspace-*`: generated per-agent workspaces.
 - `.openclaw/agents/*`: generated OpenClaw agent directories.
-- `.openclaw/state`: runtime state, logs, cron store, memories, and Telegram state.
+- `.openclaw/state`: runtime state, logs, cron store, memories, weekly plans (`weekly-plan/`), and Telegram state.
 
 Generated runtime files are local and private. They are ignored by git and should not be committed.
 

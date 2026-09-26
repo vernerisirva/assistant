@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { routineCronStatus } from "./routine-cron.mjs";
 import { readRoutineSkipStore, resolveRoutineSkipStorePath } from "./routine-skips.mjs";
+import { formatLocalDateTime, nextWeekStart } from "./weekly-plan.mjs";
+import { createWeeklyPlanStore, summarizeWeeklyPlans } from "./weekly-plan-store.mjs";
 
 const defaultCronStore = { version: 1, jobs: [] };
 const defaultCronState = { version: 1, jobs: {} };
@@ -13,6 +15,7 @@ export function buildAssistantStatus({
   cronStore = defaultCronStore,
   cronState = defaultCronState,
   skipStore = defaultSkipStore,
+  weeklyPlans = [],
   gatewayLogText = "",
   gatewayErrLogText = "",
   loadIssues = [],
@@ -58,6 +61,7 @@ export function buildAssistantStatus({
         timezone: "Europe/Stockholm",
       }),
     },
+    weeklyPlan: buildWeeklyPlanStatus(weeklyPlans, now),
     recentActivity: {
       gatewayReadyAt: parsedLogs.gatewayReadyAt,
       telegramProviderStartedAt: parsedLogs.telegramProviderStartedAt,
@@ -87,6 +91,7 @@ export function loadAssistantStatusInputs({
     readJsonFile(join(resolvedStateDir, "cron", "jobs-state.json"), defaultCronState, loadIssues),
   );
   const skipStore = readRoutineSkipStore(skipStorePath, { issues: loadIssues, strict: false });
+  const weeklyPlans = readWeeklyPlans(resolvedStateDir, loadIssues);
 
   return {
     env,
@@ -94,6 +99,7 @@ export function loadAssistantStatusInputs({
     cronStore,
     cronState,
     skipStore,
+    weeklyPlans,
     gatewayLogText: readTextFile(join(resolvedStateDir, "logs", "gateway.log")),
     gatewayErrLogText: readTextFile(join(resolvedStateDir, "logs", "gateway.err.log")),
     loadIssues,
@@ -343,6 +349,42 @@ function timestampMs(value) {
     if (Number.isFinite(parsed) && Number.isFinite(new Date(parsed).getTime())) return parsed;
   }
   return null;
+}
+
+/** Answers: is a weekly plan pending, when does it apply, which version, was it applied? */
+function buildWeeklyPlanStatus(weeklyPlans, now) {
+  const summary = summarizeWeeklyPlans(weeklyPlans, { now, currentWeekStart: nextWeekStart(now) });
+  const localize = (entry) =>
+    entry && {
+      ...entry,
+      reviewDeadlineLocal: entry.reviewDeadline ? formatLocalDateTime(entry.reviewDeadline) : null,
+    };
+  return {
+    pending: summary.pending.map(localize),
+    latest: localize(summary.latest),
+    upcomingWeek: localize(summary.upcomingWeek),
+  };
+}
+
+function readWeeklyPlans(stateDir, loadIssues) {
+  try {
+    const { plans, issues } = createWeeklyPlanStore({ stateDir }).listPlansWithIssues();
+    for (const issue of issues) {
+      loadIssues.push({
+        severity: "warn",
+        type: "weekly-plan-read-failed",
+        message: `Weekly plan file ${issue.file} could not be read: ${issue.message}`,
+      });
+    }
+    return plans;
+  } catch (error) {
+    loadIssues.push({
+      severity: "warn",
+      type: "weekly-plan-read-failed",
+      message: `Weekly plan state could not be read: ${error.message}`,
+    });
+    return [];
+  }
 }
 
 function buildSuggestedActions() {
