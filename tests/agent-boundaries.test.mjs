@@ -541,7 +541,9 @@ describe("on-demand coaching prompts", () => {
     assert.match(coaching, /Define success by the process, never by a score or an outcome/);
     assert.match(coaching, /three to five short prompts in one message/);
     assert.match(coaching, /About process, not self-criticism/);
-    assert.match(coaching, /End with one thing to keep, one thing to adjust, and optionally one lesson they may choose to save/);
+    // The closing lines are named in the standing orders themselves, so a debrief
+    // ends the same way whether or not the playbook guide was read first.
+    assert.match(coaching, /After their answers, end with `Keep:`, `Adjust:`, and `Possible lesson:` lines; they may choose to save the lesson/);
     assert.match(coaching, /Never ask for what the conversation, memory, or playbook already answers/);
   });
 
