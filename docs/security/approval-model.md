@@ -90,6 +90,8 @@ Hilla may create the user's own Todoist tasks from the latest weekly planning pr
 
 The review window is 12 elapsed hours from the moment the latest version was shown, rounded up to the next 15-minute apply check. Each substantive change stores a new version and restarts the window. The Telegram message always states the local apply time in Europe/Stockholm. Around a DST change the window is still 12 real hours, so the local clock time can differ by an hour from a naive "+12".
 
+The digest check catches a plan file that changed after it was shown, such as an accidental edit or a partial write. It is not a signature. Anything that can write the private state directory could also call Todoist directly, so what limits the damage is the create-only Todoist gateway and the operation guard, not the digest.
+
 This authorization does not permit deleting, completing, moving or editing existing Todoist tasks. It does not permit Calendar writes, Gmail writes, bookings, purchases, browser submissions, memory writes, arbitrary shell mutations, or creating anything that was not in the displayed proposal. The apply step never calls a model and never regenerates the plan. Everything else stays confirm-before-action.
 
 ## Feedback Capture

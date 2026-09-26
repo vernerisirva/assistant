@@ -242,11 +242,34 @@ async function readOpenTasks(todoist) {
   }
 }
 
-/** Rate limits, server errors and network failures are worth one bounded retry; other 4xx are not. */
+const NETWORK_ERROR_CODES = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "EAI_AGAIN",
+  "ENOTFOUND",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+  "EPIPE",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_SOCKET",
+]);
+
+/**
+ * Rate limits, server errors and network failures are worth a bounded retry.
+ * Other Todoist responses and any other error are not, so a bug is never
+ * retried as if it were an outage.
+ */
 export function isTransient(error) {
-  const status = /Todoist API request failed: (\d{3})/.exec(String(error?.message ?? ""))?.[1];
+  const message = String(error?.message ?? "");
+  const status = /Todoist API request failed: (\d{3})/.exec(message)?.[1];
   if (status) return status === "429" || status.startsWith("5");
-  return true;
+  const code = error?.code ?? error?.cause?.code;
+  if (code && NETWORK_ERROR_CODES.has(code)) return true;
+  if (error?.name === "AbortError" || error?.name === "TimeoutError") return true;
+  return error?.name === "TypeError" && /fetch failed/i.test(message);
 }
 
 function shorten(message) {

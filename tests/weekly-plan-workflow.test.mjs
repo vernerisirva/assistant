@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runWeeklyPlanCli, parseWeeklyPlanArgs } from "../scripts/weekly-plan.mjs";
@@ -569,12 +569,71 @@ describe("weekly plan workflow", () => {
       }
     });
 
-    it("classifies transient errors", () => {
+    it("classifies only rate limits, server errors and network failures as transient", () => {
       assert.equal(isTransient(new Error("Todoist API request failed: 503")), true);
       assert.equal(isTransient(new Error("Todoist API request failed: 429")), true);
-      assert.equal(isTransient(new Error("fetch failed")), true);
+      assert.equal(isTransient(new TypeError("fetch failed")), true);
+      assert.equal(isTransient(Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNRESET" } })), true);
+      assert.equal(isTransient(Object.assign(new Error("socket hang up"), { code: "ECONNRESET" })), true);
+      assert.equal(isTransient(Object.assign(new Error("timed out"), { name: "TimeoutError" })), true);
       assert.equal(isTransient(new Error("Todoist API request failed: 400 bad")), false);
       assert.equal(isTransient(new Error("Todoist API request failed: 401")), false);
+      assert.equal(isTransient(new TypeError("Cannot read properties of undefined")), false);
+      assert.equal(isTransient(new Error("something unexpected")), false);
+    });
+  });
+
+  describe("plan lock", () => {
+    const lockPath = () => join(stateDir, "weekly-plan/locks/wp-2026-W40-abc123.lock");
+    const writeOldLock = (pid) => {
+      mkdirSync(join(stateDir, "weekly-plan/locks"), { recursive: true });
+      writeFileSync(lockPath(), JSON.stringify({ pid, token: "someone-else" }));
+      const old = new Date(Date.now() - 60 * 60_000);
+      utimesSync(lockPath(), old, old);
+    };
+
+    it("does not take over an old lock whose owner is still running", async () => {
+      writeOldLock(process.pid);
+      await assert.rejects(
+        createWeeklyPlanStore({ stateDir }).withPlanLock("wp-2026-W40-abc123", async () => "ran"),
+        /being updated right now/,
+      );
+    });
+
+    it("takes over an old lock whose owner is gone", async () => {
+      writeOldLock(123456);
+      const result = await createWeeklyPlanStore({ stateDir, isProcessAlive: () => false }).withPlanLock(
+        "wp-2026-W40-abc123",
+        async () => "ran",
+      );
+      assert.equal(result, "ran");
+      assert.equal(existsSync(lockPath()), false);
+    });
+
+    it("never takes over a recent lock, even without a live owner", async () => {
+      mkdirSync(join(stateDir, "weekly-plan/locks"), { recursive: true });
+      writeFileSync(lockPath(), JSON.stringify({ pid: 123456, token: "fresh" }));
+      await assert.rejects(
+        createWeeklyPlanStore({ stateDir, isProcessAlive: () => false }).withPlanLock("wp-2026-W40-abc123", async () => "ran"),
+        /being updated right now/,
+      );
+    });
+
+    it("keeps a live lock fresh while the holder works", async () => {
+      const lockStore = createWeeklyPlanStore({ stateDir, lockHeartbeatMs: 5 });
+      await lockStore.withPlanLock("wp-2026-W40-abc123", async () => {
+        const old = new Date(Date.now() - 60 * 60_000);
+        utimesSync(lockPath(), old, old);
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        assert.ok(Date.now() - statSync(lockPath()).mtimeMs < 10_000, "the heartbeat refreshed the lock");
+      });
+    });
+
+    it("does not remove a lock that another holder owns by the time it finishes", async () => {
+      await createWeeklyPlanStore({ stateDir }).withPlanLock("wp-2026-W40-abc123", async () => {
+        writeFileSync(lockPath(), JSON.stringify({ pid: process.pid, token: "another-holder" }));
+      });
+      assert.equal(JSON.parse(readFileSync(lockPath(), "utf8")).token, "another-holder");
     });
   });
 

@@ -30,6 +30,7 @@ import {
   renameSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -46,12 +47,19 @@ export const OPEN_STATUSES = Object.freeze(["draft", "pending", "applying"]);
 export const FINAL_STATUSES = Object.freeze(["applied", "applied_with_errors", "failed", "cancelled"]);
 const DONE_OUTCOMES = new Set(["created", "already_exists", "skipped_past_date", "failed"]);
 const LOCK_STALE_MS = 15 * 60_000;
+const LOCK_HEARTBEAT_MS = 60_000;
 
 export function resolveWeeklyPlanDir(stateDir) {
   return join(stateDir, "weekly-plan");
 }
 
-export function createWeeklyPlanStore({ stateDir, lockStaleMs = LOCK_STALE_MS, clock = () => Date.now() } = {}) {
+export function createWeeklyPlanStore({
+  stateDir,
+  lockStaleMs = LOCK_STALE_MS,
+  lockHeartbeatMs = LOCK_HEARTBEAT_MS,
+  clock = () => Date.now(),
+  isProcessAlive = processIsAlive,
+} = {}) {
   if (!stateDir) throw new Error("A state directory is required for the weekly plan store.");
   const root = resolveWeeklyPlanDir(stateDir);
   const plansDir = join(root, "plans");
@@ -105,37 +113,46 @@ export function createWeeklyPlanStore({ stateDir, lockStaleMs = LOCK_STALE_MS, c
   /**
    * Runs `fn` while holding the plan's lock file. Every mutation goes through
    * here, so an OK in chat and the scheduled check can never apply the same
-   * plan twice at once. A lock older than the stale limit is from a crashed
-   * process and is taken over.
+   * plan twice at once. The holder refreshes the lock while it works, so a slow
+   * Todoist call never makes a live lock look abandoned. A lock is taken over
+   * only when it is old and its owning process is gone, and a holder removes
+   * the lock only if it still carries its own token.
    */
   async function withPlanLock(planId, fn) {
     mkdirSync(locksDir, { recursive: true });
     const lockPath = join(locksDir, `${requirePlanId(planId)}.lock`);
+    const token = randomBytes(8).toString("hex");
     let descriptor;
     try {
       descriptor = openSync(lockPath, "wx", 0o600);
     } catch (error) {
       if (error.code !== "EEXIST") throw error;
-      let age = Infinity;
-      try {
-        age = clock() - statSync(lockPath).mtimeMs;
-      } catch (statError) {
-        if (statError.code !== "ENOENT") throw statError;
-      }
-      if (age < lockStaleMs) {
+      const held = readLock(lockPath);
+      const abandoned = held && clock() - held.mtimeMs >= lockStaleMs && !isProcessAlive(held.pid);
+      if (!abandoned) {
         const busy = new Error(`Weekly plan ${planId} is being updated right now.`);
         busy.code = "PLAN_LOCKED";
         throw busy;
       }
-      rmSync(lockPath, { force: true });
+      if (readLock(lockPath)?.token === held.token) rmSync(lockPath, { force: true });
       descriptor = openSync(lockPath, "wx", 0o600);
     }
+    writeFileSync(descriptor, JSON.stringify({ pid: process.pid, token, at: new Date(clock()).toISOString() }));
+    const heartbeat = setInterval(() => {
+      try {
+        const now = new Date();
+        utimesSync(lockPath, now, now);
+      } catch {
+        // A missing lock is handled when the holder releases it.
+      }
+    }, lockHeartbeatMs);
+    heartbeat.unref();
     try {
-      writeFileSync(descriptor, JSON.stringify({ pid: process.pid, at: new Date(clock()).toISOString() }));
       return await fn();
     } finally {
+      clearInterval(heartbeat);
       closeSync(descriptor);
-      rmSync(lockPath, { force: true });
+      if (readLock(lockPath)?.token === token) rmSync(lockPath, { force: true });
     }
   }
 
@@ -147,6 +164,33 @@ export function createWeeklyPlanStore({ stateDir, lockStaleMs = LOCK_STALE_MS, c
   }
 
   return { root, plansDir, readPlan, writePlan, listPlans, listPlansWithIssues, withPlanLock, mutatePlan };
+}
+
+/** `{ pid, token, mtimeMs }` of a lock file, or null when it is gone. Unreadable content counts as ownerless. */
+function readLock(lockPath) {
+  let mtimeMs;
+  try {
+    mtimeMs = statSync(lockPath).mtimeMs;
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+  try {
+    const content = JSON.parse(readFileSync(lockPath, "utf8"));
+    return { pid: Number(content.pid), token: content.token ?? null, mtimeMs };
+  } catch {
+    return { pid: NaN, token: null, mtimeMs };
+  }
+}
+
+function processIsAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
 }
 
 export function newPlanId(weekStart, random = () => randomBytes(3).toString("hex")) {
