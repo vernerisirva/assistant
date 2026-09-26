@@ -887,7 +887,7 @@ describe("capability help prompt", () => {
 
   it("routes help questions to the capability guide with a compact pointer", () => {
     assert.ok(from >= 0, "missing Help section");
-    assert.match(pointer, /For `Help`, `What can you do\?`, or any question about what you can do, do automatically, or need approval for, first run `npm run --silent capabilities -- guide` and follow it/);
+    assert.match(pointer, /For `Help`, `What can you do\?`, `What needs my approval\?`, or any question about what you can do, do automatically, or need approval for, first run `npm run --silent capabilities -- guide` and follow it/);
     assert.match(pointer, /Claim only capabilities it lists as available/);
     assert.ok(Buffer.byteLength(pointer) < 300, `help pointer is ${Buffer.byteLength(pointer)} bytes`);
     assert.deepEqual(pointer.match(/npm run [^`]+/g), ["npm run --silent capabilities -- guide"]);
@@ -925,11 +925,13 @@ describe("capability help prompt", () => {
     assert.match(guide, /The capability list is the only source for these answers\. Answer from its output, never from memory, from these standing orders, or from what a tool could technically do\. Claim only what it lists as available/);
     assert.match(guide, /For anything it marks as not supported, or does not list at all, say you can't do that directly and offer what it does list/);
     assert.match(guide, /This matters most for Calendar changes, sending email, bookings and payments, purchases, weather alerts, and anything scheduled/);
-    assert.match(guide, /Reply with it as printed\. You may leave out whole sections, but never add a line, drop a limit from a line you keep, or call something switched on that the list does not/);
+    // Paraphrasing once dropped the weekly plan's automatic add; lists go out as printed.
+    assert.match(guide, /Send every list exactly as printed\. It is written for Telegram and fits one message: do not regroup, merge, reword, or shorten it/);
+    assert.match(guide, /Each line's label and limit is part of the answer, such as `\(needs your OK\)`, `\(automatic\)`, `Creating it isn't currently supported`, and the weekly plan's rule that its Todoist tasks are added after 12 hours unless the user cancels/);
   });
 
   it("maps scoped questions to the matching deterministic view", () => {
-    assert.match(guide, /`What can you do with Todoist\?`.*run `npm run --silent capabilities -- --tag TOPIC` with the closest topic from the list after this guide, and reply with that subset only/);
+    assert.match(guide, /`What can you do with Todoist\?`.*run `npm run --silent capabilities -- --tag TOPIC` with the closest topic from the list after this guide, and send only that view/);
     assert.match(guide, /`What can you do automatically\?`, `What can you change on your own\?`: run `npm run --silent capabilities -- --automatic`/);
     assert.match(guide, /`What needs my approval\?`, `What requires approval\?`, `What can you do without asking me\?`: run `npm run --silent capabilities -- --requires-approval`/);
     assert.match(guide, /`What is read-only\?`, `What can't change anything\?`: run `npm run --silent capabilities -- --read-only`/);

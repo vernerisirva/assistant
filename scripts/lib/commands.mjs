@@ -39,9 +39,12 @@ export function commandExists(command, env = process.env) {
  * must report a supported version. The launchd installer uses that, because it
  * bakes the path into the service. Everyday commands take the override as
  * given, as the weekly plan always has.
+ *
+ * Inside an agent turn the Gateway itself sets OPENCLAW_CLI=1 as a marker. That
+ * exact value names no command and is not an override; any other value is.
  */
 export function resolveOpenClawRuntime({ env = process.env, verify = false, readVersion = readOpenClawVersion } = {}) {
-  const explicit = typeof env.OPENCLAW_CLI === "string" ? env.OPENCLAW_CLI.trim() : "";
+  const explicit = openClawOverride(env);
   if (explicit) {
     if (!verify) return { command: explicit, source: "explicit", version: null };
     const command = explicit.includes("/") ? resolve(explicit) : findExecutableOnPath(explicit, env.PATH);
@@ -63,6 +66,13 @@ export function resolveOpenClawRuntime({ env = process.env, verify = false, read
     `No OpenClaw runtime found. OPENCLAW_CLI is not set, ${managed} does not exist, and there is no openclaw on PATH. ` +
       `Install OpenClaw ${MIN_OPENCLAW_VERSION} or newer, or set OPENCLAW_CLI.`,
   );
+}
+
+const OPENCLAW_CLI_MARKER = "1";
+
+function openClawOverride(env) {
+  const value = typeof env.OPENCLAW_CLI === "string" ? env.OPENCLAW_CLI.trim() : "";
+  return value === OPENCLAW_CLI_MARKER ? "" : value;
 }
 
 export function resolveOpenClawCommand(env = process.env, options = {}) {

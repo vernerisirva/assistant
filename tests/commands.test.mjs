@@ -112,6 +112,31 @@ describe("OpenClaw runtime resolution", () => {
     );
   });
 
+  it("ignores the OPENCLAW_CLI=1 marker the Gateway sets inside agent turns", () => {
+    // Every live-scheduler command an agent ran resolved to a command named "1"
+    // and failed with "OpenClaw CLI not found at 1".
+    const { home, managed, nvmBin } = machine();
+    fakeExecutable(managed, "2026.7.1-2");
+    for (const marker of ["1", " 1 "]) {
+      assert.equal(resolveOpenClawCommand({ HOME: home, PATH: nvmBin, OPENCLAW_CLI: marker }), managed, marker);
+      assert.deepEqual(
+        resolveOpenClawRuntime({ env: { HOME: home, PATH: nvmBin, OPENCLAW_CLI: marker }, verify: true, readVersion: versions({ [managed]: "2026.7.1-2" }) }),
+        { command: managed, source: "managed", version: "2026.7.1-2" },
+        marker,
+      );
+    }
+
+    // Only that exact marker is ignored: any other value is still the override,
+    // including a real command whose name looks like a flag.
+    const named = fakeExecutable(join(nvmBin, "true"), "2026.8.0");
+    assert.equal(resolveOpenClawCommand({ HOME: home, PATH: nvmBin, OPENCLAW_CLI: "true" }), "true");
+    assert.deepEqual(
+      resolveOpenClawRuntime({ env: { HOME: home, PATH: nvmBin, OPENCLAW_CLI: "true" }, verify: true, readVersion: versions({ [named]: "2026.8.0" }) }),
+      { command: named, source: "explicit", version: "2026.8.0" },
+    );
+    assert.equal(resolveOpenClawCommand({ HOME: home, PATH: nvmBin, OPENCLAW_CLI: "openclaw" }), "openclaw");
+  });
+
   it("accepts openclaw on PATH only when it is new enough", () => {
     const { home, nvmBin } = machine();
     const onPath = fakeExecutable(join(nvmBin, "openclaw"), "2026.5.12");

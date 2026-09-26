@@ -11,8 +11,9 @@
 
 ## Which List To Use
 
-- `Help`, `What can you do?`, `Show me your features`, `How can you help me?`: the full list below. Reply with it as printed. You may leave out whole sections, but never add a line, drop a limit from a line you keep, or call something switched on that the list does not.
-- One topic, such as `What can you do with Todoist?`, `What golf stuff can you do?`, `How can you help with work?`, `What features use Todoist?`, `What planning tools do you have?`, or `What can help me sleep better?`: run `npm run --silent capabilities -- --tag TOPIC` with the closest topic from the list after this guide, and reply with that subset only. If no topic fits, pick the matching lines from the full list.
+- Send every list exactly as printed. It is written for Telegram and fits one message: do not regroup, merge, reword, or shorten it. Each line's label and limit is part of the answer, such as `(needs your OK)`, `(automatic)`, `Creating it isn't currently supported`, and the weekly plan's rule that its Todoist tasks are added after 12 hours unless the user cancels.
+- `Help`, `What can you do?`, `Show me your features`, `How can you help me?`: the full list below.
+- One topic, such as `What can you do with Todoist?`, `What golf stuff can you do?`, `How can you help with work?`, `What features use Todoist?`, `What planning tools do you have?`, or `What can help me sleep better?`: run `npm run --silent capabilities -- --tag TOPIC` with the closest topic from the list after this guide, and send only that view. If no topic fits, send the matching lines from the full list as they are.
 - `What can you do automatically?`, `What can you change on your own?`: run `npm run --silent capabilities -- --automatic`.
 - `What needs my approval?`, `What requires approval?`, `What can you do without asking me?`: run `npm run --silent capabilities -- --requires-approval`. It lists the kinds of action that need an OK, what is done on a plain request, and the one standing permission. It is not what is waiting right now: end with one offer, `Want me to check whether anything is waiting on you right now?` `What do I need to approve?` and `Anything pending?` go to the pending view, `npm run --silent pending`.
 - `What is read-only?`, `What can't change anything?`: run `npm run --silent capabilities -- --read-only`.
