@@ -36,6 +36,9 @@ export function rememberMemoryEntry(
     source: entryInput.source,
     createdAt: existingIndex >= 0 ? document.entries[existingIndex].createdAt : now,
     updatedAt: now,
+    // A personal playbook keeps its structured form next to the readable value;
+    // scripts/lib/playbooks.mjs validates it. Plain entries have no such field.
+    ...(entryInput.playbook ? { playbook: entryInput.playbook } : {}),
   };
 
   if (existingIndex >= 0) {
@@ -115,8 +118,15 @@ function normalizeMemoryInput(input = {}) {
   const value = normalizeText(input.value, "Memory value is required.");
   const sensitivity = normalizeSensitivity(input.sensitivity ?? "low");
   const source = normalizeOptionalText(input.source) ?? "manual";
+  const playbook = input.playbook ?? null;
+  if (playbook !== null && (typeof playbook !== "object" || Array.isArray(playbook))) {
+    throw new Error("Memory playbook must be an object.");
+  }
+  if (playbook && sensitivity !== "low") {
+    throw new Error("A playbook is low-risk memory; sensitive details use the sensitive-memory flow.");
+  }
 
-  return { category, key, value, sensitivity, source };
+  return { category, key, value, sensitivity, source, playbook };
 }
 
 function normalizeCategory(category) {

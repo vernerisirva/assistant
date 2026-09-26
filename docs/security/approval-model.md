@@ -110,6 +110,12 @@ Starting, changing, or ending a focus session the user asked for writes one loca
 
 A project named for the session (`I'm working on my thesis`) stays in the conversation. It is stored only if the user explicitly asks to remember it, through the memory rules.
 
+## Personal Playbooks
+
+A playbook is one of the user's own routines saved in the existing memory store, so saving one is an explicit low-risk memory write with no extra approval. The helper requires the user's exact words for every save or change: an explicit request, a standing-routine statement, or a plain yes to an offer. A passing remark or a hedge saves nothing. Changes touch one exact playbook, and an unclear routine or step gets a question.
+
+Playbooks hold behaviour, never conclusions about the person. The helper refuses personality traits, judgements, feelings, and psychological labels, even when asked to store them, and refuses health details, which belong to the sensitive-memory approval flow. A debrief ends with `Keep`, `Adjust`, and `Possible lesson`; the lesson is stored only after the user says yes, and the debrief conversation itself is never recorded. Playbooks never create Todoist tasks, Calendar events, reminders, or routines. The policy entry is `personalPlaybooks` in `config/approval-policy.json`.
+
 ## Calendar Creation Preview
 
 `npm run calendar:create -- ... --dry-run` validates and normalizes one proposed Calendar event. It is a pure preview helper: it does not fetch Calendar data, call a Calendar API, create an event, edit an event, send email, invite guests, RSVP, book, purchase, or submit a browser form.

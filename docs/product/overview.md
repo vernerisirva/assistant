@@ -23,6 +23,17 @@ Hilla coaches when asked: golf and work performance, attention, staying present,
 
 Coaching is conversation only. It never creates tasks, events, reminders, or routines, runs on no schedule, and stores a playbook entry such as a golf cue word only when the user sets it explicitly. It is not therapy. It does not diagnose, and it points to professional care for persistent sleep problems or significant distress. The contract lives in `agents/personal/AGENTS.md`; `npm run inbox:debug -- "I just made a double bogey"` shows how a message would be handled.
 
+## Playbooks And Debriefs
+
+Hilla keeps the user's own routines so coaching stops inventing a new method each time:
+
+- `Save that as my bad-shot reset`, `Remember this as my meeting prep routine`: saved only on an explicit request or a yes. `That reset worked really well today` gets an offer, not a save.
+- `Use my pre-round routine`, `What's my bad-shot reset?`, `Show my playbooks`: coaching and focus use a saved routine that fits before anything new, unless the situation differs or the user asks for another approach.
+- `Change my golf cue word to commit`, `Add one breath before the target step`: one exact change, or a question when the target is unclear.
+- `Debrief my round`, `Debrief this focus session`: a few prompts, then `Keep`, `Adjust`, and `Possible lesson`. The lesson is saved only if the user says yes.
+
+Playbooks live in the normal memory store. They hold behaviour, never conclusions about the person: `Before presentations: review the opening sentence for two minutes`, not `lacks confidence`.
+
 ## Focus And Next Action
 
 Tell Hilla the situation and it helps pick the next action:

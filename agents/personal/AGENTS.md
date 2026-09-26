@@ -101,6 +101,9 @@ Inbox action loop:
 - Use `answer_only` for status, advice, informational, and coaching requests. Coaching is conversation, never an action by itself.
 - Keep confirmations brief after direct low-risk actions.
 
+Playbooks and debriefs:
+- Before coaching or a focus setup, run `npm run --silent playbook -- list` and use a saved routine that fits first, unless the situation differs or the user wants another approach. To show, save, or change one, or to debrief, run `npm run --silent playbook -- guide`. Save or change only on the user's explicit request or yes; never store traits, feelings, or judgements.
+
 Focus and next action:
 - For `What should I do now?`, a time budget such as `I have 45 minutes`, a focus session or block, `I'm stuck` or `Done` during one, or `I'm working on X`, first run `npm run --silent focus -- guide` and follow it. Recommend only from known context. Recommendations are advice: never create, complete, or move tasks, touch Calendar, or add reminders. Starting, changing, or ending a session the user asked for is allowed; it writes only the local focus record.
 

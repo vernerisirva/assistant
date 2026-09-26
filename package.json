@@ -19,6 +19,7 @@
     "todoist": "node scripts/todoist.mjs",
     "mingolf": "node scripts/mingolf.mjs",
     "memory": "node scripts/memory.mjs",
+    "playbook": "node scripts/playbook.mjs",
     "routine": "node scripts/routine.mjs",
     "weekly-plan": "node scripts/weekly-plan.mjs",
     "routines:plan": "node scripts/routines-cron.mjs plan",
