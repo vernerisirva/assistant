@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { routineCronStatus } from "./routine-cron.mjs";
@@ -174,14 +175,29 @@ function resolveGatewayLogSource({ env = {}, stateDir, platform }) {
 }
 
 function readLaunchAgentLogPaths(plistPath) {
-  const plist = readTextFile(plistPath);
+  const plist = readPlistXml(plistPath);
   if (!plist) return null;
   const stdoutPath = plistLogPath(plist, "StandardOutPath");
   const stderrPath = plistLogPath(plist, "StandardErrorPath");
   return stdoutPath || stderrPath ? { stdoutPath, stderrPath } : null;
 }
 
-/** Reads one string value from an XML plist. A binary plist yields nothing. */
+/** launchd accepts binary plists too; macOS plutil converts those to XML. */
+function readPlistXml(plistPath) {
+  const text = readTextFile(plistPath);
+  if (!text.startsWith("bplist")) return text;
+  try {
+    return execFileSync("/usr/bin/plutil", ["-convert", "xml1", "-o", "-", plistPath], {
+      encoding: "utf8",
+      timeout: 5000,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return "";
+  }
+}
+
+/** Reads one string value from an XML plist. */
 function plistLogPath(plist, key) {
   const match = new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`).exec(plist);
   const value = match

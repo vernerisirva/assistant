@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -836,6 +837,25 @@ describe("assistant status gateway log discovery", () => {
       writeFileAt(liveLogPath(fixture.home, "custom.log"), healthyLiveLog());
       const prefixed = statusFor(fixture, { env: liveEnv(fixture.home, { OPENCLAW_LOG_PREFIX: "custom" }) });
       assert.equal(prefixed.logs.stdoutPath, liveLogPath(fixture.home, "custom.log"));
+    } finally {
+      rmSync(fixture.directory, { recursive: true, force: true });
+    }
+  });
+
+  it("reads a binary LaunchAgent plist too", { skip: process.platform !== "darwin" && "needs macOS plutil" }, () => {
+    const fixture = createLogFixture();
+    try {
+      // A non-default file name proves the path came from the plist, not the default location.
+      const customLog = liveLogPath(fixture.home, "custom-gateway.log");
+      writeFileAt(customLog, healthyLiveLog());
+      writeFileAt(plistPath(fixture.home), launchAgentPlist({ stdoutPath: customLog, stderrPath: "/dev/null" }));
+      execFileSync("/usr/bin/plutil", ["-convert", "binary1", plistPath(fixture.home)]);
+      writeFileAt(legacyLogPath(fixture.stateDir), staleLegacyLog());
+
+      const status = statusFor(fixture, { env: liveEnv(fixture.home) });
+      assert.equal(status.logs.source, "launchd");
+      assert.equal(status.logs.stdoutPath, customLog);
+      assert.equal(status.overall, "running");
     } finally {
       rmSync(fixture.directory, { recursive: true, force: true });
     }
