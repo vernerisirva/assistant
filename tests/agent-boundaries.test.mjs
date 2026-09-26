@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { CAPABILITIES } from "../scripts/lib/capabilities.mjs";
 import { memoryCategories } from "../scripts/lib/memory.mjs";
 
 const agents = JSON.parse(readFileSync("config/agents.json", "utf8"));
@@ -384,6 +385,13 @@ describe("agent configuration", () => {
     assert.match(prompt, /evening-review/);
     assert.match(prompt, /weekly-review/);
     assert.match(prompt, /ask before storing inferred memories/i);
+
+    // The one routine line still names every configured routine.
+    const schedules = JSON.parse(readFileSync("config/schedules.json", "utf8"));
+    const line = prompt.split("\n").find((entry) => entry.startsWith("- For a briefing, run `npm run routine -- ROUTINE_ID`"));
+    assert.ok(line, "missing the routine line");
+    for (const routine of [...schedules.daily, schedules.weekly]) assert.ok(line.includes(`\`${routine.id}\``), routine.id);
+    assert.match(line, /use its output as a Telegram briefing template, gathering live calendar, Gmail, Todoist, health, and memory context as needed/);
   });
 
   it("teaches the personal agent scheduled routine feedback boundaries", () => {
@@ -867,5 +875,97 @@ describe("pending actions prompt", () => {
       assert.doesNotMatch(promptFor(id), /npm run --silent pending/, id);
     }
     assert.ok(from < personalPrompt.indexOf("\nConfirm-before-action:\n"));
+  });
+});
+
+describe("capability help prompt", () => {
+  const promptFor = (id) => readFileSync(`${agents.find((agent) => agent.id === id).promptDir}/AGENTS.md`, "utf8");
+  const personalPrompt = promptFor("personal");
+  const from = personalPrompt.indexOf("\nHelp:\n");
+  const pointer = personalPrompt.slice(from, personalPrompt.indexOf("\n\n", from + 1));
+  const guide = readFileSync("agents/personal/guides/capabilities.md", "utf8");
+
+  it("routes help questions to the capability guide with a compact pointer", () => {
+    assert.ok(from >= 0, "missing Help section");
+    assert.match(pointer, /For `Help`, `What can you do\?`, or any question about what you can do, do automatically, or need approval for, first run `npm run --silent capabilities -- guide` and follow it/);
+    assert.match(pointer, /Claim only capabilities it lists as available/);
+    assert.ok(Buffer.byteLength(pointer) < 300, `help pointer is ${Buffer.byteLength(pointer)} bytes`);
+    assert.deepEqual(pointer.match(/npm run [^`]+/g), ["npm run --silent capabilities -- guide"]);
+    for (const id of ["admin", "health", "research"]) {
+      assert.doesNotMatch(promptFor(id), /npm run --silent capabilities/, id);
+    }
+    assert.ok(from < personalPrompt.indexOf("\nConfirm-before-action:\n"));
+  });
+
+  it("keeps the catalog itself out of every standing prompt", () => {
+    for (const agent of agents) {
+      const prompt = promptFor(agent.id);
+      for (const entry of CAPABILITIES) {
+        for (const text of [entry.summary, entry.limit, entry.alternative].filter(Boolean)) {
+          assert.ok(!prompt.includes(text), `${agent.id} prompt repeats the registry: ${text}`);
+        }
+      }
+      assert.doesNotMatch(prompt, /Not supported directly|Here's what I can do/);
+    }
+    assert.doesNotMatch(readFileSync("AGENTS.md", "utf8"), /Not supported directly|Here's what I can do/);
+  });
+
+  it("keeps the guide subordinate to the standing orders", () => {
+    assert.match(guide, /It adds detail to the personal agent's standing orders and never overrides them: the approval rules there still apply, and nothing here grants an approval/);
+  });
+
+  it("answers help questions only from the capability list", () => {
+    for (const question of [
+      "Help", "What can you do?", "Show me your features", "What are your capabilities?", "How can you help me?",
+      "What can you do with Todoist?", "What golf features do you have?", "What can you do automatically?",
+      "What needs my approval?", "What can you do without asking me?", "What is read-only?",
+    ]) {
+      assert.ok(guide.includes(`\`${question}\``), question);
+    }
+    assert.match(guide, /The capability list is the only source for these answers\. Answer from its output, never from memory, from these standing orders, or from what a tool could technically do\. Claim only what it lists as available/);
+    assert.match(guide, /For anything it marks as not supported, or does not list at all, say you can't do that directly and offer what it does list/);
+    assert.match(guide, /This matters most for Calendar changes, sending email, bookings and payments, purchases, weather alerts, and anything scheduled/);
+    assert.match(guide, /Reply with it as printed\. You may leave out whole sections, but never add a line, drop a limit from a line you keep, or call something switched on that the list does not/);
+  });
+
+  it("maps scoped questions to the matching deterministic view", () => {
+    assert.match(guide, /`What can you do with Todoist\?`.*run `npm run --silent capabilities -- --tag TOPIC` with the closest topic from the list after this guide, and reply with that subset only/);
+    assert.match(guide, /`What can you do automatically\?`, `What can you change on your own\?`: run `npm run --silent capabilities -- --automatic`/);
+    assert.match(guide, /`What needs my approval\?`, `What requires approval\?`, `What can you do without asking me\?`: run `npm run --silent capabilities -- --requires-approval`/);
+    assert.match(guide, /`What is read-only\?`, `What can't change anything\?`: run `npm run --silent capabilities -- --read-only`/);
+    // Which kinds of action need an OK is not what is waiting right now.
+    assert.match(guide, /It is not what is waiting right now: end with one offer, `Want me to check whether anything is waiting on you right now\?` `What do I need to approve\?` and `Anything pending\?` go to the pending view, `npm run --silent pending`/);
+    assert.match(personalPrompt, /For `What's waiting on me\?`, `Anything pending\?`, or `What do I need to approve\?`, run `npm run --silent pending`/);
+  });
+
+  it("suggests at most three existing capabilities for right now, without fetching or inventing", () => {
+    assert.match(guide, /From the full list, pick at most three capabilities that fit what is already known in this conversation/);
+    assert.match(guide, /Fetch nothing for this: no Todoist, Calendar, email, or pending reads\. Never invent tasks, deadlines, obligations, or urgency, and never present a suggestion as something the user has to do/);
+  });
+
+  it("hides the internal setup and keeps setup apart from health", () => {
+    assert.match(guide, /Describe what the user can ask for, never how it is built: no agent names, command names, file names, ids, field names, or job names\. `I can research that` is right; `I'll hand this to the research agent` is not/);
+    assert.match(guide, /Never describe a scheduled item that is off, not set up, or could not be checked as running/);
+    assert.match(guide, /The list says what is set up, not whether it works right now\. For `Is Todoist working\?` or `Is my calendar connected\?`, check instead of answering from the list/);
+    assert.match(guide, /Never promise a future capability or a date for one/);
+  });
+
+  it("names only read-only commands and grants no approval", () => {
+    const commands = guide.match(/npm run [^`]+/g) ?? [];
+    assert.ok(commands.length > 0);
+    for (const command of commands) {
+      assert.match(command, /^npm run (--silent capabilities -- (guide|--tag TOPIC|--automatic|--requires-approval|--read-only)|--silent pending|--silent assistant:status -- --json|todoist -- tasks --filter today)$/, command);
+    }
+    for (const grant of [
+      /without (a second |extra |further |any )?approval/i,
+      /no (extra |further )?approval (is )?(needed|required)/i,
+      /counts? as (an )?approval/i,
+      /pre-?approved/i,
+      /auto-?appl(y|ies)/i,
+      /--approved/,
+    ]) {
+      assert.doesNotMatch(guide, grant);
+      assert.doesNotMatch(pointer, grant);
+    }
   });
 });

@@ -114,6 +114,10 @@ A project named for the session (`I'm working on my thesis`) stays in the conver
 
 `npm run --silent pending` is read-only. It reads the weekly plan store and the focus record, and writes, locks, and creates nothing. It lists a weekly plan awaiting review and a running focus session. Stored payloads, ids, and secret-shaped text never appear. A source that cannot be read is reported as unchecked, never as "nothing pending". Approving, changing, or cancelling an item still goes through that item's own flow. Approval prompts asked in chat are not stored, so the view cannot list them. The policy entry is `pendingActions` in `config/approval-policy.json`.
 
+## Capability Help
+
+`npm run --silent capabilities` is read-only. It prints the capability registry, checks which integrations are configured in `.env`, and for scheduled capabilities lists which live jobs are switched on. It writes nothing and never calls Todoist, Google, Telegram, or a model. The help text describes these approval levels; it never grants one. A capability the registry does not list as available is not claimed, and what it lists as not supported (Calendar writes, sending email, payments, purchases) is offered as a draft, preview, or plan instead.
+
 ## Personal Playbooks
 
 A playbook is one of the user's own routines saved in the existing memory store, so saving one is an explicit low-risk memory write with no extra approval. The helper requires the user's exact words for every save or change: an explicit request, a standing-routine statement, or a plain yes to an offer. A passing remark or a hedge saves nothing. Changes touch one exact playbook, and an unclear routine or step gets a question.

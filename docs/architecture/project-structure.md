@@ -39,6 +39,12 @@ The agents run on the Codex harness. It reads `AGENTS.md` files from the reposit
 
 A new capability keeps its triggers and hard boundaries in the standing orders and moves the detail into `agents/personal/guides/<feature>.md`, which its helper prints when the agent runs it. The focus and playbook guides work this way: the prompt says when to run `npm run --silent focus -- guide` or `npm run --silent playbook -- guide`, and tests pin both the pointer and the guide.
 
+## Capability Registry
+
+`scripts/lib/capabilities.mjs` is the only list of what Hilla tells the user it can do. Help answers come from it through `npm run --silent capabilities -- guide`, never from a feature list in a prompt or a doc, so no other file keeps one. Each entry has one side-effect profile (effect, approval, automatic), and actions with different boundaries are separate entries. A boundary users tend to assume, such as Calendar writes or sending email, is an entry marked not supported, with what Hilla offers instead.
+
+A new capability adds its entry in the same change. `tests/capabilities.test.mjs` fails when an available entry has no helper script or defining prompt or guide section behind it, when its approval disagrees with `config/approval-policy.json`, or when a pinned entry disappears.
+
 ## Safety Flow
 
 `config/approval-policy.json`, `docs/security/approval-model.md`, and agent prompts should agree. Tests enforce important prompt and policy boundaries in:
