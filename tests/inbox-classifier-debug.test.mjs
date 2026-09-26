@@ -324,4 +324,114 @@ describe("inbox classifier debug command", () => {
     assert.match(output, /Note: the base classifier did not detect an executable intent, but the safety overlay found side-effect language/);
     assert.match(output, /Hard stop points:/);
   });
+
+  it("routes performance coaching to personal as conversation with no side effects", () => {
+    for (const [message, mode] of [
+      ["I just made a double bogey", "in_performance"],
+      ["Pre-round coach", "pre_performance"],
+      ["Help me prepare mentally for this meeting", "pre_performance"],
+      ["I've been staring at this task for 20 minutes", "quick_reset"],
+      ["Debrief today's work", "debrief"],
+    ]) {
+      const result = classify(message);
+
+      assert.equal(result.selectedAgent, "personal", message);
+      assert.equal(result.coaching.kind, "coaching", message);
+      assert.equal(result.coaching.mode, mode, message);
+      assert.equal(result.action.mode, "answer_only", message);
+      assert.equal(result.sideEffecting, false, message);
+      assert.equal(result.approvalRequired, false, message);
+      assert.match(result.safety.reason, /Coaching is conversation only/, message);
+      assert.match(result.hardStopPoints[0], /Stop before turning a coaching idea into a Todoist task/, message);
+    }
+  });
+
+  it("routes sleep coaching and serious sleep trouble to health", () => {
+    const coaching = classify("Sleep coach — I need to wake at 06:30");
+    assert.equal(coaching.selectedAgent, "health");
+    assert.equal(coaching.coaching.mode, "sleep_coaching");
+    assert.equal(coaching.sideEffecting, false);
+    assert.match(coaching.hardStopPoints.join(" "), /Stop before diagnosis/);
+
+    const referral = classify("I haven't slept properly for months");
+    assert.equal(referral.selectedAgent, "health");
+    assert.equal(referral.coaching.kind, "sleep_health");
+    assert.match(referral.route.reason, /professional assessment rather than coaching/);
+  });
+
+  it("keeps the approval path of an action that arrives with a coaching request", () => {
+    const calendar = classify("Help me focus and move my meeting to 3pm");
+    assert.equal(calendar.coaching, null);
+    assert.equal(calendar.selectedAgent, "admin");
+
+    const todoist = classify("Coach me and add a Todoist task to practice putting");
+    assert.equal(todoist.coaching, null);
+    assert.equal(todoist.action.mode, "clarify");
+
+    const booking = classify("Debrief my round and book golf for Saturday");
+    assert.equal(booking.coaching, null);
+    assert.equal(booking.approvalRequired, true);
+
+    const email = classify("Help me prepare mentally and send an email to Anna");
+    assert.equal(email.coaching, null);
+    assert.equal(email.approvalRequired, true);
+  });
+
+  it("shows an explicit playbook entry as one low-risk memory write", () => {
+    const result = classify('My golf cue word is "commit"');
+
+    assert.equal(result.selectedAgent, "personal");
+    assert.equal(result.coaching.kind, "playbook");
+    assert.equal(result.sideEffecting, true);
+    assert.equal(result.approvalRequired, false);
+    assert.match(result.safety.reason, /low-risk memory write through the normal memory command/);
+  });
+
+  it("escalates a playbook entry with a health detail to sensitive-memory approval", () => {
+    const result = classify("Remember that my wind-down routine includes my sleeping pills");
+
+    assert.equal(result.coaching.kind, "playbook");
+    assert.equal(result.sideEffecting, true);
+    assert.equal(result.approvalRequired, true);
+    assert.match(result.safety.reason, /sensitive memory needs Telegram approval/);
+  });
+
+  it("does not report a frustrated self-judgement as a memory write", () => {
+    const result = classify("I always choke under pressure");
+
+    assert.equal(result.coaching.mode, "quick_reset");
+    assert.equal(result.sideEffecting, false);
+  });
+
+  it("leaves non-coaching messages without a coaching block", () => {
+    for (const message of [
+      "What is performance anxiety?",
+      "Can you adjust my workout-window routine for today?",
+      "Remember that I prefer early workouts",
+      "Help me prepare for my meeting with Tobias",
+    ]) {
+      assert.equal(classify(message).coaching, null, message);
+    }
+    assert.equal(classify("Help me prepare for my meeting with Tobias").selectedAgent, "admin");
+  });
+
+  it("formats the coaching block without implying an action", () => {
+    const output = formatInboxClassifierDebug(classify("I just made a double bogey"));
+
+    assert.match(output, /Likely route: personal \(confidence: high\)/);
+    assert.match(output, /Coaching:\n- Kind: coaching \(context: golf\)\n- Mode: in_performance\n- Questions: none/);
+    assert.match(output, /- Shape: immediate reset → next controllable action → at most one cue/);
+    assert.match(output, /- Side-effect signal: no/);
+    assert.match(output, /Note: coaching is conversation only; nothing is created, scheduled, or stored\./);
+
+    const debrief = formatInboxClassifierDebug(classify("Debrief my round"));
+    assert.match(debrief, /- Questions: 3 to 5/);
+
+    const clarify = formatInboxClassifierDebug(classify("Coach me"));
+    assert.match(clarify, /- Questions: exactly 1/);
+
+    const technique = formatInboxClassifierDebug(classify("How do I fix my slice?"));
+    assert.match(technique, /- Kind: golf_technique \(context: golf\)/);
+    assert.doesNotMatch(technique, /- Mode:/);
+  });
 });

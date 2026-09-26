@@ -20,6 +20,7 @@ Hilla currently has:
 - Quiet-ops helpers for inspecting, auditing, enabling/disabling, and rescheduling local OpenClaw cron/reminder jobs.
 - Weekly plan automation: a Saturday proposal for food, shopping, gym, stretching, golf and golf practice. Natural Telegram changes create new versions. The displayed version's Todoist tasks are created after a 12-hour review window under a narrow standing authorization. This is the only automation that writes on its own; the user wants to try this level before anything more is added.
 - Research agent instructions for source-backed lookup and comparisons.
+- On-demand coaching v1 in the personal agent: quick reset, in-performance, pre-performance, debrief, and sleep coaching for golf, work, and sleep habits. It is conversation only, with no schedule, and playbook memory is stored only when the user sets it explicitly.
 
 ## Phase 1: Stabilize Current Assistant
 
@@ -80,6 +81,7 @@ These are tempting but should wait because they add complexity or risk.
 - Multi-user or shared-family agent workflows.
 - Large database, dashboard, or web app around Hilla.
 - Silent memory learning from behavior.
+- Proactive coaching. A later explicit opt-in could offer a short setup on a golf day (`You have golf today. Want a 60-second mental setup?`) by reusing the pre-performance mode. Only after the on-demand version has been tried; no mood tracking or profiling either way.
 - New integrations not already represented in repo docs/scripts.
 
 ## Roadmap Principles

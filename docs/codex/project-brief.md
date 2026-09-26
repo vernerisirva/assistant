@@ -16,7 +16,7 @@ The repo should stay easy for Codex and future agents to maintain. Prefer clear 
 
 ## Current Agents
 
-- `personal`: the only agent the user should feel they are talking to. Routes work to specialists and handles memory, routines, status, approvals, and concise Telegram replies.
+- `personal`: the only agent the user should feel they are talking to. Routes work to specialists and handles memory, routines, status, approvals, on-demand coaching, and concise Telegram replies.
 - `admin`: Gmail, Calendar, Todoist, Min Golf tee-time search, reminders, logistics, meeting prep, and personal administration.
 - `health`: workouts, food choices, meal planning, groceries, sleep consistency, movement, and routine support.
 - `research`: source-backed lookup, comparisons, and planning support.
@@ -27,7 +27,7 @@ Agent prompts live in `agents/<agent>/AGENTS.md`. The rendered OpenClaw runtime 
 
 | Agent | Owns | Must Stop Before |
 | --- | --- | --- |
-| `personal` | Telegram-facing conversation, routing, memory/routine/status controls, approval flow | Direct risky side effects, unclear targets, specialist work that should be routed |
+| `personal` | Telegram-facing conversation, routing, memory/routine/status controls, approval flow, on-demand coaching | Direct risky side effects, unclear targets, specialist work that should be routed, turning a coaching idea into a task, event or memory without the user's yes |
 | `admin` | Gmail, Calendar, Todoist, reminders, Min Golf search, logistics, meeting/admin planning | Email mutations, risky Todoist changes, Calendar edits, bookings, payments, forms, account changes without approval |
 | `health` | Workouts, food planning, groceries, sleep consistency, cravings, supportive routine design | Diagnosis, extreme dieting advice, medical treatment, purchases, Calendar/Todoist mutations without routed approval |
 | `research` | Source-backed facts, comparisons, current lookup, planning support | Booking, buying, submitting forms, account changes, local file edits, uncited high-stakes claims |
