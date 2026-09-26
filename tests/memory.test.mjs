@@ -7,6 +7,7 @@ import {
   buildMemoryApprovalPrompt,
   forgetMemoryEntry,
   listMemoryEntries,
+  memoryCategories,
   memoryRequiresApproval,
   rememberMemoryEntry,
 } from "../scripts/lib/memory.mjs";
@@ -197,5 +198,47 @@ describe("memory CLI", () => {
     } finally {
       memory.cleanup();
     }
+  });
+
+  it("stores coaching playbook entries under their own categories with the normal command", async () => {
+    const memory = withMemoryPath();
+    try {
+      for (const [category, key, value] of [
+        ["golf", "cue-word", "commit"],
+        ["work", "deep-work-block", "45 minutes"],
+        ["sleep", "target-wake-time", "06:30"],
+      ]) {
+        const result = await runMemoryCli(
+          ["remember", "--category", category, "--key", key, "--value", value, "--source", "telegram"],
+          { memoryPath: memory.path, now: "2026-09-26T08:00:00.000Z" },
+        );
+        assert.equal(result.entry.sensitivity, "low");
+      }
+
+      const listed = (await runMemoryCli(["list", "--category", "sleep"], { memoryPath: memory.path })).entries;
+      assert.deepEqual(listed.map((entry) => `${entry.category}/${entry.key}: ${entry.value}`), ["sleep/target-wake-time: 06:30"]);
+    } finally {
+      memory.cleanup();
+    }
+  });
+
+  it("keeps a sensitive coaching detail behind approval in the new categories too", async () => {
+    const memory = withMemoryPath();
+    try {
+      await assert.rejects(
+        () => runMemoryCli(
+          ["remember", "--category", "sleep", "--key", "medication", "--value", "sleeping pill at 22:00", "--sensitivity", "sensitive"],
+          { memoryPath: memory.path },
+        ),
+        /Sensitive memory requires approval/,
+      );
+      assert.deepEqual(await runMemoryCli(["list"], { memoryPath: memory.path }), { entries: [] });
+    } finally {
+      memory.cleanup();
+    }
+  });
+
+  it("lists the same categories in help as the store accepts", async () => {
+    assert.deepEqual((await runMemoryCli(["help"])).categories, memoryCategories);
   });
 });

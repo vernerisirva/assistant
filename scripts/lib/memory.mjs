@@ -8,6 +8,8 @@ export const memoryCategories = [
   "schedule",
   "tone",
   "golf",
+  "work",
+  "sleep",
   "admin",
   "general",
 ];

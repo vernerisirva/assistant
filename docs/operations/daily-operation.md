@@ -101,7 +101,10 @@ npm run inbox:debug -- "Can you book golf tomorrow morning?"
 npm run inbox:debug -- --json "Send email to Anna saying I will be late"
 npm run inbox:debug -- --source screenshot --exact-task-target --complete-details "Clean up the formatting of this Todoist task"
 npm run inbox:debug -- --complete-details --target-calendar-clear "Create calendar event Gym on 2026-07-09 at 17:30 for 60 minutes"
+npm run inbox:debug -- "I just made a double bogey"
 ```
+
+A coaching message shows its mode, context and question budget in a `Coaching:` block. Coaching is conversation only; a message that also asks for a task, event, reminder, email or booking keeps its normal action classification.
 
 Create a Todoist task. Use `--content` for a one-line task, and `--task-json-stdin` as the canonical command whenever the description has more than one line or the text contains apostrophes or quotes:
 

@@ -1,4 +1,8 @@
+import { classifyCoachingRequest } from "./coaching.mjs";
 import { classifyInboxAction } from "./inbox-action.mjs";
+
+const coachingHardStop =
+  "Stop before turning a coaching idea into a Todoist task, reminder, routine, Calendar event, or memory; that needs the user's clear yes and then the normal rules.";
 
 const agentHardStops = Object.freeze({
   personal: [
@@ -173,11 +177,12 @@ export function buildInboxClassifierDebug({ message, actionOptions = {} }) {
   const raw = String(message ?? "").trim();
   const text = normalize(raw);
   const action = classifyInboxAction(raw, actionOptions);
-  const route = chooseRoute(text, action);
-  const sideEffect = detectSideEffect(text, action);
+  const coaching = coachingFor(raw, action);
+  const route = chooseRoute(text, action, coaching);
+  const sideEffect = detectSideEffect(text, action, coaching);
   const approvalRequired = Boolean(action.approvalRequired || sideEffect.approvalRequired);
   const confidence = action.mode === "clarify" ? "low" : route.confidence;
-  const hardStopPoints = collectHardStopPoints(route.agent, sideEffect);
+  const hardStopPoints = collectHardStopPoints(route.agent, sideEffect, coaching);
 
   return {
     message: raw,
@@ -186,6 +191,7 @@ export function buildInboxClassifierDebug({ message, actionOptions = {} }) {
     reason: buildReason(route, action, sideEffect),
     route,
     action,
+    coaching,
     safety: sideEffect,
     sideEffecting: sideEffect.sideEffecting,
     approvalRequired,
@@ -209,6 +215,7 @@ export function formatInboxClassifierDebug(result) {
     actionIntentLine(result.action, executableIntent),
     `- Base risk: ${result.action.risk}`,
     `- Reason: ${result.action.reason}`,
+    ...coachingLines(result.coaching),
     "",
     "Routing/safety overlay:",
     `- Side-effect signal: ${result.sideEffecting ? "yes" : "no"}`,
@@ -222,7 +229,17 @@ export function formatInboxClassifierDebug(result) {
   ].join("\n");
 }
 
-function chooseRoute(text, action) {
+// Coaching is conversation, so it is only considered when the action classifier
+// found nothing to execute, approve, or clarify.
+function coachingFor(raw, action) {
+  if (action.mode !== "answer_only" || !["no_action", "advice.query"].includes(action.intent)) {
+    return null;
+  }
+
+  return classifyCoachingRequest(raw);
+}
+
+function chooseRoute(text, action, coaching) {
   if (action.mode === "clarify") {
     return {
       agent: "personal",
@@ -255,6 +272,14 @@ function chooseRoute(text, action) {
     };
   }
 
+  if (coaching) {
+    return {
+      agent: coaching.agent,
+      confidence: "high",
+      reason: coachingRouteReason(coaching),
+    };
+  }
+
   for (const rule of routeRules) {
     if (rule.pattern.test(text)) {
       return {
@@ -272,7 +297,24 @@ function chooseRoute(text, action) {
   };
 }
 
-function detectSideEffect(text, action) {
+function coachingRouteReason(coaching) {
+  switch (coaching.kind) {
+    case "support":
+      return "Message shows significant distress; personal responds with care instead of coaching.";
+    case "sleep_health":
+      return "Message describes persistent or severe sleep trouble, which is health's domain and needs a professional assessment rather than coaching.";
+    case "golf_technique":
+      return "Message asks for golf technique, answered as general guidance with the user's golf coach as the authority on mechanics.";
+    case "playbook":
+      return "Message sets a coaching playbook entry, stored with personal's normal memory command.";
+    default:
+      return coaching.agent === "health"
+        ? "Message asks for sleep coaching, which is health's domain."
+        : `Message asks for on-demand coaching (${coaching.context}), which personal handles as conversation.`;
+  }
+}
+
+function detectSideEffect(text, action, coaching) {
   if (action.mode === "approval_required") {
     return {
       sideEffecting: true,
@@ -297,6 +339,16 @@ function detectSideEffect(text, action) {
     };
   }
 
+  // A sensitive playbook entry may only make the overlay stricter, so it is
+  // checked before the generic low-risk memory rule could answer first.
+  if (coaching?.kind === "playbook" && coaching.approvalRequired) {
+    return {
+      sideEffecting: true,
+      approvalRequired: true,
+      reason: coaching.reason,
+    };
+  }
+
   for (const rule of sideEffectRules) {
     if (rule.pattern.test(text)) {
       return {
@@ -307,11 +359,50 @@ function detectSideEffect(text, action) {
     }
   }
 
+  if (coaching?.kind === "playbook") {
+    return {
+      sideEffecting: true,
+      approvalRequired: false,
+      reason: coaching.reason,
+    };
+  }
+
+  if (coaching) {
+    return {
+      sideEffecting: false,
+      approvalRequired: false,
+      reason: "Coaching is conversation only: it creates no tasks, events, reminders, routines, or memory.",
+    };
+  }
+
   return {
     sideEffecting: false,
     approvalRequired: false,
     reason: "No mutation or external side-effect signal detected.",
   };
+}
+
+function coachingLines(coaching) {
+  if (!coaching) return [];
+
+  const lines = ["", "Coaching:", `- Kind: ${coaching.kind} (context: ${coaching.context})`];
+
+  if (coaching.mode) {
+    lines.push(
+      `- Mode: ${coaching.mode}`,
+      `- Questions: ${questionBudget(coaching.contract)}`,
+      `- Shape: ${coaching.contract.shape.join(" → ")}`,
+    );
+  }
+
+  lines.push(`- Guidance: ${coaching.reason}`);
+  return lines;
+}
+
+function questionBudget({ minQuestions, maxQuestions }) {
+  if (maxQuestions === 0) return "none";
+  if (minQuestions === maxQuestions) return `exactly ${maxQuestions}`;
+  return minQuestions === 0 ? `at most ${maxQuestions}` : `${minQuestions} to ${maxQuestions}`;
 }
 
 function actionHasExecutableIntent(action) {
@@ -338,6 +429,10 @@ function buildLayerNote(result, executableIntent) {
     return "the base classifier detected an executable intent; the safety overlay summarizes approval implications.";
   }
 
+  if (result.coaching) {
+    return "coaching is conversation only; nothing is created, scheduled, or stored.";
+  }
+
   if (result.action.mode === "clarify") {
     return "the message needs clarification before Hilla should route or execute anything.";
   }
@@ -345,11 +440,11 @@ function buildLayerNote(result, executableIntent) {
   return "";
 }
 
-function collectHardStopPoints(agent, sideEffect) {
+function collectHardStopPoints(agent, sideEffect, coaching) {
   const points = [...(agentHardStops[agent] ?? [])];
 
   if (!sideEffect.sideEffecting) {
-    return points.slice(0, 2);
+    return coaching ? [coachingHardStop, ...points.slice(0, 2)] : points.slice(0, 2);
   }
 
   if (

@@ -8,7 +8,7 @@ Agent contract:
 - Allowed read-only actions: read configured Gmail and Calendar context, inspect Todoist tasks/projects, inspect reminder and routine state, and inspect visible Min Golf tee-time availability after the user is logged in.
 - Actions requiring explicit Telegram approval: email mutations, Calendar edits/deletes/invites/responses, Todoist delete/reopen/move/bulk/shared/project-wide/ambiguous/inferred/sensitive changes, Min Golf booking/payment/cancellation/edit/check-in, purchases, browser submissions, and state-changing shell commands.
 - Hard stop points: stop before payment, BankID, card entry, Swish, invoice, third-party redirects, changed booking terms, mismatched booking details, unclear targets, or actions affecting other people.
-- Good routing examples: keep admin/logistics here; route workouts, meals, groceries, cravings, and sleep coaching to health; route source-backed factual lookup to research; return final handoffs through personal.
+- Good routing examples: keep admin/logistics here; route workouts, meals, groceries, cravings, and sleep coaching to health; route mental preparation and performance coaching to personal while keeping meeting agendas, notes, and logistics here; route source-backed factual lookup to research; return final handoffs through personal.
 
 Default behavior:
 - Summarize important email and calendar context.

@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { memoryCategories } from "../scripts/lib/memory.mjs";
 
 const agents = JSON.parse(readFileSync("config/agents.json", "utf8"));
 const requiredAgentIds = ["personal", "admin", "health", "research"];
@@ -30,17 +31,26 @@ describe("agent configuration", () => {
     // A rebase once committed markers into a prompt and every other assertion
     // still passed, because they only check that phrases are present. The
     // markers would have gone to the model as part of its standing orders.
+    // SOUL.md reaches the workspace too, so every Markdown prompt file counts.
+    const checked = [];
     for (const agent of agents) {
-      const path = `${agent.promptDir}/AGENTS.md`;
-      if (!existsSync(path)) continue;
+      if (!existsSync(agent.promptDir)) continue;
 
-      for (const line of readFileSync(path, "utf8").split("\n")) {
-        assert.ok(
-          !/^(<{7} |={7}$|>{7} )/.test(line),
-          `${path} still contains a conflict marker: ${line}`,
-        );
+      for (const file of readdirSync(agent.promptDir).filter((name) => name.endsWith(".md"))) {
+        const path = `${agent.promptDir}/${file}`;
+        checked.push(path);
+
+        for (const line of readFileSync(path, "utf8").split("\n")) {
+          assert.ok(
+            !/^(<{7} |={7}$|>{7} )/.test(line),
+            `${path} still contains a conflict marker: ${line}`,
+          );
+        }
       }
     }
+
+    assert.ok(checked.includes("agents/personal/AGENTS.md"));
+    assert.ok(checked.includes("agents/personal/SOUL.md"));
   });
 
   it("gives each agent a workspace and agent directory", () => {
@@ -450,5 +460,164 @@ describe("agent configuration", () => {
     }
 
     assert.match(healthPrompt, /route Todoist and Calendar mutations through the personal or admin agent/i);
+  });
+});
+
+describe("on-demand coaching prompts", () => {
+  const promptFor = (id) => readFileSync(`${agents.find((agent) => agent.id === id).promptDir}/AGENTS.md`, "utf8");
+  const between = (text, start, end) => {
+    const from = text.indexOf(start);
+    const to = text.indexOf(end, from);
+    assert.ok(from >= 0 && to > from, `missing section ${start}`);
+    return text.slice(from, to);
+  };
+  const personalPrompt = promptFor("personal");
+  const healthPrompt = promptFor("health");
+  const adminPrompt = promptFor("admin");
+  const coaching = between(personalPrompt, "On-demand coaching:", "Confirm-before-action:");
+  const healthSleep = between(healthPrompt, "Sleep and recovery coaching:", "Confirm-before-action:");
+
+  it("keeps coaching on demand, inside the one visible assistant", () => {
+    assert.equal(agents.length, 4);
+    assert.match(coaching, /The user starts every coaching conversation; coaching has no scheduled, proactive, or automatic form/);
+    assert.match(coaching, /No scheduled or proactive coaching: no daily motivation, automatic mindfulness prompts, morning coaching, or unsolicited mental-performance assessments/);
+    assert.match(coaching, /Coach only in reply to the user/);
+    assert.match(healthSleep, /Coach only when the user asks/);
+    assert.match(healthSleep, /Scheduled check-ins keep their existing scope/);
+    assert.match(personalPrompt, /keep on-demand golf and work performance coaching here/);
+    assert.match(coaching, /Never show mode names, labels, or JSON/);
+  });
+
+  it("recognizes coaching requests but answers factual questions as questions", () => {
+    for (const request of [
+      "Coach me", "Mental coach", "Performance coach", "Pre-round coach", "Golf mindset", "Help me stay present",
+      "Help me focus", "Reset me", "I'm tilting", "I'm frustrated after that hole", "Help me prepare mentally",
+      "I'm procrastinating", "Sleep coach", "Help me wind down tonight", "Debrief my round", "Debrief this work session",
+    ]) {
+      assert.ok(coaching.includes(`\`${request}\``), request);
+    }
+    assert.match(coaching, /is a question, not a coaching request: answer it, and route source-backed lookups to research/);
+  });
+
+  it("coaches with one practical intervention instead of a list of advice", () => {
+    assert.match(coaching, /not a motivational quote generator/);
+    assert.match(coaching, /name what is controllable, choose one small mental or process intervention, give one immediate action or cue/);
+    assert.match(coaching, /One intervention done consistently beats five techniques at once\. Never send a long list of advice/);
+    assert.match(coaching, /No motivational clichés, excessive praise, generic `believe in yourself` lines, or lectures/);
+  });
+
+  it("keeps a quick reset and an in-performance reply short", () => {
+    assert.match(coaching, /Quick reset, for stress, frustration, distraction, overthinking, or lost focus: one short acknowledgement, at most one short question, one reset action, and one cue or next step/);
+    assert.match(coaching, /In-performance, when the user is on the course, in a meeting, or inside a work block right now: shorter still/);
+    assert.match(coaching, /Ask no questions and do not start a reflective conversation unless the user asks for one/);
+    assert.match(coaching, /Ask none when the situation is clear and urgent/);
+  });
+
+  it("lets preparation ask a few questions and keeps debriefs about process", () => {
+    assert.match(coaching, /ask one to three useful questions only when the answer is not already known/);
+    assert.match(coaching, /Define success by the process, never by a score or an outcome/);
+    assert.match(coaching, /send three to five short prompts in one message/);
+    assert.match(coaching, /Keep it about process, not self-criticism/);
+    assert.match(coaching, /End with one thing to keep, one thing to adjust, and optionally one lesson they may choose to save/);
+    assert.match(coaching, /Never ask for something the conversation, memory, or the coaching playbook already answers/);
+  });
+
+  it("keeps golf coaching mental unless technique is explicitly asked for", () => {
+    assert.match(coaching, /Use golf process language: target, decision, breath, commit, accept, next shot/);
+    assert.match(coaching, /Give no technical swing instruction unless the user explicitly asks/);
+    assert.match(coaching, /their golf coach, who can see the swing, is the right person for mechanics/);
+    assert.match(coaching, /do not recast it as a purely mental problem/);
+  });
+
+  it("gives work coaching a concrete next-action pattern", () => {
+    assert.match(coaching, /Prefer the next controllable action, a short focus window, removing one source of friction/);
+    assert.match(coaching, /For the next 30 minutes your job is not to finish the feature/);
+    assert.match(adminPrompt, /route mental preparation and performance coaching to personal while keeping meeting agendas, notes, and logistics here/);
+    assert.match(coaching, /Agenda, notes, and logistics for a meeting stay ordinary admin meeting prep/);
+  });
+
+  it("keeps sleep coaching about habits and never diagnostic, in personal and health alike", () => {
+    assert.match(coaching, /Sleep and recovery coaching is health's domain\. Whoever answers it follows the Sleep coaching rules below/);
+    for (const text of [coaching, healthSleep]) {
+      assert.match(text, /Coach controllable behaviour and schedule: a consistent wake time, bedtime, wind-down, light and device use, caffeine timing, evening work/);
+      assert.match(text, /Ask up to three questions/);
+      assert.match(text, /Do not diagnose sleep disorders or read symptoms as a diagnosis/);
+      assert.match(text, /For persistent or severe sleep problems, possible medical symptoms/);
+      assert.match(text, /this is beyond habit coaching and suggest seeing a doctor or contacting 1177 for an assessment/);
+    }
+    assert.match(healthPrompt, /Do not diagnose medical conditions/);
+  });
+
+  it("separates performance coaching from mental-health treatment", () => {
+    assert.match(coaching, /It is not therapy or treatment/);
+    assert.match(coaching, /Do not diagnose or label mental-health conditions, read feelings as symptoms, claim to provide psychotherapy, suggest changing or stopping prescribed treatment, or present coaching as a substitute for professional care/);
+    assert.match(coaching, /normal performance emotion\. Treat it that way, without clinical words/);
+    assert.match(coaching, /drop the performance framing/);
+    assert.match(coaching, /point to urgent help first: 112 in Sweden, or the local emergency number/);
+    assert.match(coaching, /Do not steer it back to golf or work/);
+  });
+
+  it("never lets a coaching idea create tasks, events, routines, or schedules", () => {
+    assert.match(coaching, /Coaching is conversation only\. A coaching idea never creates a Todoist task, reminder, workout, routine, or Calendar event, never edits Calendar, and never changes the weekly plan/);
+    assert.match(coaching, /You may offer once: `Want me to make that a Todoist task\?` Nothing is created unless the user clearly says yes, and then the normal Todoist rules apply unchanged/);
+    assert.match(healthSleep, /It creates no routines, reminders, tasks, or Calendar events/);
+    assert.match(personalPrompt, /Use `answer_only` for status, advice, informational, and coaching requests\. Coaching is conversation, never an action by itself/);
+  });
+
+  it("stores playbook entries only through the existing explicit memory rules", () => {
+    const keys = [
+      "golf/cue-word", "golf/bad-shot-reset", "golf/pre-round-routine", "work/deep-work-block",
+      "work/reset-routine", "sleep/target-wake-time", "sleep/wind-down-routine",
+    ];
+    for (const key of keys) {
+      assert.ok(coaching.includes(`\`${key}\``), key);
+      assert.ok(memoryCategories.includes(key.split("/")[0]), key);
+    }
+    assert.match(coaching, /`npm run memory -- remember --category golf --key cue-word --value "commit" --source telegram`/);
+    assert.match(coaching, /When a routine is only mentioned in passing while asking for something else, ask before saving it/);
+    assert.match(coaching, /Never infer or silently store personality traits, psychological weaknesses, mental-health labels, emotional vulnerabilities, conclusions drawn from frustrated messages, or diagnoses/);
+    assert.match(coaching, /`I always choke under pressure` is something said in a hard moment, not a memory/);
+    assert.match(coaching, /`Do you want me to remember that as part of your coaching playbook\?`/);
+    assert.match(coaching, /Offer to save the routine, never the judgement/);
+    assert.match(coaching, /including workspace notes or daily memory files/);
+    assert.match(coaching, /They go through the sensitive-memory approval flow and never become ordinary playbook entries/);
+    assert.match(personalPrompt, /Coaching playbook entries use the same command and rules/);
+  });
+
+  it("lists the same memory categories as the memory helper", () => {
+    const line = personalPrompt.split("\n").find((entry) => entry.startsWith("- Use categories: "));
+
+    assert.deepEqual(line.slice("- Use categories: ".length).replace(/\.$/, "").split(", "), memoryCategories);
+  });
+
+  it("cannot weaken an approval boundary from inside the coaching sections", () => {
+    for (const text of [coaching, healthSleep]) {
+      for (const grant of [
+        /without (a second |extra |further |any )?approval/i,
+        /no (extra |further )?approval (is )?(needed|required)/i,
+        /counts? as (an )?approval/i,
+        /pre-?approved/i,
+        /standing authori[sz]ation/i,
+        /auto-?appl(y|ies)/i,
+        /skip(ping)? (the )?approval/i,
+        /--approved/,
+        /--sensitivity sensitive/,
+      ]) {
+        assert.doesNotMatch(text, grant);
+      }
+    }
+
+    // The only commands coaching may name are the memory helper's list and
+    // remember, which keep their own explicit and sensitive-memory rules.
+    const commands = coaching.match(/npm run [^`]+/g) ?? [];
+    assert.ok(commands.length > 0);
+    for (const command of commands) {
+      assert.match(command, /^npm run memory -- (list|remember) /);
+    }
+    assert.doesNotMatch(healthSleep, /npm run/);
+
+    // The general approval rules still follow the coaching sections.
+    assert.ok(personalPrompt.indexOf("On-demand coaching:") < personalPrompt.indexOf("\nConfirm-before-action:\n"));
+    assert.ok(personalPrompt.indexOf("\nConfirm-before-action:\n") < personalPrompt.indexOf("\nTone:\n"));
   });
 });

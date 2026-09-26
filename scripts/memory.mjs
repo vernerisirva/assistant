@@ -5,6 +5,7 @@ import {
   buildMemoryApprovalPrompt,
   forgetMemoryEntry,
   listMemoryEntries,
+  memoryCategories,
   memoryRequiresApproval,
   rememberMemoryEntry,
 } from "./lib/memory.mjs";
@@ -86,7 +87,7 @@ export async function runMemoryCli(
         "npm run memory -- list",
         "npm run memory -- forget --id MEMORY_ID",
       ],
-      categories: ["food", "health", "schedule", "tone", "golf", "admin", "general"],
+      categories: [...memoryCategories],
       safety:
         "Low-risk memories can be saved when the user explicitly asks. Sensitive memories require Telegram approval and --approved.",
     };
