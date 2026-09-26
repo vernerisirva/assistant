@@ -40,8 +40,8 @@ export function commandExists(command, env = process.env) {
  * bakes the path into the service. Everyday commands take the override as
  * given, as the weekly plan always has.
  *
- * Inside an agent turn the Gateway itself sets OPENCLAW_CLI=1 as a marker, so
- * a flag value such as `1` or `true` names no command and is not an override.
+ * Inside an agent turn the Gateway itself sets OPENCLAW_CLI=1 as a marker. That
+ * exact value names no command and is not an override; any other value is.
  */
 export function resolveOpenClawRuntime({ env = process.env, verify = false, readVersion = readOpenClawVersion } = {}) {
   const explicit = openClawOverride(env);
@@ -68,11 +68,11 @@ export function resolveOpenClawRuntime({ env = process.env, verify = false, read
   );
 }
 
-const OPENCLAW_CLI_MARKER = /^(0|1|true|false|yes|no|on|off)$/i;
+const OPENCLAW_CLI_MARKER = "1";
 
 function openClawOverride(env) {
   const value = typeof env.OPENCLAW_CLI === "string" ? env.OPENCLAW_CLI.trim() : "";
-  return OPENCLAW_CLI_MARKER.test(value) ? "" : value;
+  return value === OPENCLAW_CLI_MARKER ? "" : value;
 }
 
 export function resolveOpenClawCommand(env = process.env, options = {}) {

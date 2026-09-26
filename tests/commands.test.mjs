@@ -117,11 +117,23 @@ describe("OpenClaw runtime resolution", () => {
     // and failed with "OpenClaw CLI not found at 1".
     const { home, managed, nvmBin } = machine();
     fakeExecutable(managed, "2026.7.1-2");
-    for (const marker of ["1", " 1 ", "true", "0", "FALSE", "yes", "on"]) {
+    for (const marker of ["1", " 1 "]) {
       assert.equal(resolveOpenClawCommand({ HOME: home, PATH: nvmBin, OPENCLAW_CLI: marker }), managed, marker);
-      assert.equal(resolveOpenClawRuntime({ env: { HOME: home, PATH: nvmBin, OPENCLAW_CLI: marker } }).source, "managed", marker);
+      assert.deepEqual(
+        resolveOpenClawRuntime({ env: { HOME: home, PATH: nvmBin, OPENCLAW_CLI: marker }, verify: true, readVersion: versions({ [managed]: "2026.7.1-2" }) }),
+        { command: managed, source: "managed", version: "2026.7.1-2" },
+        marker,
+      );
     }
-    // A real command name is still an override.
+
+    // Only that exact marker is ignored: any other value is still the override,
+    // including a real command whose name looks like a flag.
+    const named = fakeExecutable(join(nvmBin, "true"), "2026.8.0");
+    assert.equal(resolveOpenClawCommand({ HOME: home, PATH: nvmBin, OPENCLAW_CLI: "true" }), "true");
+    assert.deepEqual(
+      resolveOpenClawRuntime({ env: { HOME: home, PATH: nvmBin, OPENCLAW_CLI: "true" }, verify: true, readVersion: versions({ [named]: "2026.8.0" }) }),
+      { command: named, source: "explicit", version: "2026.8.0" },
+    );
     assert.equal(resolveOpenClawCommand({ HOME: home, PATH: nvmBin, OPENCLAW_CLI: "openclaw" }), "openclaw");
   });
 
