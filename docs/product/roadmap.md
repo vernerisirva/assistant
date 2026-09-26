@@ -21,6 +21,7 @@ Hilla currently has:
 - Weekly plan automation: a Saturday proposal for food, shopping, gym, stretching, golf and golf practice. Natural Telegram changes create new versions. The displayed version's Todoist tasks are created after a 12-hour review window under a narrow standing authorization. This is the only automation that writes on its own; the user wants to try this level before anything more is added.
 - Research agent instructions for source-backed lookup and comparisons.
 - On-demand coaching v1 in the personal agent: quick reset, in-performance, pre-performance, debrief, and sleep coaching for golf, work, and sleep habits. It is conversation only, with no schedule, and playbook memory is stored only when the user sets it explicitly.
+- Focus and next action v1: "What should I do now?" gives one recommendation from fresh context, and a focus session keeps one disposable local record of the block's task facts. No timers, no scheduled prompts, and no Todoist or Calendar side effects.
 
 ## Phase 1: Stabilize Current Assistant
 

@@ -106,6 +106,25 @@ npm run inbox:debug -- "I just made a double bogey"
 
 A coaching message shows its mode, context and question budget in a `Coaching:` block. Coaching is conversation only; a message that also asks for a task, event, reminder, email or booking keeps its normal action classification.
 
+A next-action or focus message shows a `Focus:` block with its kind, the time it states, and whether it writes the focus record. Pass `--focus-active` to see how an in-session message such as `I'm stuck` is handled while a session is running:
+
+```bash
+npm run inbox:debug -- "I have 45 minutes, what should I do?"
+npm run inbox:debug -- --focus-active "I found another bug"
+```
+
+## Focus Sessions
+
+A focus session is conversation state, not automation: nothing is scheduled and no reminder is sent. The record lives at `.openclaw/state/focus/session.json`, holds only the block's task facts, and is deleted when the session ends.
+
+```bash
+npm run --silent focus -- guide    # the focus and next-action guide the agent follows, with the current status
+npm run --silent focus -- status   # read-only: running, overtime, or stale
+npm run --silent focus -- end      # clear the record
+```
+
+A session counts as overtime for two hours after its planned end and as stale after that. A stale session is ignored until it is ended or replaced.
+
 Create a Todoist task. Use `--content` for a one-line task, and `--task-json-stdin` as the canonical command whenever the description has more than one line or the text contains apostrophes or quotes:
 
 ```bash

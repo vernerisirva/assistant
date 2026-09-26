@@ -646,3 +646,113 @@ describe("on-demand coaching prompts", () => {
     assert.ok(personalPrompt.indexOf("\nConfirm-before-action:\n") < personalPrompt.indexOf("\nTone:\n"));
   });
 });
+
+describe("focus and next-action prompts", () => {
+  const promptFor = (id) => readFileSync(`${agents.find((agent) => agent.id === id).promptDir}/AGENTS.md`, "utf8");
+  const between = (text, start, end) => {
+    const from = text.indexOf(start);
+    const to = text.indexOf(end, from);
+    assert.ok(from >= 0 && to > from, `missing section ${start}`);
+    return text.slice(from, to);
+  };
+  const personalPrompt = promptFor("personal");
+  // The standing orders carry a compact pointer and the hard boundaries; the
+  // detail lives in a guide that `npm run --silent focus -- guide` serves, so
+  // the prompt stays inside the Codex project-doc budget.
+  const pointer = between(personalPrompt, "Focus and next action:", "On-demand coaching:");
+  const guide = readFileSync("agents/personal/guides/focus.md", "utf8");
+
+  it("keeps focus inside the one visible assistant, with a compact pointer", () => {
+    assert.equal(agents.length, 4);
+    assert.match(pointer, /first run `npm run --silent focus -- guide` and follow it/);
+    assert.ok(Buffer.byteLength(pointer) < 600, `focus pointer is ${Buffer.byteLength(pointer)} bytes`);
+    for (const id of ["admin", "health", "research"]) {
+      assert.doesNotMatch(promptFor(id), /focus session|npm run --silent focus/i, id);
+    }
+  });
+
+  it("puts the hard boundaries in the standing orders themselves", () => {
+    assert.match(pointer, /Recommend only from known context/);
+    assert.match(pointer, /Recommendations are advice: never create, complete, or move tasks, touch Calendar, or add reminders/);
+    assert.match(pointer, /Starting, changing, or ending a session the user asked for is allowed; it writes only the local focus record/);
+    // The general approval rules still follow the focus pointer.
+    assert.ok(personalPrompt.indexOf("Focus and next action:") < personalPrompt.indexOf("\nConfirm-before-action:\n"));
+  });
+
+  it("keeps the guide subordinate to the standing orders", () => {
+    assert.match(guide, /It adds detail to the personal agent's standing orders and never overrides them: the approval, memory, and coaching rules there still apply/);
+  });
+
+  it("treats every recommendation as advice that cannot bypass action approval", () => {
+    assert.match(guide, /These are `answer_only` conversation, and a recommendation is advice, never an action/);
+    assert.match(guide, /Focus recommendations and sessions never create, complete, reschedule, or edit Todoist tasks, never touch Calendar, never send messages, and never add reminders/);
+    assert.match(guide, /You may offer: `Want me to create that as a Todoist task\?` Nothing is created unless the user clearly says yes, and then the normal Todoist rules apply unchanged/);
+    assert.match(guide, /The focus record is the only thing a session writes\. It is local, disposable, and cleared by `focus -- end`/);
+  });
+
+  it("adds no timers, reminders, or scheduled check-ins", () => {
+    assert.match(guide, /A focus session is temporary conversation state, not automation\. There are no timers, reminders, or check-in messages: Hilla speaks only when the user writes/);
+  });
+
+  it("recommends one next action from fresh, known context", () => {
+    assert.match(guide, /Give one primary recommendation with its reason in one line, optionally one fallback, and one thing not worth starting now\. Never a list of competing options/);
+    assert.match(guide, /a task that clearly needs more uninterrupted time than is available is never the primary pick/);
+    assert.match(guide, /Ask at most one short question, and only when the answer would change the recommendation/);
+    assert.match(guide, /1\. what the user just said, including the time they have; 2\. Todoist and Calendar state fetched in this turn; 3\. the running focus session and the project they said they are working on; 4\. saved preferences and playbooks; 5\. older context\. The current instruction beats anything stored, and older context is never presented as current state/);
+    assert.match(guide, /Never invent tasks, deadlines, meetings, durations, or priorities\. Recommend only from what is known/);
+    assert.match(guide, /If something could not be checked, say so in a few words instead of guessing/);
+    assert.match(guide, /`What's due today\?` is a Todoist question, not a request for a recommendation/);
+  });
+
+  it("runs a short session lifecycle without inventing or keeping personal state", () => {
+    assert.match(guide, /`Outcome:`, `Start with:`, `Done for this block when:`, and `Ignore:`/);
+    assert.match(guide, /npm run --silent focus -- start --json-stdin <<'JSON'\n\{"plannedMinutes": 45, "context": "thesis", "outcome": "\.\.\.", "firstAction": "\.\.\.", "definitionOfDone": "\.\.\.", "ignore": "\.\.\."\}\nJSON/);
+    assert.match(guide, /The quoted heredoc keeps the user's words out of shell arguments, so quotes, backticks, and `\$` stay literal\. Never put task text in command-line flags/);
+    assert.match(guide, /Never record mood, energy, motivation, productivity, or any judgement about the user/);
+    assert.match(guide, /Do not expand the scope/);
+    assert.match(guide, /change the record with `npm run --silent focus -- update --json-stdin` and a quoted heredoc holding only the changed fields/);
+    assert.match(guide, /Without a running session, `I'm stuck` or `What next\?` is not a session check-in\. Do not invent a session or a task/);
+    assert.match(guide, /A session that status reports as stale is over: do not use its context/);
+    assert.match(guide, /run `npm run --silent focus -- end`, then offer once: `Nice\. Want a 60-second debrief, or stop here\?` Never force a debrief/);
+    assert.match(guide, /A negated message such as `Don't end it yet` is not a command/);
+    assert.match(guide, /Start a new session over a running one only when the user asks for a new one, using `start --json-stdin --replace`\. If the record cannot be read, say so, and clear or replace it only when the user asks/);
+  });
+
+  it("reuses coaching instead of redesigning it", () => {
+    assert.match(guide, /For stuck or distracted, use the coaching quick reset anchored on the session's next action/);
+    assert.match(guide, /A bare `Help me focus` with no task or time is the coaching quick reset/);
+    assert.match(guide, /the setup below replaces the generic pre-performance plan/);
+    assert.match(guide, /a saved `work\/deep-work-block` answers the time/);
+    assert.match(guide, /if they want one, use the coaching debrief/);
+  });
+
+  it("keeps the session's project out of memory unless the user asks", () => {
+    assert.match(guide, /Session context is not stored and never becomes a preference\. Only an explicit request to remember it goes through the normal memory rules/);
+  });
+
+  it("supports thinking through a decision without deciding for the user", () => {
+    assert.match(guide, /the goal, the real options, the constraints that matter, what is reversible and what is hard to reverse, and what information would change the decision/);
+    assert.match(guide, /No scores, weights, or rankings\. Do not make consequential personal choices for the user/);
+  });
+
+  it("names only the focus helper and a read-only Todoist query, and grants no approval", () => {
+    for (const text of [pointer, guide]) {
+      const commands = text.match(/npm run [^`]+/g) ?? [];
+      assert.ok(commands.length > 0);
+      for (const command of commands) {
+        assert.match(command, /^npm run (--silent focus -- (guide|status|start|update|end)\b|todoist -- tasks --filter )/, command);
+      }
+      for (const grant of [
+        /without (a second |extra |further |any )?approval/i,
+        /no (extra |further )?approval (is )?(needed|required)/i,
+        /counts? as (an )?approval/i,
+        /pre-?approved/i,
+        /standing authori[sz]ation/i,
+        /auto-?appl(y|ies)/i,
+        /--approved/,
+      ]) {
+        assert.doesNotMatch(text, grant);
+      }
+    }
+  });
+});

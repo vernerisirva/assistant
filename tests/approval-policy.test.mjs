@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { FOCUS_STATE_FIELDS } from "../scripts/lib/focus.mjs";
 
 const policy = JSON.parse(readFileSync("config/approval-policy.json", "utf8"));
 
@@ -56,6 +57,22 @@ describe("approval policy", () => {
     assert.ok(policy.localFeedback.blockedWhen.includes("sensitive-content"));
     assert.ok(policy.localFeedback.blockedWhen.includes("external-delivery"));
     assert.ok(policy.localFeedback.blockedWhen.includes("inferred-conversation-context"));
+  });
+
+  it("allows only a local, disposable focus record that the code actually writes", () => {
+    assert.ok(policy.allowedWithoutExtraApproval.includes("manage-local-focus-session-state"));
+    assert.equal(policy.focusSessions.storage, "local-disposable");
+    assert.equal(policy.focusSessions.recommendationsAreAdvisory, true);
+    // The policy and the helper describe the same record, field for field.
+    assert.deepEqual(policy.focusSessions.recordFields, [...FOCUS_STATE_FIELDS]);
+    for (const never of ["mood", "energy", "productivity-scores", "psychological-labels", "minute-by-minute-behavior"]) {
+      assert.ok(policy.focusSessions.neverStored.includes(never), never);
+    }
+    for (const never of ["todoist-tasks", "calendar-events", "reminders", "messages", "scheduled-jobs", "memory"]) {
+      assert.ok(policy.focusSessions.neverCreates.includes(never), never);
+    }
+    // A focus session is not a trusted routine and gains no standing authorization.
+    assert.deepEqual(policy.trustedRoutines.map((routine) => routine.id), ["weekly-plan"]);
   });
 
   it("allows read-only calendar snapshot planning without promoting calendar mutations", () => {
