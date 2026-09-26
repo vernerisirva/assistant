@@ -65,6 +65,12 @@ describe("weekly plan dates", () => {
     assert.throws(() => resolvePlanDay("2026-10-05", WEEK), /not part of the plan week/);
     assert.throws(() => resolvePlanDay("someday", WEEK), /Unknown day/);
   });
+
+  it("rejects dates that do not exist instead of rolling them over", () => {
+    assert.throws(() => addDays("2026-02-30", 1), /Invalid date: 2026-02-30/);
+    assert.throws(() => buildInitialPlanInputs({ weekStart: "2026-02-30" }, { config, weekStart: WEEK }), /Invalid date/);
+    assert.equal(addDays("2028-02-28", 1), "2028-02-29");
+  });
 });
 
 describe("weekly plan review window", () => {
@@ -314,6 +320,13 @@ describe("weekly plan modifications", () => {
 
     assert.ok(fruit.items.some((item) => item.name === "Bananas"));
     assert.match(opsOf(after.plan, "shopping")[0].payload.description, /- Bananas/);
+  });
+
+  it("refuses a custom meal with too many ingredients instead of dropping some", () => {
+    const ingredients = Array.from({ length: 16 }, (_, index) => ({ name: `Item ${index + 1}` }));
+    assert.throws(() => revise(planFor(), { addMeals: [{ name: "Big stew", ingredients }] }), /16 ingredients; the limit is 15/);
+    const fifteen = revise(planFor(), { addMeals: [{ name: "Big stew", ingredients: ingredients.slice(0, 15) }] });
+    assert.match(everyText(fifteen.plan), /item 15/);
   });
 
   it('"Add pasta" adds a pasta meal and its ingredients', () => {

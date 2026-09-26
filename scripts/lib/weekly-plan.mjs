@@ -319,11 +319,14 @@ function normalizeCustomMeal(meal) {
   if (!Array.isArray(meal.ingredients) || meal.ingredients.length === 0) {
     throw new Error(`Custom meal "${name}" needs at least one ingredient.`);
   }
+  if (meal.ingredients.length > 15) {
+    throw new Error(`Custom meal "${name}" has ${meal.ingredients.length} ingredients; the limit is 15.`);
+  }
   return {
     id: meal.id ? normalizeOptionalText(meal.id, "custom meal id", 60) : `custom-${slug(name)}`,
     name,
     portions,
-    ingredients: meal.ingredients.slice(0, 15).map(normalizeShoppingItem),
+    ingredients: meal.ingredients.map(normalizeShoppingItem),
   };
 }
 
@@ -522,7 +525,7 @@ function planFood({ inputs, mealPrepDates, foodConfig, notes }) {
   const catalog = foodConfig.weeklyMealPlan;
   const excluded = inputs.food.excludeIngredients;
   const removed = new Set(inputs.food.removedMealIds);
-  const allMeals = [...catalog.meals, ...inputs.food.customMeals];
+  const allMeals = knownMeals(catalog, inputs.food);
   const byId = new Map(allMeals.map((meal) => [meal.id, meal]));
   const orderedIds = [...new Set([...inputs.food.mealIds, ...catalog.meals.map((meal) => meal.id)])];
   const usable = orderedIds
@@ -558,6 +561,12 @@ function planFood({ inputs, mealPrepDates, foodConfig, notes }) {
   };
 }
 
+/** Catalog meals plus every custom meal the user supplied, inline or up front. */
+function knownMeals(catalog, food) {
+  const custom = [...food.customMeals, ...food.addedMeals.filter((meal) => typeof meal === "object")];
+  return [...catalog.meals, ...custom];
+}
+
 function findMealByTerm(meals, term) {
   const wanted = String(term).toLowerCase();
   return meals.find((meal) => meal.name.toLowerCase().includes(wanted) || meal.id.includes(wanted)) ?? null;
@@ -576,8 +585,7 @@ function itemIsExcluded(item, excluded) {
 
 function planShopping({ inputs, foodPlan, foodConfig }) {
   const catalog = foodConfig.weeklyMealPlan;
-  const allMeals = [...catalog.meals, ...inputs.food.customMeals];
-  const byId = new Map(allMeals.map((meal) => [meal.id, meal]));
+  const byId = new Map(knownMeals(catalog, inputs.food).map((meal) => [meal.id, meal]));
   const excluded = inputs.food.excludeIngredients;
   const entries = [];
 
@@ -1108,8 +1116,10 @@ function slug(value) {
   return String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
 }
 
+/** A real calendar date: JavaScript would quietly turn 2026-02-30 into 2 March. */
 function assertIsoDate(date) {
-  if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(`${date}T00:00:00.000Z`))) {
+  const ms = typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date) ? Date.parse(`${date}T00:00:00.000Z`) : NaN;
+  if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 10) !== date) {
     throw new Error(`Invalid date: ${date}`);
   }
 }
