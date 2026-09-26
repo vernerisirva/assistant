@@ -53,6 +53,26 @@ describe("agent configuration", () => {
     assert.ok(checked.includes("agents/personal/SOUL.md"));
   });
 
+  it("fits each agent's standing orders in the Codex project-doc budget", () => {
+    // On the Codex harness the Gateway runs, Codex reads AGENTS.md from the git
+    // root down to the agent workspace and stops at project_doc_max_bytes, 32 KiB
+    // in total. This repository guide and each agent prompt share that budget.
+    // Anything past it is cut without an error, and the tail of the personal
+    // prompt is Confirm-before-action.
+    const budget = 32 * 1024;
+    const repoGuideBytes = readFileSync("AGENTS.md").length;
+
+    for (const agent of agents) {
+      const path = `${agent.promptDir}/AGENTS.md`;
+      const promptBytes = readFileSync(path).length;
+
+      assert.ok(
+        repoGuideBytes + promptBytes <= budget,
+        `${path} (${promptBytes} bytes) and AGENTS.md (${repoGuideBytes} bytes) exceed the ${budget}-byte Codex project-doc budget`,
+      );
+    }
+  });
+
   it("gives each agent a workspace and agent directory", () => {
     for (const agent of agents) {
       assert.match(agent.workspace, new RegExp(`workspace-${agent.id}$`));
@@ -480,8 +500,7 @@ describe("on-demand coaching prompts", () => {
   it("keeps coaching on demand, inside the one visible assistant", () => {
     assert.equal(agents.length, 4);
     assert.match(coaching, /The user starts every coaching conversation; coaching has no scheduled, proactive, or automatic form/);
-    assert.match(coaching, /No scheduled or proactive coaching: no daily motivation, automatic mindfulness prompts, morning coaching, or unsolicited mental-performance assessments/);
-    assert.match(coaching, /Coach only in reply to the user/);
+    assert.match(coaching, /No scheduled or proactive coaching: no daily motivation, mindfulness prompts, morning coaching, or unsolicited assessments/);
     assert.match(healthSleep, /Coach only when the user asks/);
     assert.match(healthSleep, /Scheduled check-ins keep their existing scope/);
     assert.match(personalPrompt, /keep on-demand golf and work performance coaching here/);
@@ -496,30 +515,30 @@ describe("on-demand coaching prompts", () => {
     ]) {
       assert.ok(coaching.includes(`\`${request}\``), request);
     }
-    assert.match(coaching, /is a question, not a coaching request: answer it, and route source-backed lookups to research/);
+    assert.match(coaching, /`What is performance anxiety\?` → factual question, not coaching; answer it, and route source-backed lookups to research/);
   });
 
   it("coaches with one practical intervention instead of a list of advice", () => {
     assert.match(coaching, /not a motivational quote generator/);
-    assert.match(coaching, /name what is controllable, choose one small mental or process intervention, give one immediate action or cue/);
+    assert.match(coaching, /name what is controllable, pick one small intervention, give one action or cue, and offer a debrief when useful/);
     assert.match(coaching, /One intervention done consistently beats five techniques at once\. Never send a long list of advice/);
-    assert.match(coaching, /No motivational clichés, excessive praise, generic `believe in yourself` lines, or lectures/);
+    assert.match(coaching, /No motivational clichés, excessive praise, `believe in yourself` lines, or lectures/);
   });
 
   it("keeps a quick reset and an in-performance reply short", () => {
-    assert.match(coaching, /Quick reset, for stress, frustration, distraction, overthinking, or lost focus: one short acknowledgement, at most one short question, one reset action, and one cue or next step/);
-    assert.match(coaching, /In-performance, when the user is on the course, in a meeting, or inside a work block right now: shorter still/);
-    assert.match(coaching, /Ask no questions and do not start a reflective conversation unless the user asks for one/);
+    assert.match(coaching, /Quick reset, for stress, frustration, distraction, or overthinking: one short acknowledgement, at most one short question, one reset action, one cue/);
+    assert.match(coaching, /In-performance, when the user is on the course, in a meeting, or inside a work block right now: the immediate reset, the next controllable action, at most one cue/);
+    assert.match(coaching, /Ask no questions and start no reflective conversation unless asked/);
     assert.match(coaching, /Ask none when the situation is clear and urgent/);
   });
 
   it("lets preparation ask a few questions and keeps debriefs about process", () => {
-    assert.match(coaching, /ask one to three useful questions only when the answer is not already known/);
+    assert.match(coaching, /ask one to three questions only if the answer is unknown/);
     assert.match(coaching, /Define success by the process, never by a score or an outcome/);
-    assert.match(coaching, /send three to five short prompts in one message/);
-    assert.match(coaching, /Keep it about process, not self-criticism/);
+    assert.match(coaching, /three to five short prompts in one message/);
+    assert.match(coaching, /About process, not self-criticism/);
     assert.match(coaching, /End with one thing to keep, one thing to adjust, and optionally one lesson they may choose to save/);
-    assert.match(coaching, /Never ask for something the conversation, memory, or the coaching playbook already answers/);
+    assert.match(coaching, /Never ask for what the conversation, memory, or playbook already answers/);
   });
 
   it("keeps golf coaching mental unless technique is explicitly asked for", () => {
@@ -530,10 +549,10 @@ describe("on-demand coaching prompts", () => {
   });
 
   it("gives work coaching a concrete next-action pattern", () => {
-    assert.match(coaching, /Prefer the next controllable action, a short focus window, removing one source of friction/);
+    assert.match(coaching, /For work, prefer the next controllable action, a short focus window, removing one source of friction/);
     assert.match(coaching, /For the next 30 minutes your job is not to finish the feature/);
     assert.match(adminPrompt, /route mental preparation and performance coaching to personal while keeping meeting agendas, notes, and logistics here/);
-    assert.match(coaching, /Agenda, notes, and logistics for a meeting stay ordinary admin meeting prep/);
+    assert.match(coaching, /Meeting agendas, notes, and logistics stay admin meeting prep/);
   });
 
   it("keeps sleep coaching about habits and never diagnostic, in personal and health alike", () => {
@@ -543,6 +562,7 @@ describe("on-demand coaching prompts", () => {
       assert.match(text, /Ask up to three questions/);
       assert.match(text, /Do not diagnose sleep disorders or read symptoms as a diagnosis/);
       assert.match(text, /For persistent or severe sleep problems, possible medical symptoms/);
+      if (text === coaching) assert.match(text, /loud snoring with gasping or pauses in breathing/);
       assert.match(text, /this is beyond habit coaching and suggest seeing a doctor or contacting 1177 for an assessment/);
     }
     assert.match(healthPrompt, /Do not diagnose medical conditions/);
@@ -551,7 +571,7 @@ describe("on-demand coaching prompts", () => {
   it("separates performance coaching from mental-health treatment", () => {
     assert.match(coaching, /It is not therapy or treatment/);
     assert.match(coaching, /Do not diagnose or label mental-health conditions, read feelings as symptoms, claim to provide psychotherapy, suggest changing or stopping prescribed treatment, or present coaching as a substitute for professional care/);
-    assert.match(coaching, /normal performance emotion\. Treat it that way, without clinical words/);
+    assert.match(coaching, /normal performance emotion; treat it that way, without clinical words/);
     assert.match(coaching, /drop the performance framing/);
     assert.match(coaching, /point to urgent help first: 112 in Sweden, or the local emergency number/);
     assert.match(coaching, /Do not steer it back to golf or work/);
@@ -574,13 +594,14 @@ describe("on-demand coaching prompts", () => {
       assert.ok(memoryCategories.includes(key.split("/")[0]), key);
     }
     assert.match(coaching, /`npm run memory -- remember --category golf --key cue-word --value "commit" --source telegram`/);
-    assert.match(coaching, /When a routine is only mentioned in passing while asking for something else, ask before saving it/);
+    assert.match(coaching, /states it as their standing routine in its own message \(`My golf cue word is "commit"`\); confirm in one line/);
+    assert.match(coaching, /Ask before saving a routine mentioned in passing/);
     assert.match(coaching, /Never infer or silently store personality traits, psychological weaknesses, mental-health labels, emotional vulnerabilities, conclusions drawn from frustrated messages, or diagnoses/);
-    assert.match(coaching, /`I always choke under pressure` is something said in a hard moment, not a memory/);
+    assert.match(coaching, /`I always choke under pressure` is not a memory: offer a pressure-shot routine instead/);
     assert.match(coaching, /`Do you want me to remember that as part of your coaching playbook\?`/);
-    assert.match(coaching, /Offer to save the routine, never the judgement/);
+    assert.match(coaching, /even when asked to remember the judgement/);
     assert.match(coaching, /including workspace notes or daily memory files/);
-    assert.match(coaching, /They go through the sensitive-memory approval flow and never become ordinary playbook entries/);
+    assert.match(coaching, /Health or mental-health details need the sensitive-memory approval flow, never an ordinary playbook entry/);
     assert.match(personalPrompt, /Coaching playbook entries use the same command and rules/);
   });
 

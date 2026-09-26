@@ -17,22 +17,27 @@ const schedules = JSON.parse(readFileSync("config/schedules.json", "utf8"));
 const routingExamples = [
   ["Coach me", "ask what it is for", { kind: "coaching", context: "general", mode: "clarify" }],
   ["Pre-round coach", "golf pre-performance setup", { kind: "coaching", context: "golf", mode: "pre_performance" }],
-  ["Coach me before my round", "golf pre-performance setup", { kind: "coaching", context: "golf", mode: "pre_performance" }],
   ["I just made a double bogey", "golf in-performance reset", { kind: "coaching", context: "golf", mode: "in_performance" }],
-  ["I'm +4 after four holes and getting annoyed", "golf in-performance reset", { kind: "coaching", context: "golf", mode: "in_performance" }],
   ["Help me prepare for my presentation", "work pre-performance setup", { kind: "coaching", context: "work", mode: "pre_performance" }],
-  ["Help me focus for the next 45 minutes", "work pre-performance setup", { kind: "coaching", context: "work", mode: "pre_performance" }],
   ["I can't focus", "work quick reset", { kind: "coaching", context: "work", mode: "quick_reset" }],
-  ["I'm procrastinating", "work quick reset", { kind: "coaching", context: "work", mode: "quick_reset" }],
   ["I'm distracted in this meeting", "work in-performance reset", { kind: "coaching", context: "work", mode: "in_performance" }],
   ["Sleep coach", "sleep coaching", { kind: "coaching", context: "sleep", mode: "sleep_coaching" }],
-  ["Help me wind down tonight", "sleep coaching", { kind: "coaching", context: "sleep", mode: "sleep_coaching" }],
   ["Debrief my round", "golf debrief", { kind: "coaching", context: "golf", mode: "debrief" }],
-  ["Debrief today's work", "work debrief", { kind: "coaching", context: "work", mode: "debrief" }],
   ["How do I fix my slice?", "golf technique question, not mental coaching", { kind: "golf_technique", context: "golf", mode: null }],
-  ["What is performance anxiety?", "factual question, not coaching", null],
+  ["What is performance anxiety?", "factual question, not coaching; answer it, and route source-backed lookups to research", null],
   ["I haven't slept properly for months", "sleep health: suggest a professional assessment, no diagnosis", { kind: "sleep_health", context: "sleep", mode: null }],
   ["I feel hopeless and can't cope", "support first, not coaching", { kind: "support", context: "general", mode: null }],
+];
+
+// Requests the prompt no longer lists as routing examples, kept here so the
+// classifier still covers every example the feature was specified with.
+const specifiedExamples = [
+  ["Coach me before my round", { kind: "coaching", context: "golf", mode: "pre_performance" }],
+  ["I'm +4 after four holes and getting annoyed", { kind: "coaching", context: "golf", mode: "in_performance" }],
+  ["Help me focus for the next 45 minutes", { kind: "coaching", context: "work", mode: "pre_performance" }],
+  ["I'm procrastinating", { kind: "coaching", context: "work", mode: "quick_reset" }],
+  ["Help me wind down tonight", { kind: "coaching", context: "sleep", mode: "sleep_coaching" }],
+  ["Debrief today's work", { kind: "coaching", context: "work", mode: "debrief" }],
 ];
 
 function section(prompt, start, end) {
@@ -56,6 +61,12 @@ function expectCoaching(messages, expected) {
 describe("coaching routing", () => {
   it("classifies every prompt routing example the way the prompt says", () => {
     for (const [message, , expected] of routingExamples) {
+      assert.deepEqual(classified(message), expected, message);
+    }
+  });
+
+  it("classifies the other specified examples too", () => {
+    for (const [message, expected] of specifiedExamples) {
       assert.deepEqual(classified(message), expected, message);
     }
   });
