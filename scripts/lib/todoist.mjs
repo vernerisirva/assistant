@@ -1,4 +1,8 @@
 export const TODOIST_API_BASE_URL = "https://api.todoist.com/api/v1";
+/** Tasks per page; the API maximum. */
+export const TODOIST_TASK_PAGE_LIMIT = 200;
+/** A task list longer than this is refused rather than read partially. */
+export const TODOIST_MAX_TASK_PAGES = 25;
 
 const taskFieldMap = {
   dueString: "due_string",
@@ -80,6 +84,11 @@ export function createTodoistClient({
     async getProjects() {
       return normalizePaginatedResults(await request("/projects"));
     },
+    /**
+     * Reads every page. The endpoint is cursor-paginated, and a duplicate
+     * check that saw only the first page would miss most open tasks, so a list
+     * that cannot be read completely fails instead of looking complete.
+     */
     async getTasks({ filter, projectId, sectionId, label } = {}) {
       const path = filter ? "/tasks/filter" : "/tasks";
       const query = filter
@@ -90,11 +99,24 @@ export function createTodoistClient({
             label,
           };
 
-      return normalizePaginatedResults(await request(path, {
-        query: {
-          ...query,
-        },
-      }));
+      const tasks = [];
+      let cursor = null;
+      for (let page = 0; page < TODOIST_MAX_TASK_PAGES; page += 1) {
+        const response = await request(path, {
+          query: { ...query, limit: TODOIST_TASK_PAGE_LIMIT, cursor },
+        });
+        if (Array.isArray(response)) return [...tasks, ...response];
+        if (!Array.isArray(response?.results)) {
+          if (page === 0) return response;
+          throw new Error("Todoist returned an unreadable page of tasks, so the task list is incomplete.");
+        }
+        tasks.push(...response.results);
+        cursor = response.next_cursor;
+        if (!cursor) return tasks;
+      }
+      throw new Error(
+        `Todoist has more than ${TODOIST_MAX_TASK_PAGES * TODOIST_TASK_PAGE_LIMIT} matching tasks, so the list could not be read completely.`,
+      );
     },
     async getSections({ projectId } = {}) {
       return normalizePaginatedResults(await request("/sections", {

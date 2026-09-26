@@ -182,8 +182,48 @@ describe("createTodoistClient", () => {
     const tasks = await client.getTasks({ filter: "today" });
 
     assert.deepEqual(tasks, [{ id: "1", content: "Walk" }]);
-    assert.equal(calls[0].url, "https://api.todoist.com/api/v1/tasks/filter?query=today");
+    assert.equal(calls[0].url, "https://api.todoist.com/api/v1/tasks/filter?query=today&limit=200");
     assert.equal(calls[0].options.headers.Authorization, "Bearer todoist-secret");
+  });
+
+  it("reads every page of tasks by following the cursor", async () => {
+    const calls = [];
+    const pages = {
+      "": { results: [{ id: "1", content: "Walk" }], next_cursor: "c1" },
+      c1: { results: [{ id: "2", content: "Gym" }], next_cursor: "c2" },
+      c2: { results: [{ id: "3", content: "Read" }], next_cursor: null },
+    };
+    const client = createTodoistClient({
+      token: "todoist-secret",
+      fetchImpl: async (url) => {
+        calls.push(url);
+        return jsonResponse(pages[new URL(url).searchParams.get("cursor") ?? ""]);
+      },
+    });
+
+    const tasks = await client.getTasks({});
+
+    assert.deepEqual(tasks.map((task) => task.id), ["1", "2", "3"]);
+    assert.deepEqual(calls, [
+      "https://api.todoist.com/api/v1/tasks?limit=200",
+      "https://api.todoist.com/api/v1/tasks?limit=200&cursor=c1",
+      "https://api.todoist.com/api/v1/tasks?limit=200&cursor=c2",
+    ]);
+  });
+
+  it("refuses a task list it cannot read completely instead of returning part of it", async () => {
+    const endless = createTodoistClient({
+      token: "todoist-secret",
+      fetchImpl: async () => jsonResponse({ results: [{ id: "x", content: "Task" }], next_cursor: "more" }),
+    });
+    await assert.rejects(endless.getTasks({}), /could not be read completely/);
+
+    let page = 0;
+    const broken = createTodoistClient({
+      token: "todoist-secret",
+      fetchImpl: async () => jsonResponse(page++ === 0 ? { results: [], next_cursor: "c1" } : { error: "oops" }),
+    });
+    await assert.rejects(broken.getTasks({}), /task list is incomplete/);
   });
 
   it("creates a task with an idempotency key", async () => {
