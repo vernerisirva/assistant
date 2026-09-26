@@ -88,16 +88,16 @@ describe("buildOpenClawConfig", () => {
     assert.equal(config.agents.defaults.models["provider/reliable-admin-model"].alias, "provider/reliable-admin-model");
   });
 
-  it("pins the personal agent's thinking level and leaves specialists on their defaults", () => {
+  it("pins every agent's thinking level to medium without a global default", () => {
     const config = buildOpenClawConfig(env, projectRoot);
 
     assert.deepEqual(
       config.agents.list.map((agent) => [agent.id, agent.thinkingDefault]),
       [
         ["personal", "medium"],
-        ["admin", undefined],
-        ["health", undefined],
-        ["research", undefined],
+        ["admin", "medium"],
+        ["health", "medium"],
+        ["research", "medium"],
       ],
     );
     assert.equal(config.agents.defaults.thinkingDefault, undefined);

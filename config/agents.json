@@ -15,7 +15,8 @@
     "workspace": ".openclaw/workspace-admin",
     "agentDir": ".openclaw/agents/admin/agent",
     "promptDir": "agents/admin",
-    "modelEnv": "ADMIN_MODEL"
+    "modelEnv": "ADMIN_MODEL",
+    "thinkingDefault": "medium"
   },
   {
     "id": "health",
@@ -23,7 +24,8 @@
     "workspace": ".openclaw/workspace-health",
     "agentDir": ".openclaw/agents/health/agent",
     "promptDir": "agents/health",
-    "modelEnv": "HEALTH_MODEL"
+    "modelEnv": "HEALTH_MODEL",
+    "thinkingDefault": "medium"
   },
   {
     "id": "research",
@@ -31,6 +33,7 @@
     "workspace": ".openclaw/workspace-research",
     "agentDir": ".openclaw/agents/research/agent",
     "promptDir": "agents/research",
-    "modelEnv": "RESEARCH_MODEL"
+    "modelEnv": "RESEARCH_MODEL",
+    "thinkingDefault": "medium"
   }
 ]
