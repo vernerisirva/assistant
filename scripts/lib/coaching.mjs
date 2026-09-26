@@ -54,11 +54,16 @@ const modeGuidance = Object.freeze({
 
 const CANT = "(?:can'?t|cannot|can not)";
 
+// Self-harm language always gets the care response, even phrased as a question.
+// Other distress words can be the topic of a factual question ("What are panic
+// attacks?"), which is answered as a question rather than as distress.
+const selfHarmPattern =
+  /\b(suicid\w*|kill(ing)? myself|end (it all|my life)|want to die|(don'?t|do not) want to (live|be here)|self[- ]?harm\w*|(hurt|harm)(ing)? myself)\b/;
 const distressPattern = new RegExp(
-  `\\b(suicid\\w*|kill(ing)? myself|end (it all|my life)|want to die|(don'?t|do not) want to (live|be here)|self[- ]?harm\\w*|(hurt|harm)(ing)? myself|(feel|feeling|felt) hopeless|hopelessness|${CANT} (cope|go on)|not coping|panic attacks?|struggling with my mental health)\\b`,
+  `\\b((feel|feeling|felt) hopeless|hopelessness|${CANT} (cope|go on)|not coping|panic attacks?|struggling with my mental health)\\b`,
 );
 const factualQuestionPattern =
-  /^(what('?s| is| are| does| causes)|why (do|does|is|are)|how (much|many|long)|is it (normal|true|bad|ok|okay|healthy)|are there|does|do (people|adults|golfers)|explain|tell me about)\b/;
+  /^(what('?s| is| are| does| causes)|why (do|does|is|are)|how (much|many|long)|is it (normal|true|bad|ok|okay|healthy)|are there|does|do (people|adults|golfers)|((can|could) you )?(explain|tell me about))\b/;
 const firstPersonPattern = /\b(i|i'm|im|i've|i'd|me|my|myself)\b/;
 const readQuestionPattern = /\?$|^(do you|what|which|when|where|how|did i|have i)\b/;
 
@@ -127,7 +132,7 @@ export function classifyCoachingRequest(message) {
   const text = normalizeCoachingText(message);
   if (!text) return null;
 
-  if (distressPattern.test(text)) {
+  if (selfHarmPattern.test(text) || (distressPattern.test(text) && !isFactualQuestion(text))) {
     return outcome(coachingKinds.support, {
       context: coachingContexts.general,
       reason: "Significant distress: respond with care and point to support, with urgent help first for any risk of self-harm; do not turn it into performance coaching.",

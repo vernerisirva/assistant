@@ -302,6 +302,18 @@ describe("coaching safety", () => {
     }
   });
 
+  it("answers a factual question about distress as a question", () => {
+    for (const message of ["What are panic attacks?", "What is hopelessness?", "Can you explain what not coping looks like?"]) {
+      assert.equal(classifyCoachingRequest(message), null, message);
+    }
+  });
+
+  it("keeps self-harm language on the care path even when it is phrased as a question", () => {
+    for (const message of ["What is self-harm?", "Why do people want to die?"]) {
+      assert.equal(classifyCoachingRequest(message).kind, "support", message);
+    }
+  });
+
   it("hands persistent or severe sleep trouble to health without a diagnosis", () => {
     for (const message of [
       "I haven't slept properly for months",
