@@ -129,6 +129,15 @@ describe("golf week input readiness", () => {
       "A competition on Saturday is not in the user's words.",
     ]);
     assert.deepEqual(problemsOf({ replyText: "Thursday is free", addLessons: [{ day: "thursday" }] }), ["A lesson is not in the user's words."]);
+    // An important round is not a competition, and a coach's advice is not a lesson.
+    assert.deepEqual(problemsOf({ replyText: "Saturday is an important golf event", addRounds: [{ day: "saturday", competition: true }] }), [
+      "A competition on Saturday is not in the user's words.",
+    ]);
+    assert.deepEqual(problemsOf({ replyText: "Thursday my coach wants me working on putting", addLessons: [{ day: "thursday" }] }), [
+      "A lesson is not in the user's words.",
+    ]);
+    assert.deepEqual(problemsOf({ replyText: "Saturday is the club championship", addRounds: [{ day: "saturday", competition: true }] }), []);
+    assert.deepEqual(problemsOf({ replyText: "Lesson with my coach on Thursday", addLessons: [{ day: "thursday" }] }), []);
     // Not saying anything about rounds is not the same as "no rounds".
     assert.deepEqual(problemsOf({ replyText: "Focus on wedges", focus: ["Wedges"], rounds: [] }), ["The user did not say they are not playing."]);
   });

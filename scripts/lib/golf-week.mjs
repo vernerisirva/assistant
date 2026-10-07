@@ -130,8 +130,10 @@ const NUMBER_WORDS = Object.freeze({
 });
 
 const word = (body) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${body})(?![\\p{L}\\p{N}])`, "iu");
-const COMPETITION_PATTERN = word("competition\\p{L}*|comps?|tournament\\p{L}*|tävling\\p{L}*|match\\p{L}*|qualif\\p{L}*|championship\\p{L}*|club champs|cup|medal|stableford|scramble|important");
-const LESSON_PATTERN = word("lesson\\p{L}*|lektion\\p{L}*|coach\\p{L}*|tränare\\p{L}*|instructor\\p{L}*|pro");
+// A competition or a lesson needs the user to name one: an "important round"
+// is an ordinary round, and a coach's advice is not a booked lesson.
+const COMPETITION_PATTERN = word("competition\\p{L}*|comps?|tournament\\p{L}*|tävling\\p{L}*|match\\p{L}*|qualif\\p{L}*|championship\\p{L}*|club champs|cup|medal|stableford|scramble");
+const LESSON_PATTERN = word("lesson\\p{L}*|lektion\\p{L}*|coaching session|session with (?:my|the) (?:coach|pro|instructor|trainer|tränare)|tränarpass");
 const BALANCE_PATTERN = word("balance\\p{L}*|balanced|choose|you choose|you pick|pick for me|up to you|your call|whatever|no specific|no particular|nothing specific|nothing in particular|anything|mixed|a mix|välj\\p{L}*|du väljer|blandat|valfritt");
 const SAME_PATTERN = word("same|samma|like last week|as last week|as before|som förra veckan|unchanged|oförändrat");
 const NORMAL_PATTERN = word("normal|usual|regular|typical|vanlig\\p{L}*");

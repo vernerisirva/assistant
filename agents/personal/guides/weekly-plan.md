@@ -22,10 +22,10 @@ JSON
 ```
 
 - Fields, each only when this message says it:
-  - `addRounds`: `[{"day": "friday", "holes": 9, "competition": true}]`. Holes only when said. `competition` for a competition, match, or another round they call important.
+  - `addRounds`: `[{"day": "friday", "holes": 9, "competition": true}]`. Holes only when said. `competition` only when they call it a competition, tournament, match or similar; an important round they name otherwise is an ordinary round.
   - `rounds`: `[]` for `No rounds next week`, or `"same-as-last-week"` for `Same playing days as last week`.
   - `focus`: one or two areas in the user's own words, main focus first; `"balance"` for `No specific focus, choose the balance`; `"same-as-last-week"`.
-  - `addLessons`: `[{"day": "thursday", "note": "17:00"}]`. `technicalPriority`: their coach's priority in their words, such as `Clubface control`.
+  - `addLessons`: `[{"day": "thursday", "note": "17:00"}]`, only for a lesson they say they have. `technicalPriority`: their coach's priority in their words, such as `Clubface control`; mentioning a coach is not a lesson.
   - `restDay`: the golf-free day they name. `unavailableDays`: days with no golf, such as travel. `minutes`: `{"monday": 30}` for `I only have 30 minutes Monday`. `avoid`: `["range"]` for `No range sessions this week`.
   - `activeDays`: `0` for `No golf next week`, or fewer golf days when they ask. Six is the default; never seven.
   - `from: "normal-week"` for `Use my normal golf week`, with the days of their saved normal golf week (`golf/normal-week` in memory). If none is saved, the command asks for the days.
