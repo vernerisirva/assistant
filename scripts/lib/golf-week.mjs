@@ -74,7 +74,7 @@ const FOCUS_KIND_PATTERNS = Object.freeze([
   ["short-game", /\b(short ?game|chip\p{L}*|pitch\p{L}*|bunker\p{L}*|sand ?shots?|up[- ]and[- ]downs?|around the greens?|närspel\p{L}*)/iu],
   ["scoring", /\b(scoring|pressure|score\p{L}*)/iu],
   ["on-course", /\b(course management|strategy|decision\p{L}*|club selection|target selection|game ?plan|on[- ]course|banspel\p{L}*)/iu],
-  ["process", /\b(mental\p{L}*|routine\p{L}*|pre-?shot|commit\p{L}*|confidence|nerves|patience|reset)/iu],
+  ["process", /\b(mental\p{L}*|routine\p{L}*|rutin\p{L}*|pre-?shot|commit\p{L}*|confidence|självförtroende|nerves|patience|reset)/iu],
   ["range", /\b(driv\p{L}*|tee ?shots?|irons?|long ?game|ball[- ]?striking|full swing|swing\p{L}*|club ?face|strike|contact|hybrids?|woods?|fairway\p{L}*|järn\p{L}*|utslag\p{L}*)/iu],
 ]);
 
@@ -87,14 +87,16 @@ export function golfFocusKind(text) {
 // language (English and Swedish), strict about substance: a weekday that was
 // never mentioned cannot become a playing day.
 
+// Full names may run on into a compound ("onsdagskväll", "Saturdays");
+// abbreviations take only a short ending, so "sun" never matches "sunny".
 const DAY_WORDS = Object.freeze([
-  ["monday", "mon", "måndag", "mån", "mandag"],
-  ["tuesday", "tue", "tues", "tisdag", "tis"],
-  ["wednesday", "wed", "weds", "onsdag", "ons"],
-  ["thursday", "thu", "thur", "thurs", "torsdag", "tors", "tor"],
-  ["friday", "fri", "fredag", "fre"],
-  ["saturday", "sat", "lördag", "lör", "lordag"],
-  ["sunday", "sun", "söndag", "sön", "sondag"],
+  { full: ["monday", "måndag", "mandag"], short: ["mon", "mån"] },
+  { full: ["tuesday", "tisdag"], short: ["tue", "tues", "tis"] },
+  { full: ["wednesday", "onsdag"], short: ["wed", "weds", "ons"] },
+  { full: ["thursday", "torsdag"], short: ["thu", "thur", "thurs", "tors", "tor"] },
+  { full: ["friday", "fredag"], short: ["fri", "fre"] },
+  { full: ["saturday", "lördag", "lordag"], short: ["sat", "lör"] },
+  { full: ["sunday", "söndag", "sondag"], short: ["sun", "sön"] },
 ]);
 const MONTH_WORDS = Object.freeze([
   ["jan", "january", "januari"],
@@ -132,8 +134,10 @@ const NUMBER_WORDS = Object.freeze({
 const word = (body) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${body})(?![\\p{L}\\p{N}])`, "iu");
 // A competition or a lesson needs the user to name one: an "important round"
 // is an ordinary round, and a coach's advice is not a booked lesson.
-const COMPETITION_PATTERN = word("competition\\p{L}*|comps?|tournament\\p{L}*|tävling\\p{L}*|match\\p{L}*|qualif\\p{L}*|championship\\p{L}*|club champs|cup|medal|stableford|scramble");
-const LESSON_PATTERN = word("lesson\\p{L}*|lektion\\p{L}*|coaching session|session with (?:my|the) (?:coach|pro|instructor|trainer|tränare)|tränarpass");
+const COMPETITION_PATTERN = word(
+  "competition\\p{L}*|comps?|tournament\\p{L}*|\\p{L}*tävling\\p{L}*|(?:serie|lag|klubb)?match\\p{L}*|qualif\\p{L}*|championship\\p{L}*|\\p{L}*mästerskap\\p{L}*|club champs|cup|medal|stableford|scramble",
+);
+const LESSON_PATTERN = word("\\p{L}*lesson\\p{L}*|\\p{L}*lektion\\p{L}*|coaching session|session with (?:my|the) (?:coach|pro|instructor|trainer|tränare)|tränarpass");
 const BALANCE_PATTERN = word("balance\\p{L}*|balanced|choose|you choose|you pick|pick for me|up to you|your call|whatever|no specific|no particular|nothing specific|nothing in particular|anything|mixed|a mix|välj\\p{L}*|du väljer|blandat|valfritt");
 const SAME_PATTERN = word("same|samma|like last week|as last week|as before|som förra veckan|unchanged|oförändrat");
 const NORMAL_PATTERN = word("normal|usual|regular|typical|vanlig\\p{L}*");
@@ -161,7 +165,8 @@ function dayMentioned(date, sources, { today = null } = {}) {
   const month = Number(date.slice(5, 7));
   const months = MONTH_WORDS[month - 1].join("|");
   const patterns = [
-    word(`(?:${DAY_WORDS[index].join("|")})(?:s|en|ens|ar|arna)?`),
+    word(`(?:${DAY_WORDS[index].full.join("|")})\\p{L}*`),
+    word(`(?:${DAY_WORDS[index].short.join("|")})(?:s|en|ens|ar|arna)?`),
     new RegExp(escapeRegExp(date)),
     new RegExp(`(?<!\\d)${dayOfMonth}(?:st|nd|rd|th|:e)(?![\\p{L}\\p{N}])`, "iu"),
     new RegExp(`(?<![\\d.])${dayOfMonth}\\s*[./]\\s*${month}(?![\\d])`, "u"),

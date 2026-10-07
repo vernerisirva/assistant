@@ -996,7 +996,11 @@ describe("capability help prompt", () => {
     const commands = guide.match(/npm run [^`]+/g) ?? [];
     assert.ok(commands.length > 0);
     for (const command of commands) {
-      assert.match(command, /^npm run (--silent capabilities -- (guide|--tag TOPIC|--automatic|--requires-approval|--read-only)|--silent pending|--silent assistant:status -- --json|todoist -- tasks --filter today)$/, command);
+      assert.match(
+        command,
+        /^npm run (--silent capabilities -- (guide|--tag (TOPIC|[a-z-]+)( --(automatic|requires-approval|read-only))?|--automatic|--requires-approval|--read-only)|--silent pending|--silent assistant:status -- --json|todoist -- tasks --filter today)$/,
+        command,
+      );
     }
     for (const grant of [
       /without (a second |extra |further |any )?approval/i,
