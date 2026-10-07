@@ -47,6 +47,6 @@
     },
     "applyCheckEveryMinutes": 15,
     "reviewWindowHours": 12,
-    "purpose": "Propose next week's food, shopping, gym, stretching, golf and golf-practice plan; create the displayed plan's Todoist tasks after a 12-hour review window unless it is changed or cancelled."
+    "purpose": "Ask next week's golf questions, then propose next week's food, shopping, gym, stretching and golf plan; create the displayed plan's Todoist tasks after a 12-hour review window unless it is changed or cancelled."
   }
 }

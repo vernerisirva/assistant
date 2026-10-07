@@ -22,6 +22,9 @@
  *   shown as "Not supported" with an alternative; or `disabled`, which exists
  *   somewhere but is not a product capability and shows only in the developer
  *   view.
+ * - partOf: the entry describes one part of another entry in more detail,
+ *   such as the weekly plan's golf week. It shares that entry's side-effect
+ *   profile and live jobs, and the footers count the whole only once.
  *
  * Two small overlays are cheap and deterministic: whether an integration is
  * configured in .env, and which scheduled jobs the live scheduler has switched
@@ -384,13 +387,36 @@ export const CAPABILITIES = Object.freeze(
       id: "weekly-plan.plan",
       category: "weekly-plan",
       title: "Weekly plan",
-      summary: "every Saturday I propose next week's food, gym, stretching and golf; unless you cancel, its Todoist tasks are added 12 hours after you last saw it.",
+      summary: "every Saturday I ask about your golf week, then propose next week's food, gym, stretching and golf; unless you cancel, its Todoist tasks are added 12 hours after you last saw it.",
       limit:
         "Say OK to add them right away, or ask for a change, which restarts the 12 hours. You can also ask for a plan on another day. It only adds new tasks of your own: nothing is edited or deleted, and Calendar and email are never touched.",
       examples: ["Change next week's plan to three gym sessions", "Plan my next week", "Skip this week"],
       tags: ["planning", "food", "fitness", "golf", "todoist"],
       requires: "todoist",
       automatic: true,
+      effect: "external",
+      approval: "standing",
+      schedule: {
+        mode: "all",
+        jobs: [
+          { job: WEEKLY_PLAN_PROPOSE_JOB, label: "the Saturday proposal" },
+          { job: WEEKLY_PLAN_APPLY_JOB, label: "the automatic apply check" },
+        ],
+      },
+    }),
+    available({
+      id: "weekly-plan.golf",
+      category: "weekly-plan",
+      title: "Golf training week",
+      summary:
+        "part of the weekly plan: I ask which days you're playing (9 or 18 holes), your 1–2 focus areas and any competition or lesson, then plan six golf days and a rest day toward competitive golf.",
+      limit:
+        "Playing days, competitions and technique come only from you, never guessed. Each golf day gets one Todoist task with a full session plan, added 12 hours after you see the plan unless you change or cancel it; OK adds them now.",
+      examples: ["Plan my golf week", "Move wedges to Thursday", "Saturday is now a competition"],
+      tags: ["golf", "planning", "fitness", "todoist"],
+      requires: "todoist",
+      automatic: true,
+      partOf: "weekly-plan.plan",
       effect: "external",
       approval: "standing",
       schedule: {
@@ -584,7 +610,8 @@ export function scheduleOverlay(entries, snapshot) {
 export function buildCapabilityView({ filters = {}, setup = {}, schedule = {}, registry = CAPABILITIES } = {}) {
   const normalized = normalizeFilters(filters);
   const entries = selectCapabilities(normalized, registry);
-  const availableEntries = registry.filter((entry) => entry.status === "available");
+  // A part is described by its whole in the footers, so it is never counted twice.
+  const availableEntries = registry.filter((entry) => entry.status === "available" && !entry.partOf);
   const titles = (list) => list.map((entry) => lowerFirst(entry.title));
 
   return {

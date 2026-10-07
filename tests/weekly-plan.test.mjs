@@ -20,15 +20,23 @@ import {
   resolvePlanDay,
   weekdayIndex,
 } from "../scripts/lib/weekly-plan.mjs";
+import { applyGolfChanges, classifyGolfTitle, emptyGolfInputs } from "../scripts/lib/golf-week.mjs";
+import { COMPETITION_ANSWER, GOLF_ANSWER } from "./fixtures/golf-answers.mjs";
 
 const config = JSON.parse(readFileSync("config/weekly-plan.json", "utf8"));
 const food = JSON.parse(readFileSync("config/food-planning.json", "utf8"));
 const policy = JSON.parse(readFileSync("config/approval-policy.json", "utf8"));
 const WEEK = "2026-09-28";
 
-function planFor(input = {}, options = {}) {
+/** `golf` is the user's golf answer; without one the plan has no golf week. */
+function planFor(input = {}, { golf, today = null, ...options } = {}) {
   const inputs = buildInitialPlanInputs(input, { config, weekStart: WEEK, ...options });
-  return { inputs, plan: buildWeeklyPlan(inputs, { config, food }) };
+  if (golf) {
+    const answered = applyGolfChanges(emptyGolfInputs(config), golf, { weekStart: WEEK });
+    assert.deepEqual(answered.problems, []);
+    inputs.golf = answered.golf;
+  }
+  return { inputs, plan: buildWeeklyPlan(inputs, { config, food, today }) };
 }
 
 function datesOf(plan, activity) {
@@ -103,9 +111,12 @@ describe("weekly plan review window", () => {
 });
 
 describe("weekly plan generation", () => {
-  it("covers food, shopping, gym, stretching, golf rounds and golf practice", () => {
-    const { plan } = planFor();
+  it("covers food, shopping, gym, stretching and a six-day golf week", () => {
+    const { plan } = planFor({}, { golf: GOLF_ANSWER });
 
+    assert.equal(opsOf(plan, "golf").length, 6, "one task per golf day");
+    assert.equal(plan.golf.activeDays, 6);
+    assert.equal(plan.golf.restDays, 1);
     for (const activity of TARGET_KEYS) {
       assert.equal(datesOf(plan, activity).length, config.defaultTargets[activity], activity);
       assert.equal(opsOf(plan, activity).length, config.defaultTargets[activity], activity);
@@ -120,7 +131,7 @@ describe("weekly plan generation", () => {
   });
 
   it("honours configurable counts for every activity", () => {
-    const targets = { gym: 4, golfRound: 2, golfPractice: 3, stretch: 5, mealPrep: 3 };
+    const targets = { gym: 4, stretch: 5, mealPrep: 3 };
     const { plan } = planFor({ targets });
 
     for (const [activity, count] of Object.entries(targets)) {
@@ -129,8 +140,17 @@ describe("weekly plan generation", () => {
     }
   });
 
+  it("accepts the old golf counts from the Saturday job without planning golf from them", () => {
+    const { plan } = planFor({ targets: { gym: 2, golfRound: 2, golfPractice: 3 }, golfPracticeFocus: ["Driver"], preferences: { golfRound: { preferredDays: ["sunday"] } } });
+
+    assert.deepEqual(Object.keys(plan.targets).sort(), ["gym", "mealPrep", "stretch"]);
+    assert.equal(plan.golf, undefined, "golf comes only from the user's answers");
+    assert.equal(opsOf(plan, "golf").length, 0);
+    assert.doesNotMatch(JSON.stringify(plan.operations), /driver/i);
+  });
+
   it("accepts zero for every optional activity", () => {
-    const { plan } = planFor({ targets: { gym: 0, golfRound: 0, golfPractice: 0, stretch: 0, mealPrep: 0 } });
+    const { plan } = planFor({ targets: { gym: 0, stretch: 0, mealPrep: 0 } });
 
     assert.equal(plan.placements.length, 0);
     assert.deepEqual(plan.food.prep, []);
@@ -146,22 +166,28 @@ describe("weekly plan generation", () => {
   });
 
   it("keeps unavailable days free and demanding sessions off heavy days", () => {
-    const { plan } = planFor({ days: { wednesday: "unavailable", thursday: { load: "heavy", note: "Work trip" } } });
+    const { plan } = planFor(
+      { days: { wednesday: "unavailable", thursday: { load: "heavy", note: "Work trip" } } },
+      { golf: { replyText: "18 holes Saturday, focus on putting", addRounds: [{ day: "saturday", holes: 18 }], focus: ["Putting"] } },
+    );
 
     assert.ok(plan.placements.every((entry) => entry.date !== "2026-09-30"));
-    for (const activity of ["gym", "golfRound", "golfPractice", "mealPrep"]) {
+    assert.equal(plan.golf.days.find((day) => day.date === "2026-09-30").role, "off");
+    for (const activity of ["gym", "mealPrep"]) {
       assert.ok(!datesOf(plan, activity).includes("2026-10-01"), `${activity} avoids the heavy day`);
     }
+    const thursday = plan.golf.days.find((day) => day.date === "2026-10-01");
+    assert.ok(thursday.role === "rest" || thursday.intensity === "light", "golf on a heavy day is light or none");
   });
 
-  it("treats golf as physical load: no gym on a golf-round day or next to it when avoidable", () => {
-    const { plan } = planFor({ targets: { gym: 2, golfRound: 2 } });
-    const rounds = datesOf(plan, "golfRound");
+  it("treats golf as physical load: no gym on a round day or the day before a competition", () => {
+    const { plan } = planFor({ targets: { gym: 2 } }, { golf: COMPETITION_ANSWER });
     const gyms = datesOf(plan, "gym");
 
+    assert.equal(gyms.length, 2);
     for (const gym of gyms) {
-      assert.ok(!rounds.includes(gym));
-      assert.ok(!rounds.includes(addDays(gym, 1)) && !rounds.includes(addDays(gym, -1)), `gym on ${gym} is next to a round`);
+      assert.ok(!["2026-09-30", "2026-10-03"].includes(gym), `gym on ${gym} is a round day`);
+      assert.notEqual(gym, "2026-10-02", "no gym the day before the competition");
     }
   });
 
@@ -174,10 +200,11 @@ describe("weekly plan generation", () => {
     }
   });
 
-  it("puts golf rounds on the preferred weekend days and respects avoided days", () => {
-    const { plan } = planFor({ preferences: { gym: { avoidDays: ["monday", "tuesday"] } } });
+  it("puts rounds only on the days the user named and respects avoided days", () => {
+    const { plan } = planFor({ preferences: { gym: { avoidDays: ["monday", "tuesday"] } } }, { golf: GOLF_ANSWER });
 
-    assert.deepEqual(datesOf(plan, "golfRound"), ["2026-10-04"]);
+    const rounds = plan.golf.days.filter((day) => day.role === "round").map((day) => day.date);
+    assert.deepEqual(rounds, ["2026-09-30", "2026-10-03"]);
     assert.ok(datesOf(plan, "gym").every((date) => !["2026-09-28", "2026-09-29"].includes(date)));
   });
 
@@ -189,12 +216,15 @@ describe("weekly plan generation", () => {
       { id: "4", content: "Gym", due: { date: "2026-10-06" } },
     ];
     const snapshot = structuredClone(existingTasks);
-    const { plan } = planFor({ existingTasks });
+    const { plan } = planFor({ existingTasks }, { golf: GOLF_ANSWER });
 
     assert.deepEqual(existingTasks, snapshot);
     assert.equal(opsOf(plan, "gym").length, 1);
     assert.ok(opsOf(plan, "gym").every((operation) => operation.date !== "2026-09-29"));
-    assert.equal(opsOf(plan, "golfRound").length, 0);
+    // Saturday's round is already in Todoist: it counts as that golf day.
+    assert.equal(opsOf(plan, "golf").length, 5);
+    assert.ok(opsOf(plan, "golf").every((operation) => operation.date !== "2026-10-03"));
+    assert.equal(plan.golf.activeDays, 6);
     const tuesday = plan.schedule.find((day) => day.date === "2026-09-29");
     assert.deepEqual(tuesday.activities.find((activity) => activity.activity === "gym"), {
       activity: "gym",
@@ -207,9 +237,18 @@ describe("weekly plan generation", () => {
 
   it("classifies existing tasks conservatively", () => {
     assert.equal(classifyExistingTask("Gym — Tuesday"), "gym");
-    assert.equal(classifyExistingTask("Golf round: Sunday"), "golfRound");
-    assert.equal(classifyExistingTask("Golf practice: wedges"), "golfPractice");
-    assert.equal(classifyExistingTask("Golf Monday: range"), "golfPractice");
+    assert.equal(classifyExistingTask("Golf round: Sunday"), "golf");
+    assert.equal(classifyExistingTask("Golf practice: wedges"), "golf");
+    assert.equal(classifyExistingTask("Golf Monday: range"), "golf");
+    assert.equal(classifyExistingTask("Golf — Competition"), "golf");
+    assert.equal(classifyExistingTask("18 holes with Anna"), "golf");
+    assert.equal(classifyGolfTitle("Golf round: Sunday"), "round");
+    assert.equal(classifyGolfTitle("Golf — 18-hole round"), "round");
+    assert.equal(classifyGolfTitle("Golf — Competition"), "competition");
+    assert.equal(classifyGolfTitle("Golf — Lesson"), "lesson");
+    assert.equal(classifyGolfTitle("Golf practice — Wedges 50–100 m"), "practice");
+    assert.equal(classifyGolfTitle("Golf Monday: range"), "practice");
+    assert.equal(classifyGolfTitle("Golf with Anna"), "golf");
     assert.equal(classifyExistingTask("Stretch 15 min"), "stretch");
     assert.equal(classifyExistingTask("Meal prep"), "mealPrep");
     assert.equal(classifyExistingTask("Grocery shopping for next week"), "shopping");
@@ -253,8 +292,9 @@ describe("weekly plan generation", () => {
   });
 
   it("uses previous targets when the agent supplies none, and explicit ones otherwise", () => {
+    // Last week's plan may still carry the old golf counts; they are dropped.
     const previousTargets = { gym: 3, golfRound: 2, golfPractice: 2, stretch: 4, mealPrep: 1 };
-    assert.deepEqual(planFor({}, { previousTargets }).plan.targets, previousTargets);
+    assert.deepEqual(planFor({}, { previousTargets }).plan.targets, { gym: 3, stretch: 4, mealPrep: 1 });
     assert.equal(planFor({ targets: { gym: 1 } }, { previousTargets }).plan.targets.gym, 1);
   });
 });
@@ -269,15 +309,22 @@ describe("weekly plan modifications", () => {
     assert.deepEqual(after.summary, ["Gym 2 → 3"]);
   });
 
-  it('"No golf" removes golf rounds', () => {
-    const after = revise(planFor(), { targets: { golfRound: 0 } });
-    assert.equal(opsOf(after.plan, "golfRound").length, 0);
-    assert.equal(after.plan.targets.golfRound, 0);
+  it('"No golf next week" removes every golf task and keeps the rest of the week', () => {
+    const before = planFor({}, { golf: GOLF_ANSWER });
+    const after = revise(before, { golf: { replyText: "No golf next week", activeDays: 0 } });
+    assert.equal(opsOf(after.plan, "golf").length, 0);
+    assert.equal(after.plan.golf.targetDays, 0);
+    assert.equal(opsOf(after.plan, "gym").length, opsOf(before.plan, "gym").length);
+    assert.deepEqual(after.summary, ["No golf this week"]);
   });
 
-  it('"Two golf practices" and "Stretch four times" change those counts', () => {
-    const after = revise(planFor(), { targets: { golfPractice: 2, stretch: 4 } });
-    assert.equal(opsOf(after.plan, "golfPractice").length, 2);
+  it("refuses the old golf counts as changes, pointing to golf changes instead", () => {
+    assert.throws(() => revise(planFor({}, { golf: GOLF_ANSWER }), { targets: { golfRound: 0 } }), /Golf is planned as a golf week/);
+    assert.throws(() => revise(planFor({}, { golf: GOLF_ANSWER }), { targets: { golfPractice: 2 } }), /Golf is planned as a golf week/);
+  });
+
+  it('"Stretch four times" changes that count', () => {
+    const after = revise(planFor(), { targets: { stretch: 4 } });
     assert.equal(opsOf(after.plan, "stretch").length, 4);
   });
 
@@ -298,10 +345,15 @@ describe("weekly plan modifications", () => {
       () => revise(before, { moves: [{ activity: "gym", from: "friday", to: "sunday" }] }),
       /existing Todoist task; the weekly plan does not move existing tasks/,
     );
-    assert.throws(
-      () => revise(planFor(), { moves: [{ activity: "golfRound", from: "monday", to: "tuesday" }] }),
-      /no planned golf round on Monday/,
+    const plain = planFor();
+    const free = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"].find(
+      (day, index) => !datesOf(plain.plan, "gym").includes(addDays(WEEK, index)),
     );
+    assert.throws(
+      () => revise(plain, { moves: [{ activity: "gym", from: free, to: "sunday" }] }),
+      /no planned gym on/,
+    );
+    assert.throws(() => revise(planFor(), { moves: [{ activity: "golfRound", from: "monday", to: "tuesday" }] }), /Golf is planned as a golf week/);
   });
 
   it('"No salmon" removes salmon from the food plan, the shopping list and every task', () => {
@@ -343,9 +395,11 @@ describe("weekly plan modifications", () => {
     assert.doesNotMatch(everyText(after.plan), /salmon/);
   });
 
-  it('"Skip Saturday completely" keeps new activities off Saturday', () => {
-    const after = revise(planFor({ targets: { golfRound: 2 } }), { skipDays: ["saturday"] });
+  it('"Skip Saturday completely" keeps new activities, golf included, off Saturday', () => {
+    const after = revise(planFor({}, { golf: GOLF_ANSWER }), { skipDays: ["saturday"] });
     assert.ok(after.plan.placements.every((entry) => entry.date !== "2026-10-03"));
+    assert.ok(after.plan.operations.every((operation) => operation.date !== "2026-10-03"));
+    assert.match(after.plan.golf.notes.join(" "), /Saturday is skipped, so its round isn't in the plan/);
   });
 
   it("rejects empty or unknown changes instead of guessing", () => {

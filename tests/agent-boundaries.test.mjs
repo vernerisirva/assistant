@@ -350,12 +350,10 @@ describe("agent configuration", () => {
     const section = prompt.slice(prompt.indexOf("Weekly plan:"), prompt.indexOf("Quiet Ops:"));
 
     assert.match(section, /stored plan is the authority, not the chat history/);
-    assert.match(section, /npm run --silent weekly-plan -- status --json/);
+    assert.match(section, /first run `npm run --silent weekly-plan -- guide` and follow it; it starts with the plan's status/);
+    assert.match(section, /golf days, holes or focus such as `18 holes Wednesday` or `focus on putting`/);
     assert.match(section, /revise --expect-version N --changes-json-stdin/);
     assert.match(section, /restarts the 12-hour review window and never touches Todoist/);
-    assert.match(section, /`Gym 3 times` → `\{"targets":\{"gym":3\}\}`/);
-    assert.match(section, /`Move Friday gym to Sunday` → `\{"moves":\[\{"activity":"gym","from":"friday","to":"sunday"\}\]\}`/);
-    assert.match(section, /`Don't use salmon` → `\{"excludeIngredients":\["salmon"\]\}`/);
     assert.match(section, /accept --version N --reply-text/);
     assert.match(section, /`ok but no salmon` is a change/);
     assert.match(section, /a `yes` that answers another prompt are not acceptance/);
@@ -366,6 +364,46 @@ describe("agent configuration", () => {
     assert.match(section, /never writes Calendar, Gmail or memory, books, buys, or submits forms/);
     assert.match(section, /Never create weekly-plan tasks yourself with the Todoist helper/);
     assert.match(section, /never rebuild the plan at apply time/);
+    // The golf boundary is in the standing orders themselves, not only in the guide.
+    assert.match(
+      section,
+      /Golf answers and changes carry the user's exact words\. Never fill in playing days, holes, competitions, lessons, focus areas or practice time from memory or habit; ask instead\. Plan practice, never swing mechanics, and never seven golf days\./,
+    );
+    assert.match(section, /Send every weekly-plan `telegramText` word for word, never shortened or reworded: the shown plan is what applies/);
+    assert.ok(Buffer.byteLength(section) < 2700, `weekly plan section is ${Buffer.byteLength(section)} bytes`);
+    for (const detail of ["addRounds", "same-as-last-week", '"golf":', "changes-json-stdin <<"]) {
+      assert.ok(!prompt.includes(detail), `${detail} belongs in the weekly-plan guide`);
+    }
+  });
+
+  it("keeps the weekly plan's detail in a guide that stays subordinate to the standing orders", () => {
+    const guide = readFileSync("agents/personal/guides/weekly-plan.md", "utf8");
+
+    assert.match(guide, /It adds detail to the personal agent's standing orders and never overrides them: the approval, memory, and coaching rules there still apply, and the standing authorization stays exactly as narrow as they say/);
+    assert.match(guide, /`Gym 3 times` → `\{"targets":\{"gym":3\}\}`/);
+    assert.match(guide, /`Move Friday gym to Sunday` → `\{"moves":\[\{"activity":"gym","from":"friday","to":"sunday"\}\]\}`/);
+    assert.match(guide, /`Don't use salmon` → `\{"excludeIngredients":\["salmon"\]\}`/);
+    assert.match(guide, /npm run --silent weekly-plan -- answer --input-json-stdin <<'JSON'/);
+    assert.match(guide, /Never fill a gap\. Playing days, holes, competitions, lessons, focus areas, technical priorities and time limits come only from what the user said in this conversation, never from memory, earlier weeks or habit/);
+    assert.match(guide, /no plan version yet|No plan exists yet, nothing can be accepted or applied, and no review window runs/);
+    assert.match(guide, /that is when the 12-hour review window starts/);
+    assert.match(guide, /Never add mechanics or a diagnosis/);
+    assert.match(guide, /It only reads them\. Remembering anything, such as a normal golf week, follows the memory rules: only on the user's explicit request/);
+    assert.match(guide, /No weather, no golf statistics, no bookings, and no scheduled or post-round messages/);
+    assert.match(guide, /Never create weekly-plan tasks yourself with the Todoist helper, never rebuild the plan at apply time, and never answer the golf questions for the user/);
+    // The natural revisions the golf week supports, each with its mapping.
+    for (const request of [
+      "Move wedges to Thursday",
+      "Tuesday needs to be the rest day",
+      "I'm also playing Friday",
+      "Saturday is now a competition",
+      "Putting should be the main focus",
+      "I only have 30 minutes Monday",
+      "No range sessions this week",
+      "Make Sunday the rest day",
+    ]) {
+      assert.ok(guide.includes(`\`${request}\``), request);
+    }
   });
 
   it("keeps the health agent out of weekly plan task creation", () => {

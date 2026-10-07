@@ -3,8 +3,9 @@
  * Hilla is genuinely waiting for the user.
  *
  * Each source is a small provider over state that already exists; nothing new
- * is stored. The weekly plan store gives a plan awaiting review and its
- * deadline, and the focus record gives a running session. Approval prompts and
+ * is stored. The weekly plan store gives a plan waiting for the user's golf
+ * answers or awaiting review with its deadline, and the focus record gives a
+ * running session. Approval prompts and
  * clarifying questions asked in chat are not stored anywhere, so this view
  * cannot list them and says so. Recommendations, Todoist tasks, and memory are
  * not pending actions and are never read here.
@@ -30,7 +31,7 @@ export function redactPendingText(text, secrets = []) {
   return redactSensitiveText(String(text ?? ""), secrets).replace(secretShapedPattern, "<redacted>");
 }
 
-/** A weekly plan that was shown and waits for the user's OK, change, or cancel. */
+/** A weekly plan that waits for the user's golf answers, or was shown and waits for their OK, change, or cancel. */
 export const weeklyPlanPendingProvider = Object.freeze({
   id: "weekly-plan",
   label: "the weekly plan",
@@ -54,6 +55,20 @@ export const weeklyPlanPendingProvider = Object.freeze({
           deadline: plan.reviewDeadline,
           requiredAction: deadlinePassed ? "You can still cancel it." : "Reply OK to create them now, ask for a change, or cancel it.",
         });
+      } else if (plan.status === "awaiting_input") {
+        if (plan.awaiting?.askedAt) {
+          items.push({
+            type: "weekly_plan",
+            source: "weekly-plan",
+            summary: `Golf questions for the weekly plan for ${week}`,
+            detail: "The plan is built after your answers; nothing is created before you've seen it.",
+            since: plan.awaiting.askedAt,
+            deadline: null,
+            requiredAction: "Say which days you're playing and what to focus on, or “No golf this week” or “Skip this week”.",
+          });
+        } else {
+          notes.push(`The weekly plan for ${week} couldn't ask its golf questions yet, so nothing will be created.`);
+        }
       } else if (plan.status === "draft") {
         notes.push(`A weekly plan draft for ${week} was never shown, so it will not apply.`);
       } else if (plan.status === "applying") {

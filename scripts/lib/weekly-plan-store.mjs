@@ -8,6 +8,9 @@
  * restarts.
  *
  * States:
+ * - awaiting_input: next week's context is stored and the golf questions were
+ *   asked (or are about to be); there is no plan version yet. Never applies,
+ *   and the review window has not started.
  * - draft: stored, not yet shown to the user. Never applies.
  * - pending: shown; applies after the review deadline or on explicit OK.
  * - applying: task creation in progress; a crash leaves this state and the
@@ -37,13 +40,15 @@ import { join } from "node:path";
 import {
   DEFAULT_APPLY_CHECK_MINUTES,
   DEFAULT_REVIEW_WINDOW_HOURS,
+  addDays,
   computeReviewDeadline,
   digestPlan,
   isoWeekId,
 } from "./weekly-plan.mjs";
+import { golfInputStatus } from "./golf-week.mjs";
 
 export const PLAN_SCHEMA_VERSION = 1;
-export const OPEN_STATUSES = Object.freeze(["draft", "pending", "applying"]);
+export const OPEN_STATUSES = Object.freeze(["awaiting_input", "draft", "pending", "applying"]);
 export const FINAL_STATUSES = Object.freeze(["applied", "applied_with_errors", "failed", "cancelled"]);
 const DONE_OUTCOMES = new Set(["created", "already_exists", "skipped_past_date", "failed"]);
 const LOCK_STALE_MS = 15 * 60_000;
@@ -227,6 +232,90 @@ export function createPlanDocument({ planId, inputs, plan, now, source = "schedu
 }
 
 /**
+ * A week whose golf part still needs the user's answers. The rest of the
+ * week's context is kept as `baseInputs`; the answers so far are `golf`.
+ * There is no plan version yet, so nothing can be shown, accepted or applied.
+ */
+export function createAwaitingDocument({ planId, weekStart, baseInputs, golf, now, source = "scheduled", timezone }) {
+  const at = toIso(now);
+  return {
+    schemaVersion: PLAN_SCHEMA_VERSION,
+    planId,
+    weekId: isoWeekId(weekStart),
+    weekStart,
+    weekEnd: addDays(weekStart, 6),
+    timezone,
+    status: "awaiting_input",
+    createdAt: at,
+    updatedAt: at,
+    currentVersion: 0,
+    displayedVersion: null,
+    displayedAt: null,
+    displayedDigest: null,
+    displayChannel: null,
+    reviewWindowHours: null,
+    reviewDeadline: null,
+    versions: [],
+    awaiting: { source, baseInputs, golf, askedAt: null, lastAskedAt: null, completedAt: null },
+    apply: null,
+    cancelledAt: null,
+    history: [{ at, event: "created", version: 0, awaiting: "golf-input" }],
+  };
+}
+
+/** The golf questions (or a follow-up) were sent, or returned as the chat reply. */
+export function recordGolfQuestion(document, { askedAt, channel, messageId = null, followUp = false }) {
+  requireAwaiting(document);
+  const at = toIso(askedAt);
+  return {
+    ...document,
+    updatedAt: at,
+    awaiting: { ...document.awaiting, askedAt: document.awaiting.askedAt ?? at, lastAskedAt: at },
+    history: [
+      ...document.history,
+      { at, event: followUp ? "golf-follow-up" : "golf-asked", channel, ...(messageId ? { messageId } : {}) },
+    ],
+  };
+}
+
+/** Stores the golf answers so far, with the user's words that gave them. */
+export function recordGolfAnswer(document, { golf, replyText, fields, now }) {
+  requireAwaiting(document);
+  const at = toIso(now);
+  return {
+    ...document,
+    updatedAt: at,
+    awaiting: { ...document.awaiting, golf },
+    history: [...document.history, { at, event: "golf-answered", fields, replyText: String(replyText).slice(0, 500) }],
+  };
+}
+
+/**
+ * The golf answers are complete: version 1 is the whole plan. It is a draft
+ * until markPlanDisplayed shows it, which is when its review window starts.
+ */
+export function completeAwaitingDocument(document, { inputs, plan, now }) {
+  requireAwaiting(document);
+  const at = toIso(now);
+  return {
+    ...document,
+    status: "draft",
+    updatedAt: at,
+    weekEnd: plan.weekEnd,
+    currentVersion: 1,
+    versions: [{ version: 1, createdAt: at, source: "golf-answers", changeSummary: [], note: null, inputs, plan, digest: digestPlan(plan) }],
+    awaiting: { ...document.awaiting, completedAt: at },
+    history: [...document.history, { at, event: "created", version: 1 }],
+  };
+}
+
+function requireAwaiting(document) {
+  if (document.status !== "awaiting_input") {
+    throw new Error(`Weekly plan ${document.planId} is ${document.status}, not waiting for golf answers.`);
+  }
+}
+
+/**
  * Records that `version` was shown to the user at `displayedAt` and starts its
  * review window. Only the current version can be shown.
  */
@@ -288,7 +377,7 @@ export function addPlanRevision(document, { expectedVersion, inputs, plan, chang
 }
 
 export function cancelPlan(document, { now, reason = null }) {
-  if (!["draft", "pending"].includes(document.status)) {
+  if (!["awaiting_input", "draft", "pending"].includes(document.status)) {
     throw new Error(
       document.status === "cancelled"
         ? `Weekly plan ${document.planId} is already cancelled.`
@@ -438,6 +527,9 @@ export function summarizeWeeklyPlans(documents, { now = new Date(), currentWeekS
     counts: countOutcomes(document),
     failureReason: document.failureReason ?? null,
     deferredChecks: document.applyDeferrals?.count ?? 0,
+    ...(document.status === "awaiting_input"
+      ? { golfQuestionsAskedAt: document.awaiting?.askedAt ?? null, golfMissing: golfInputStatus(document.awaiting.golf).missing }
+      : {}),
   });
   const open = documents.filter((document) => OPEN_STATUSES.includes(document.status));
   const latest = documents.at(-1) ?? null;

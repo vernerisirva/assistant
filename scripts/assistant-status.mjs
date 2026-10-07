@@ -185,7 +185,9 @@ function describeWeeklyPlan(weeklyPlan) {
       .map((plan) =>
         plan.status === "pending"
           ? `${plan.weekId} pending (v${plan.currentVersion}), applies at ${plan.reviewDeadlineLocal}`
-          : `${plan.weekId} ${plan.status} (v${plan.currentVersion})`,
+          : plan.status === "awaiting_input"
+            ? `${plan.weekId} waiting for golf answers`
+            : `${plan.weekId} ${plan.status} (v${plan.currentVersion})`,
       )
       .join("; ");
   }

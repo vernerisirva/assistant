@@ -92,6 +92,8 @@ The review window is 12 elapsed hours from the moment the latest version was sho
 
 The digest check catches a plan file that changed after it was shown, such as an accidental edit or a partial write. It is not a signature. Anything that can write the private state directory could also call Todoist directly, so what limits the damage is the create-only Todoist gateway and the operation guard, not the digest.
 
+Golf questions come before the plan. On Saturday the plan first waits for the user's golf answers: which days they play, their focus areas, and any competition or lesson. While it waits there is no plan version, nothing can be accepted or applied, and the review window has not started; it starts when the complete plan is shown. Golf answers and golf changes carry the user's exact words, and the helper refuses a playing day, hole count, competition, lesson, focus area, technical priority or time limit it cannot find in them, so nothing in the plan is invented from memory or habit. The golf tasks are ordinary own tasks under this same authorization: one per golf day, created only from the displayed version.
+
 This authorization does not permit deleting, completing, moving or editing existing Todoist tasks. It does not permit Calendar writes, Gmail writes, bookings, purchases, browser submissions, memory writes, arbitrary shell mutations, or creating anything that was not in the displayed proposal. The apply step never calls a model and never regenerates the plan. Everything else stays confirm-before-action.
 
 ## Feedback Capture
@@ -122,7 +124,7 @@ A project named for the session (`I'm working on my thesis`) stays in the conver
 
 A playbook is one of the user's own routines saved in the existing memory store, so saving one is an explicit low-risk memory write with no extra approval. The helper requires the user's exact words for every save or change: an explicit request, a standing-routine statement, or a plain yes to an offer. A passing remark or a hedge saves nothing. Changes touch one exact playbook, and an unclear routine or step gets a question.
 
-Playbooks hold behaviour, never conclusions about the person. The helper refuses personality traits, judgements, feelings, and psychological labels, even when asked to store them, and refuses health details, which belong to the sensitive-memory approval flow. A debrief ends with `Keep`, `Adjust`, and `Possible lesson`; the lesson is stored only after the user says yes, and the debrief conversation itself is never recorded. Playbooks never create Todoist tasks, Calendar events, reminders, or routines. The policy entry is `personalPlaybooks` in `config/approval-policy.json`.
+Playbooks hold behaviour, never conclusions about the person. The helper refuses personality traits, judgements, feelings, and psychological labels, even when asked to store them, and refuses health details, which belong to the sensitive-memory approval flow. A debrief ends with `Keep`, `Adjust`, and `Possible lesson`; the lesson is stored only after the user says yes, and the debrief conversation itself is never recorded. Playbooks never create Todoist tasks, Calendar events, reminders, or routines. The weekly plan's golf week reads the golf cue word and the names of saved golf routines when it builds a plan from the user's golf answers in chat, so its tasks can say `Use your bad-shot reset`; it never changes them and never reads them on a schedule. The policy entry is `personalPlaybooks` in `config/approval-policy.json`.
 
 ## Calendar Creation Preview
 
