@@ -60,6 +60,8 @@ const BALANCE_ORDER = Object.freeze(["wedges", "putting", "short-game", "range",
 const FOCUS_SHARE = Object.freeze([[0, 0], [1, 0], [1, 1], [2, 1], [2, 1], [2, 2], [3, 2]]);
 const SELF_CONTAINED = new Set(["scoring", "comp-prep", "process"]);
 const OFF_REASONS = Object.freeze({ unavailable: " (unavailable)", skipped: " (skipped)", past: " (passed)" });
+/** Existing task kinds that can stand in for the user's round that day. */
+const ROUND_LIKE = new Set(["round", "competition", "golf"]);
 
 // ---------------------------------------------------------------------------
 // What a focus area trains. The user's words stay the label; this only picks
@@ -502,6 +504,13 @@ export function applyGolfChanges(previous, rawChanges, context) {
     summary.push(kind === "range" ? "Golf: range sessions allowed" : "Golf: on-course practice allowed");
   }
 
+  // Never a seven-day golf week, even from named rounds and lessons: ask
+  // which day stays golf-free instead of dropping one the user named.
+  const golfDates = new Set([...golf.rounds, ...golf.lessons].map((entry) => entry.date));
+  if (golfDates.size >= 7) {
+    flag("rounds", "That would be golf on all seven days.", "That's golf every day next week. Which day should be golf-free?");
+  }
+
   for (const raw of requireList(changes.moves ?? [], "moves", 7)) {
     if (!plan) throw new Error("Golf sessions can be moved once the plan has been built and shown.");
     requireObject(raw, "golf move");
@@ -628,6 +637,9 @@ export function deriveGolfWeek({ golf, weekStart, existing = [], dayLoads = {}, 
     if (!day || day.role) continue;
     Object.assign(day, { role: "existing", existingKind: task.golfKind ?? "golf", title: task.title });
   }
+  // An existing golf task stands in for the user's round only when its title
+  // reliably names a round (or just "golf"). A practice or lesson task that
+  // day stays as it is, and the round gets its own task.
   for (const round of golf.rounds) {
     const day = days.get(round.date);
     if (!day) continue;
@@ -635,11 +647,12 @@ export function deriveGolfWeek({ golf, weekStart, existing = [], dayLoads = {}, 
       notes.push(`${weekdayName(round.date)} is ${skip.has(round.date) ? "skipped" : "already past"}, so its round isn't in the plan.`);
       continue;
     }
-    if (day.role === "existing") {
+    if (day.role === "existing" && ROUND_LIKE.has(day.existingKind)) {
       day.round = round;
       continue;
     }
-    Object.assign(day, { role: round.competition ? "competition" : "round", round });
+    const alongside = day.role === "existing" ? day.title : null;
+    Object.assign(day, { role: round.competition ? "competition" : "round", round, ...(alongside ? { alongside } : {}) });
   }
   for (const lesson of golf.lessons) {
     const day = days.get(lesson.date);
@@ -648,11 +661,12 @@ export function deriveGolfWeek({ golf, weekStart, existing = [], dayLoads = {}, 
       notes.push(`${weekdayName(lesson.date)} is ${skip.has(lesson.date) ? "skipped" : "already past"}, so its lesson isn't in the plan.`);
       continue;
     }
-    if (day.role) {
+    if (day.role && !(day.role === "existing" && !["lesson", "golf"].includes(day.existingKind))) {
       day.lesson = lesson;
       continue;
     }
-    Object.assign(day, { role: "lesson", lesson });
+    const alongside = day.role === "existing" ? day.title : null;
+    Object.assign(day, { role: "lesson", lesson, ...(alongside ? { alongside } : {}) });
   }
   for (const date of golf.restDays) {
     if (days.get(date)?.role === "existing") notes.push(`${weekdayName(date)} already has a golf task in Todoist, so it isn't golf-free.`);
@@ -854,9 +868,15 @@ function publicDay(day) {
       };
     case "round":
     case "competition":
-      return { ...base, holes: day.holes ?? null, objective: day.objective, ...(day.lesson ? { lesson: day.lesson } : {}) };
+      return {
+        ...base,
+        holes: day.holes ?? null,
+        objective: day.objective,
+        ...(day.lesson ? { lesson: day.lesson } : {}),
+        ...(day.alongside ? { alongside: day.alongside } : {}),
+      };
     case "lesson":
-      return { ...base, note: day.lesson.note ?? null };
+      return { ...base, note: day.lesson.note ?? null, ...(day.alongside ? { alongside: day.alongside } : {}) };
     case "existing":
       return {
         ...base,
@@ -1085,6 +1105,11 @@ export function formatGolfSection(week) {
 }
 
 function golfDayLine(day) {
+  const line = golfDayText(day);
+  return day.alongside ? `${line} · also in Todoist: ${day.alongside}` : line;
+}
+
+function golfDayText(day) {
   const name = shortWeekday(day.date);
   switch (day.role) {
     case "practice": {

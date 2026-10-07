@@ -196,6 +196,19 @@ describe("golf week input readiness", () => {
     );
   });
 
+  it("asks which day stays golf-free when the named rounds and lessons cover all seven days", () => {
+    const everyDay = {
+      replyText: "18 holes Monday, Tuesday, Wednesday, Thursday, Friday and Saturday, and a lesson on Sunday",
+      addRounds: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"].map((day) => ({ day, holes: 18 })),
+      addLessons: [{ day: "sunday" }],
+    };
+    const result = applyGolfChanges(emptyGolfInputs(config), everyDay, { weekStart: WEEK });
+    assert.deepEqual(result.problems.map((problem) => problem.reason), ["That would be golf on all seven days."]);
+    assert.equal(formatGolfClarification(result.problems), "That's golf every day next week. Which day should be golf-free?");
+    const sixDays = { ...everyDay, replyText: everyDay.replyText.replace(", and a lesson on Sunday", ""), addLessons: [] };
+    assert.deepEqual(problemsOf(sixDays), []);
+  });
+
   it("refuses seven golf days and needs the user's words for fewer", () => {
     assert.deepEqual(problemsOf({ replyText: "Golf every day, 7 days", activeDays: 7 }), ["Seven golf days would leave no golf-free day."]);
     assert.deepEqual(problemsOf({ replyText: "Fewer golf days please", activeDays: 4 }), ["The user did not ask for 4 golf days."]);
@@ -243,6 +256,30 @@ describe("golf week planning", () => {
     });
     assert.equal(golfOps(plan).length, 4);
     assert.ok(golfOps(plan).every((operation) => ![DAY.mon, DAY.wed].includes(operation.date)));
+  });
+
+  it("gives the user's round its own task when the existing golf task that day is not a round", () => {
+    const existing = [
+      { date: DAY.wed, title: "Golf practice — Putting", golfKind: "practice" },
+      { date: DAY.sat, title: "Golf with Anna", golfKind: "golf" },
+    ];
+    const golf = answered(GOLF_ANSWER);
+    const week = weekFor(golf, { existing });
+    assert.equal(dayOf(week, DAY.wed).role, "round", "a practice task does not stand in for the round");
+    assert.equal(dayOf(week, DAY.wed).alongside, "Golf practice — Putting");
+    assert.equal(dayOf(week, DAY.sat).role, "existing", "a plain golf task that day is taken as the round");
+    assert.equal(week.activeDays, 6, "the day still counts once");
+    const { plan } = planWith(golf, {
+      existingTasks: [
+        { content: "Golf practice — Putting", due: { date: DAY.wed } },
+        { content: "Golf with Anna", due: { date: DAY.sat } },
+      ],
+    });
+    assert.deepEqual(golfOps(plan).filter((operation) => operation.date === DAY.wed).map((operation) => operation.payload.content), ["Golf — 18-hole round"]);
+    assert.equal(golfOps(plan).filter((operation) => operation.date === DAY.sat).length, 0);
+    const text = formatPlanMessage({ planId: "x", versions: [{ version: 1, plan }] }, { version: 1, deadline: "2026-09-26T19:00:00.000Z" });
+    assert.match(text, /\nWed — 18 holes · process: commitment · also in Todoist: Golf practice — Putting\n/);
+    assert.match(text, /\nSat — Golf with Anna \(in Todoist\)\n/);
   });
 
   it("puts less practice around several full rounds", () => {

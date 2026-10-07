@@ -369,7 +369,8 @@ describe("agent configuration", () => {
       section,
       /Golf answers and changes carry the user's exact words\. Never fill in playing days, holes, competitions, lessons, focus areas or practice time from memory or habit; ask instead\. Plan practice, never swing mechanics, and never seven golf days\./,
     );
-    assert.ok(Buffer.byteLength(section) < 2600, `weekly plan section is ${Buffer.byteLength(section)} bytes`);
+    assert.match(section, /Send every weekly-plan `telegramText` word for word, never shortened or reworded: the shown plan is what applies/);
+    assert.ok(Buffer.byteLength(section) < 2700, `weekly plan section is ${Buffer.byteLength(section)} bytes`);
     for (const detail of ["addRounds", "same-as-last-week", '"golf":', "changes-json-stdin <<"]) {
       assert.ok(!prompt.includes(detail), `${detail} belongs in the weekly-plan guide`);
     }
