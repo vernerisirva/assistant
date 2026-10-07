@@ -176,8 +176,12 @@ describe("golf week input readiness", () => {
     ]);
     assert.deepEqual(problemsOf({ replyText: "Golflektion på torsdag", addLessons: [{ day: "thursday" }] }), []);
     assert.equal(golfFocusKind("Rutinen före slaget"), "process");
-    // An abbreviation never matches inside another word.
+    // Neither a day name nor an abbreviation matches inside another word,
+    // and "reflektion" is not a lesson.
     assert.deepEqual(problemsOf({ replyText: "A sunny round", addRounds: [{ day: "sunday" }] }), ["Sunday is not in the user's words."]);
+    assert.deepEqual(problemsOf({ replyText: "A Mondayish plan", addRounds: [{ day: "monday" }] }), ["Monday is not in the user's words."]);
+    assert.deepEqual(problemsOf({ replyText: "Reflektion på torsdag", addLessons: [{ day: "thursday" }] }), ["A lesson is not in the user's words."]);
+    assert.deepEqual(problemsOf({ replyText: "Playing Wednesdays", addRounds: [{ day: "wednesday" }] }), []);
   });
 
   it('accepts "choose the practice balance for me" as a focus answer, and only when asked', () => {

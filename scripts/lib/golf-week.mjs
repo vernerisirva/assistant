@@ -87,16 +87,17 @@ export function golfFocusKind(text) {
 // language (English and Swedish), strict about substance: a weekday that was
 // never mentioned cannot become a playing day.
 
-// Full names may run on into a compound ("onsdagskväll", "Saturdays");
-// abbreviations take only a short ending, so "sun" never matches "sunny".
+// Day names and abbreviations take only a short ending, so "sun" never
+// matches "sunny". A Swedish day name also starts a compound through the
+// genitive s: "onsdagskvällen", "lördagsmorgon".
 const DAY_WORDS = Object.freeze([
-  { full: ["monday", "måndag", "mandag"], short: ["mon", "mån"] },
-  { full: ["tuesday", "tisdag"], short: ["tue", "tues", "tis"] },
-  { full: ["wednesday", "onsdag"], short: ["wed", "weds", "ons"] },
-  { full: ["thursday", "torsdag"], short: ["thu", "thur", "thurs", "tors", "tor"] },
-  { full: ["friday", "fredag"], short: ["fri", "fre"] },
-  { full: ["saturday", "lördag", "lordag"], short: ["sat", "lör"] },
-  { full: ["sunday", "söndag", "sondag"], short: ["sun", "sön"] },
+  { words: ["monday", "mon", "mån"], swedish: ["måndag", "mandag"] },
+  { words: ["tuesday", "tue", "tues", "tis"], swedish: ["tisdag"] },
+  { words: ["wednesday", "wed", "weds", "ons"], swedish: ["onsdag"] },
+  { words: ["thursday", "thu", "thur", "thurs", "tors", "tor"], swedish: ["torsdag"] },
+  { words: ["friday", "fri", "fre"], swedish: ["fredag"] },
+  { words: ["saturday", "sat", "lör"], swedish: ["lördag", "lordag"] },
+  { words: ["sunday", "sun", "sön"], swedish: ["söndag", "sondag"] },
 ]);
 const MONTH_WORDS = Object.freeze([
   ["jan", "january", "januari"],
@@ -137,7 +138,9 @@ const word = (body) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${body})(?![\\p{L}\\p{N
 const COMPETITION_PATTERN = word(
   "competition\\p{L}*|comps?|tournament\\p{L}*|\\p{L}*tävling\\p{L}*|(?:serie|lag|klubb)?match\\p{L}*|qualif\\p{L}*|championship\\p{L}*|\\p{L}*mästerskap\\p{L}*|club champs|cup|medal|stableford|scramble",
 );
-const LESSON_PATTERN = word("\\p{L}*lesson\\p{L}*|\\p{L}*lektion\\p{L}*|coaching session|session with (?:my|the) (?:coach|pro|instructor|trainer|tränare)|tränarpass");
+const LESSON_PATTERN = word(
+  "lesson\\p{L}*|(?:golf|privat|grupp|tränar)?lektion\\p{L}*|coaching session|session with (?:my|the) (?:coach|pro|instructor|trainer|tränare)|tränarpass",
+);
 const BALANCE_PATTERN = word("balance\\p{L}*|balanced|choose|you choose|you pick|pick for me|up to you|your call|whatever|no specific|no particular|nothing specific|nothing in particular|anything|mixed|a mix|välj\\p{L}*|du väljer|blandat|valfritt");
 const SAME_PATTERN = word("same|samma|like last week|as last week|as before|som förra veckan|unchanged|oförändrat");
 const NORMAL_PATTERN = word("normal|usual|regular|typical|vanlig\\p{L}*");
@@ -165,8 +168,8 @@ function dayMentioned(date, sources, { today = null } = {}) {
   const month = Number(date.slice(5, 7));
   const months = MONTH_WORDS[month - 1].join("|");
   const patterns = [
-    word(`(?:${DAY_WORDS[index].full.join("|")})\\p{L}*`),
-    word(`(?:${DAY_WORDS[index].short.join("|")})(?:s|en|ens|ar|arna)?`),
+    word(`(?:${DAY_WORDS[index].words.join("|")})(?:s|en|ens|ar|arna)?`),
+    word(`(?:${DAY_WORDS[index].swedish.join("|")})(?:s\\p{L}*|en|ens|ar|arna)?`),
     new RegExp(escapeRegExp(date)),
     new RegExp(`(?<!\\d)${dayOfMonth}(?:st|nd|rd|th|:e)(?![\\p{L}\\p{N}])`, "iu"),
     new RegExp(`(?<![\\d.])${dayOfMonth}\\s*[./]\\s*${month}(?![\\d])`, "u"),
