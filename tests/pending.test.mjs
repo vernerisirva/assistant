@@ -15,6 +15,7 @@ import {
 } from "../scripts/lib/pending.mjs";
 import { createWeeklyPlanStore } from "../scripts/lib/weekly-plan-store.mjs";
 import { PENDING_COVERAGE, parsePendingArgs, runPendingCli } from "../scripts/pending.mjs";
+import { GOLF_ANSWER } from "./fixtures/golf-answers.mjs";
 import { runWeeklyPlanCli } from "../scripts/weekly-plan.mjs";
 
 const schedules = JSON.parse(readFileSync("config/schedules.json", "utf8"));
@@ -37,8 +38,9 @@ function withState() {
   return { stateDir, cleanup: () => rmSync(stateDir, { recursive: true, force: true }) };
 }
 
-async function proposePlan(stateDir, { now = SATURDAY_0900, random = "abc123", input } = {}) {
-  const argv = ["propose", "--reply", ...(input ? ["--input-json", JSON.stringify(input)] : [])];
+/** A shown plan: an on-demand proposal whose message already answers the golf questions. */
+async function proposePlan(stateDir, { now = SATURDAY_0900, random = "abc123", input = {} } = {}) {
+  const argv = ["propose", "--reply", "--input-json", JSON.stringify({ golf: GOLF_ANSWER, ...input })];
   return runWeeklyPlanCli(argv, {
     stateDir,
     env: {},
@@ -225,8 +227,46 @@ describe("pending actions", () => {
     }
   });
 
+  it("lists the golf questions as waiting on the user, and nothing when they were never sent", async () => {
+    const state = withState();
+    const context = (sendMessage) => ({
+      stateDir: state.stateDir,
+      env: { TELEGRAM_USER_ID: "1" },
+      schedules,
+      todoistClient: fakeTodoist(),
+      sendMessage,
+      now: () => SATURDAY_0900,
+      random: () => "abc123",
+    });
+    try {
+      await assert.rejects(
+        runWeeklyPlanCli(["propose", "--send"], context(async () => {
+          throw new Error("offline");
+        })),
+        /Could not send the golf questions/,
+      );
+      const unsent = collectPendingActions({ stateDir: state.stateDir, now: SATURDAY_0900 });
+      assert.deepEqual(unsent.items, []);
+      assert.deepEqual(unsent.notes, ["The weekly plan for 28 Sep–4 Oct couldn't ask its golf questions yet, so nothing will be created."]);
+
+      await runWeeklyPlanCli(["propose", "--send"], context(async () => ({ messageId: 7 })));
+      const asked = collectPendingActions({ stateDir: state.stateDir, now: minutesAfter(SATURDAY_0900, 5) });
+      assert.deepEqual(asked.items.map((item) => [item.type, item.summary, item.deadline]), [
+        ["weekly_plan", "Golf questions for the weekly plan for 28 Sep–4 Oct", null],
+      ]);
+      assert.match(formatPendingActions(asked), /Say which days you're playing and what to focus on, or “No golf this week” or “Skip this week”\./);
+      assert.match(formatPendingActions(asked), /nothing is created before you've seen it/);
+    } finally {
+      state.cleanup();
+    }
+  });
+
   it("notes a draft or an apply in progress without calling them pending", async () => {
     const state = withState();
+    const golfOff = () => {
+      const config = JSON.parse(readFileSync("config/weekly-plan.json", "utf8"));
+      return { config: { ...config, golf: { ...config.golf, enabled: false } }, food: JSON.parse(readFileSync("config/food-planning.json", "utf8")) };
+    };
     try {
       await assert.rejects(
         runWeeklyPlanCli(["propose", "--send"], {
@@ -234,6 +274,7 @@ describe("pending actions", () => {
           env: { TELEGRAM_USER_ID: "1" },
           schedules,
           todoistClient: fakeTodoist(),
+          loadPlanningConfig: golfOff,
           sendMessage: async () => {
             throw new Error("offline");
           },

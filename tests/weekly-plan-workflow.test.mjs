@@ -12,9 +12,19 @@ import {
   WEEKLY_PLAN_PROPOSE_JOB,
   buildWeeklyPlanCronJobs,
 } from "../scripts/lib/weekly-plan-cron.mjs";
+import { GOLF_ANSWER, answerJson } from "./fixtures/golf-answers.mjs";
 
 const schedules = JSON.parse(readFileSync("config/schedules.json", "utf8"));
 const SATURDAY_0900 = "2026-09-26T07:00:00.000Z";
+
+/** The planner with golf switched off: the plan is built and sent at once, as before the golf week. */
+function golfOff() {
+  const config = JSON.parse(readFileSync("config/weekly-plan.json", "utf8"));
+  return {
+    config: { ...config, golf: { ...config.golf, enabled: false } },
+    food: JSON.parse(readFileSync("config/food-planning.json", "utf8")),
+  };
+}
 
 function fakeTodoist(initial = []) {
   const tasks = initial.map((task) => ({ ...task }));
@@ -85,6 +95,12 @@ describe("weekly plan workflow", () => {
   const at = (iso) => {
     clock = new Date(iso);
   };
+  const answer = (golf = GOLF_ANSWER, extra) => run(["answer", "--input-json", answerJson(golf)], extra);
+  /** Saturday's question, then the user's golf answer at the same time: the shown v1. */
+  const proposeAndAnswer = async (extra) => {
+    await run(["propose", "--send"], extra);
+    return answer(GOLF_ANSWER, extra);
+  };
 
   beforeEach(() => {
     stateDir = mkdtempSync(join(tmpdir(), "weekly-plan-"));
@@ -99,9 +115,52 @@ describe("weekly plan workflow", () => {
   });
 
   describe("proposal persistence", () => {
-    it("stores the proposal as a draft before sending, then marks it pending with a 12-hour deadline", async () => {
+    it("asks the golf questions first: the week is stored before sending, with no version, deadline or tasks", async () => {
       let statusWhileSending;
       const result = await run(["propose", "--send"], {
+        sendMessage: async (text) => {
+          statusWhileSending = store().readPlan("wp-2026-W40-abc123").status;
+          sent.push(text);
+          return { messageId: 42 };
+        },
+      });
+
+      assert.equal(statusWhileSending, "awaiting_input");
+      assert.equal(result.status, "awaiting_input");
+      assert.equal(result.sent, true);
+      assert.equal(result.telegramText, null);
+      assert.match(result.message, /Return NO_REPLY/);
+      const document = plan();
+      assert.equal(document.currentVersion, 0);
+      assert.deepEqual(document.versions, []);
+      assert.equal(document.reviewDeadline, null);
+      assert.equal(document.displayedAt, null);
+      assert.match(sent[0], /^Next week's plan · 28 Sep–4 Oct\n\nBefore I build next week's golf plan:\n\n1\. Which days are you playing next week, and roughly 9 or 18 holes\?\n2\. What 1–2 things do you want to focus on\?\n3\. Any competition, lesson or other important golf event\?/);
+      assert.equal(todoist.calls.addTask.length, 0);
+    });
+
+    it("starts the 12-hour window only when the complete plan is shown after the golf answers", async () => {
+      await run(["propose", "--send"]);
+      at("2026-09-26T09:40:00.000Z"); // 11:40 Stockholm
+      const shown = await answer();
+
+      assert.equal(shown.status, "pending");
+      assert.equal(shown.version, 1);
+      assert.equal(shown.reviewDeadline, "2026-09-26T21:45:00.000Z");
+      assert.equal(shown.reviewDeadlineLocal, "23:45 on Saturday 26 Sep");
+      assert.match(shown.telegramText, /^Next week's plan · 28 Sep–4 Oct · v1\n\nGolf · 6 golf days, 1 rest day/);
+      const document = plan();
+      assert.equal(document.status, "pending");
+      assert.equal(document.displayedAt, "2026-09-26T09:40:00.000Z");
+      assert.equal(document.displayChannel, "chat-reply");
+      assert.equal(document.displayedDigest, versionEntry(document, 1).digest);
+      assert.equal(todoist.calls.addTask.length, 0, "showing the plan never creates tasks");
+    });
+
+    it("with golf off, stores the proposal as a draft before sending, then marks it pending with a 12-hour deadline", async () => {
+      let statusWhileSending;
+      const result = await run(["propose", "--send"], {
+        loadPlanningConfig: golfOff,
         sendMessage: async (text) => {
           statusWhileSending = store().readPlan("wp-2026-W40-abc123").status;
           sent.push(text);
@@ -125,30 +184,48 @@ describe("weekly plan workflow", () => {
       assert.equal(todoist.calls.addTask.length, 0, "the proposal never creates tasks");
     });
 
-    it("keeps the plan a draft when sending fails, and a draft never applies", async () => {
+    it("with golf off, keeps the plan a draft when sending fails, and a draft never applies", async () => {
       sendFails = true;
-      await assert.rejects(run(["propose", "--send"]), /stays a draft and will not apply/);
+      await assert.rejects(run(["propose", "--send"], { loadPlanningConfig: golfOff }), /stays a draft and will not apply/);
       assert.equal(plan().status, "draft");
 
       at("2026-09-27T12:00:00.000Z");
-      assert.equal((await run(["apply-due"])).text, "NO_REPLY");
+      assert.equal((await run(["apply-due"], { loadPlanningConfig: golfOff })).text, "NO_REPLY");
       assert.equal(todoist.calls.addTask.length, 0);
 
       sendFails = false;
-      const retried = await run(["propose", "--send"]);
+      const retried = await run(["propose", "--send"], { loadPlanningConfig: golfOff });
       assert.equal(retried.status, "pending");
       assert.equal(sent.length, 1);
     });
 
+    it("keeps waiting when the golf questions cannot be sent, then sends them on the next try", async () => {
+      sendFails = true;
+      await assert.rejects(run(["propose", "--send"]), /Could not send the golf questions to Telegram; nothing was shown and nothing will apply/);
+      assert.equal(plan().status, "awaiting_input");
+      assert.equal(plan().awaiting.askedAt, null);
+
+      at("2026-09-27T12:00:00.000Z");
+      assert.equal((await run(["apply-due"])).text, "NO_REPLY");
+
+      sendFails = false;
+      const retried = await run(["propose", "--send"]);
+      assert.equal(retried.status, "awaiting_input");
+      assert.equal(retried.sent, true);
+      assert.equal(sent.length, 1);
+      assert.equal((await run(["propose", "--send"])).status, "exists", "a second Saturday run sends nothing");
+      assert.equal(sent.length, 1);
+    });
+
     it("survives a restart: a fresh store reads the same pending plan", async () => {
-      await run(["propose", "--send"]);
+      await proposeAndAnswer();
       const reloaded = createWeeklyPlanStore({ stateDir }).readPlan("wp-2026-W40-abc123");
       assert.equal(reloaded.status, "pending");
       assert.deepEqual(reloaded.versions, plan().versions);
     });
 
     it("does not create a second proposal for the same week", async () => {
-      await run(["propose", "--send"]);
+      await proposeAndAnswer();
       const again = await run(["propose", "--send"], { random: () => "def456" });
       assert.equal(again.status, "exists");
       assert.equal(sent.length, 1);
@@ -158,41 +235,55 @@ describe("weekly plan workflow", () => {
     it("previews a plain proposal without storing anything that could apply", async () => {
       const preview = await run(["propose"]);
       assert.equal(preview.status, "preview");
-      assert.match(preview.telegramText, /^Next week's plan · 28 Sep–4 Oct · v1/);
+      assert.match(preview.telegramText, /^Next week's plan · 28 Sep–4 Oct\n\nBefore I build next week's golf plan:/);
+      assert.deepEqual(store().listPlans(), []);
+
+      const offPreview = await run(["propose"], { loadPlanningConfig: golfOff });
+      assert.match(offPreview.telegramText, /^Next week's plan · 28 Sep–4 Oct · v1/);
       assert.deepEqual(store().listPlans(), []);
 
       const sentLater = await run(["propose", "--send"]);
-      assert.equal(sentLater.status, "pending");
+      assert.equal(sentLater.status, "awaiting_input");
     });
 
     it("reads existing Todoist tasks so the proposal does not duplicate them", async () => {
       todoist = fakeTodoist([{ id: "1", content: "Golf round: Bro Hof", due: { date: "2026-10-03" } }]);
-      await run(["propose", "--send"]);
+      const shown = await proposeAndAnswer();
       const entry = versionEntry(plan(), 1);
-      assert.equal(entry.plan.operations.filter((operation) => operation.activity === "golfRound").length, 0);
-      assert.match(sent[0], /Sat — Golf round \(in Todoist\)/);
+      assert.equal(entry.plan.operations.filter((operation) => operation.date === "2026-10-03" && operation.activity === "golf").length, 0);
+      assert.match(shown.telegramText, /\nSat — Golf round: Bro Hof \(in Todoist\)\n/);
+    });
+
+    it("re-reads Todoist when the answers arrive, so a golf task added since Saturday counts", async () => {
+      await run(["propose", "--send"]);
+      todoist.tasks.push({ id: "9", content: "Golf — Lesson with Anna", due: { date: "2026-10-01" } });
+      const shown = await answer();
+      const entry = versionEntry(plan(), 1);
+      assert.ok(entry.plan.operations.every((operation) => !(operation.activity === "golf" && operation.date === "2026-10-01")));
+      assert.match(shown.telegramText, /\nThu — Golf — Lesson with Anna \(in Todoist\)\n/);
+      assert.equal(entry.plan.golf.activeDays, 6, "the existing lesson counts toward the six golf days");
     });
 
     it("still proposes when Todoist cannot be read, and says duplicates are re-checked", async () => {
       todoist.getTasks = async () => {
         throw new Error("Todoist API request failed: 503");
       };
-      await run(["propose", "--send"]);
-      assert.match(sent[0], /couldn't read Todoist just now/);
+      const shown = await proposeAndAnswer();
+      assert.match(shown.telegramText, /couldn't read Todoist just now/);
     });
   });
 
   describe("versions and the review window", () => {
     it("a modification stores a new version, shows it, and restarts the 12-hour window", async () => {
-      await run(["propose", "--send"]);
+      await proposeAndAnswer();
       at("2026-09-26T18:30:00.000Z"); // 20:30 Stockholm
 
-      const revised = await run(["revise", "--expect-version", "1", "--changes-json", '{"targets":{"gym":3,"golfRound":0}}']);
+      const revised = await run(["revise", "--expect-version", "1", "--changes-json", '{"targets":{"gym":3}}']);
 
       assert.equal(revised.version, 2);
       assert.equal(revised.reviewDeadline, "2026-09-27T06:30:00.000Z");
       assert.equal(revised.reviewDeadlineLocal, "08:30 on Sunday 27 Sep");
-      assert.match(revised.telegramText, /^Updated plan · 28 Sep–4 Oct · v2\nChanges: Gym 2 → 3 · Golf 1 → 0/);
+      assert.match(revised.telegramText, /^Updated plan · 28 Sep–4 Oct · v2\nChanges: Gym 2 → 3\n/);
       assert.match(revised.telegramText, /at 08:30 on Sunday 27 Sep/);
       const document = plan();
       assert.equal(document.currentVersion, 2);
@@ -203,9 +294,9 @@ describe("weekly plan workflow", () => {
     });
 
     it("never applies before the deadline, and applies exactly the latest version after it", async () => {
-      await run(["propose", "--send"]);
+      await proposeAndAnswer();
       at("2026-09-26T18:30:00.000Z");
-      await run(["revise", "--expect-version", "1", "--changes-json", '{"targets":{"gym":3,"golfRound":0}}']);
+      await run(["revise", "--expect-version", "1", "--changes-json", answerJson({ replyText: "Gym 3 times, and no golf next week", activeDays: 0 }, { targets: { gym: 3 } })]);
 
       at("2026-09-26T19:00:00.000Z"); // v1's deadline has passed, v2's has not
       assert.equal((await run(["apply-due"])).text, "NO_REPLY");
@@ -219,11 +310,11 @@ describe("weekly plan workflow", () => {
       const created = todoist.calls.addTask.map((call) => call.payload);
       assert.deepEqual(created, versionEntry(plan(), 2).plan.operations.map((operation) => operation.payload));
       assert.equal(created.filter((payload) => payload.content.startsWith("Gym — ")).length, 3);
-      assert.equal(created.filter((payload) => payload.content.startsWith("Golf round")).length, 0);
+      assert.equal(created.filter((payload) => payload.content.startsWith("Golf")).length, 0);
     });
 
     it("rejects a revision based on a version the user is no longer looking at", async () => {
-      await run(["propose", "--send"]);
+      await proposeAndAnswer();
       await run(["revise", "--expect-version", "1", "--changes-json", '{"targets":{"gym":3}}']);
       await assert.rejects(
         run(["revise", "--expect-version", "1", "--changes-json", '{"targets":{"gym":1}}']),
@@ -232,7 +323,7 @@ describe("weekly plan workflow", () => {
     });
 
     it("does not create a version or restart the window for a change that alters nothing", async () => {
-      await run(["propose", "--send"]);
+      await proposeAndAnswer();
       at("2026-09-26T10:00:00.000Z");
       const result = await run(["revise", "--expect-version", "1", "--changes-json", '{"excludeIngredients":["durian"]}']);
       assert.equal(result.changed, false);
@@ -241,7 +332,7 @@ describe("weekly plan workflow", () => {
     });
 
     it('explicit "OK" applies the displayed version immediately', async () => {
-      await run(["propose", "--send"]);
+      await proposeAndAnswer();
       at("2026-09-26T08:00:00.000Z");
       const accepted = await run(["accept", "--version", "1", "--reply-text", "OK"]);
 
@@ -253,14 +344,14 @@ describe("weekly plan workflow", () => {
     });
 
     it("an old version cannot be accepted after a revision", async () => {
-      await run(["propose", "--send"]);
+      await proposeAndAnswer();
       await run(["revise", "--expect-version", "1", "--changes-json", '{"targets":{"gym":3}}']);
       await assert.rejects(run(["accept", "--version", "1", "--reply-text", "OK"]), /not the current displayed version/);
       assert.equal(todoist.calls.addTask.length, 0);
     });
 
     it("a reply that is not explicit acceptance creates nothing", async () => {
-      await run(["propose", "--send"]);
+      await proposeAndAnswer();
       const result = await run(["accept", "--version", "1", "--reply-text", "ok but no salmon"]);
       assert.equal(result.status, "not_accepted");
       assert.equal(plan().status, "pending");
@@ -268,7 +359,7 @@ describe("weekly plan workflow", () => {
     });
 
     it('"Skip this week" cancels: nothing is created, now or after the deadline', async () => {
-      await run(["propose", "--send"]);
+      await proposeAndAnswer();
       const cancelled = await run(["cancel", "--reason", "Skip this week"]);
       assert.equal(cancelled.status, "cancelled");
       assert.match(cancelled.telegramText, /Nothing was created in Todoist/);
@@ -283,7 +374,7 @@ describe("weekly plan workflow", () => {
     });
 
     it("an applied plan cannot be cancelled or applied again", async () => {
-      await run(["propose", "--send"]);
+      await proposeAndAnswer();
       await run(["accept", "--version", "1", "--reply-text", "Go ahead"]);
       const count = todoist.calls.addTask.length;
 
@@ -298,7 +389,7 @@ describe("weekly plan workflow", () => {
 
   describe("deterministic application", () => {
     async function proposeAndReachDeadline() {
-      await run(["propose", "--send"]);
+      await proposeAndAnswer();
       at("2026-09-26T19:00:00.000Z");
     }
 
@@ -336,8 +427,11 @@ describe("weekly plan workflow", () => {
       todoist.tasks.push(
         { id: "u1", content: first.payload.content, due: { date: first.date, string: first.date } },
         { id: "u2", content: second.payload.content, due: { date: second.date, string: "tuesday" } },
-        { id: "old", content: "Stretch — Wednesday", due: { date: "2026-09-23", string: "2026-09-23" } },
       );
+      // Last week's task with the same title does not block this week's.
+      const stretch = versionEntry(plan(), 1).plan.operations.find((operation) => operation.activity === "stretch");
+      const lastWeek = new Date(Date.parse(`${stretch.date}T00:00:00Z`) - 7 * 86_400_000).toISOString().slice(0, 10);
+      todoist.tasks.push({ id: "old", content: stretch.payload.content, due: { date: lastWeek, string: lastWeek } });
 
       const result = await run(["apply-due"]);
       const outcomes = plan().apply.outcomes;
@@ -345,15 +439,13 @@ describe("weekly plan workflow", () => {
       assert.equal(outcomes[first.opId].taskId, "u1");
       assert.equal(outcomes[second.opId].status, "already_exists");
       assert.match(result.text, /Already existed: 2/);
-      // Last week's task with the same title does not block this week's.
-      const wednesday = versionEntry(plan(), 1).plan.operations.find((operation) => operation.opId === "stretch:2026-09-30");
-      assert.equal(outcomes[wednesday.opId].status, "created");
+      assert.equal(outcomes[stretch.opId].status, "created");
       assert.equal(plan().status, "applied");
     });
 
     it("reports partial failure per item and marks the plan applied_with_errors", async () => {
       await proposeAndReachDeadline();
-      const target = versionEntry(plan(), 1).plan.operations.find((operation) => operation.activity === "golfPractice");
+      const target = versionEntry(plan(), 1).plan.operations.find((operation) => operation.activity === "golf");
       todoist.failures.set(target.payload.content, ["Todoist API request failed: 400 invalid due date"]);
 
       const result = await run(["apply-due"]);
@@ -381,9 +473,12 @@ describe("weekly plan workflow", () => {
       assert.equal(outcomes[first.opId].attempts, 3);
       assert.equal(outcomes[second.opId].status, "failed");
       assert.equal(outcomes[second.opId].attempts, 3);
-      const firstIds = new Set(todoist.calls.addTask.filter((call) => call.payload.content === first.payload.content).map((call) => call.requestId));
+      // A golf practice title can recur on another day, so a call is matched by title and date.
+      const callsFor = (operation) =>
+        todoist.calls.addTask.filter((call) => call.payload.content === operation.payload.content && call.payload.due_string === operation.date);
+      const firstIds = new Set(callsFor(first).map((call) => call.requestId));
       assert.equal(firstIds.size, 1);
-      assert.equal(todoist.calls.addTask.filter((call) => call.payload.content === second.payload.content).length, 3);
+      assert.equal(callsFor(second).length, 3);
     });
 
     it("re-checks Todoist before retrying, so a create that actually landed is not repeated", async () => {
@@ -451,7 +546,7 @@ describe("weekly plan workflow", () => {
     });
 
     it("tells the user at once when an explicit OK cannot reach Todoist, and keeps the plan pending", async () => {
-      await run(["propose", "--send"]);
+      await proposeAndAnswer();
       todoist.getTasks = async () => {
         throw new Error("fetch failed");
       };
@@ -557,7 +652,7 @@ describe("weekly plan workflow", () => {
     });
 
     it("skips operations whose date has already passed instead of creating overdue tasks", async () => {
-      await run(["propose", "--send"]);
+      await proposeAndAnswer();
       at("2026-09-26T09:00:00.000Z");
       await run(["revise", "--expect-version", "1", "--changes-json", '{"targets":{"gym":3}}']);
       at("2026-09-29T22:30:00.000Z"); // Wednesday 00:30 in Stockholm
@@ -642,6 +737,13 @@ describe("weekly plan workflow", () => {
       assert.match((await run(["status"])).telegramText, /No weekly plan is pending/);
 
       await run(["propose", "--send"]);
+      const waiting = await run(["status"]);
+      assert.equal(waiting.pending[0].status, "awaiting_input");
+      assert.deepEqual(waiting.pending[0].golfMissing, ["rounds", "focus"]);
+      assert.match(waiting.telegramText, /^Weekly plan for 28 Sep–4 Oct is waiting for your golf answers \(which days you're playing and what to focus on\); nothing is created until you've seen the full plan\.$/);
+      assert.match(waiting.guidance, /weekly-plan -- guide/);
+
+      await answer();
       await run(["revise", "--expect-version", "1", "--changes-json", '{"targets":{"stretch":4}}']);
       const pending = await run(["status"]);
       assert.equal(pending.pending.length, 1);
@@ -658,10 +760,11 @@ describe("weekly plan workflow", () => {
       assert.match(applied.telegramText, /was applied at 21:00 on Saturday 26 Sep \(v2\)/);
     });
 
-    it("shows the current plan", async () => {
+    it("shows the open golf questions, then the current plan", async () => {
       await run(["propose", "--send"]);
-      const shown = await run(["show"]);
-      assert.equal(shown.telegramText, sent[0]);
+      assert.equal((await run(["show"])).telegramText, sent[0]);
+      const answered = await answer();
+      assert.equal((await run(["show"])).telegramText, answered.telegramText);
     });
   });
 
@@ -737,5 +840,7 @@ describe("weekly plan workflow", () => {
     assert.throws(() => parseWeeklyPlanArgs(["propose", "--send", "--reply"]), /either --send or --reply/);
     assert.throws(() => parseWeeklyPlanArgs(["propose", "--yolo"]), /Unknown weekly-plan option/);
     assert.throws(() => parseWeeklyPlanArgs(["delete"]), /Unknown weekly-plan command/);
+    assert.throws(() => parseWeeklyPlanArgs(["answer"]), /answer requires --input-json/);
+    assert.throws(() => parseWeeklyPlanArgs(["guide", "--json"]), /guide does not accept options/);
   });
 });

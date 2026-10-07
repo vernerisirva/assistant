@@ -167,18 +167,29 @@ The change is live when the command returns, with no Gateway restart. Afterwards
 
 The weekly plan is the one routine that creates Todoist tasks on its own, under a narrow standing authorization the user granted explicitly (see `docs/security/approval-model.md`).
 
-Every Saturday at 09:00 Europe/Stockholm Hilla proposes next week's (Monday-Sunday) plan for food, grocery shopping, gym, stretching, golf rounds and golf practice, sends it to Telegram, and creates the resulting Todoist tasks after a 12-hour review window unless the plan is changed or cancelled.
+Every Saturday at 09:00 Europe/Stockholm Hilla asks about next week's golf, then proposes next week's (Monday-Sunday) plan for food, grocery shopping, gym, stretching and golf, and creates the resulting Todoist tasks after a 12-hour review window unless the plan is changed or cancelled. The review window starts only when the complete plan, golf included, has been shown.
 
 How it works:
 
-1. `Assistant weekly plan: propose` (Saturday 09:00, model-backed, personal agent) gathers read-only context: next week's Calendar load, non-sensitive memory, last week's plan. It passes that context as structured JSON to `npm run weekly-plan -- propose --send`. It does not run a questionnaire.
-2. The planner (`scripts/lib/weekly-plan.mjs`) is deterministic. It picks activity counts from the agent's input, then last week's plan, then `config/weekly-plan.json` defaults. It places activities around busy days, treats golf as physical load, spreads gym and meal prep, fills meals from the catalog in `config/food-planning.json`, derives one grocery list from those meals, and builds the exact Todoist payloads through the shared task pipeline. Existing Todoist tasks for the week count toward the targets and are never changed.
-3. The plan is written to `.openclaw/state/weekly-plan/plans/<planId>.json` as a `draft` before it is sent. Only after Telegram confirms the send does it become `pending`, with a review deadline 12 elapsed hours later, rounded up to the next quarter-hour apply check. If the send fails, it stays a draft and never applies.
-4. Replies in Telegram go to the personal agent. A change such as "Gym 3 times", "Move Friday gym to Sunday", "No salmon" or "Add bananas" becomes a structured `revise`. That stores a new version, shows it with its new deadline, and restarts the 12-hour window, for example from 20:30 Saturday to 08:30 Sunday. Changes never touch Todoist.
-5. An explicit "OK", "Looks good", "Create it", "Yes" or "Go ahead" to the displayed version applies it immediately. "Skip this week", "Cancel the weekly plan" or "Don't create these" cancels it, and a cancelled plan never applies.
-6. `Assistant weekly plan: apply due plans` is a command job that runs every 15 minutes with no model. It runs `node scripts/weekly-plan.mjs apply-due` and prints `NO_REPLY` when nothing is due. When a pending plan's deadline has passed, it creates exactly the stored operations of the displayed version and sends a per-item summary.
+1. `Assistant weekly plan: propose` (Saturday 09:00, model-backed, personal agent) gathers read-only context: next week's Calendar load, non-sensitive memory, last week's plan. It passes that context as structured JSON to `npm run weekly-plan -- propose --send`.
+2. With golf on (`golf.enabled` in `config/weekly-plan.json`), `propose --send` stores that context as a plan that is `awaiting_input` and sends one compact message: which days the user plays next week and roughly 9 or 18 holes, their 1–2 focus areas, and any competition, lesson or other important golf event. There is no plan version yet, so nothing can be accepted or applied. The job's message did not change for this, so the installed job stays as it was.
+3. The user answers naturally in Telegram. The personal agent maps the answer to structured fields with the user's exact words as `replyText` and runs `npm run weekly-plan -- answer`. Every playing day, hole count, competition, lesson, focus area and time limit must be found in those words; anything else is refused and nothing is stored. While playing days or focus are missing, the reply asks only for those. Shortcuts work: "Same playing days as last week", "Use my normal golf week" (a saved `golf/normal-week` memory), "No specific technical focus, choose the practice balance", "I won't play any full rounds next week", "No golf next week".
+4. Once playing days and focus are known, the planner (`scripts/lib/weekly-plan.mjs` with `scripts/lib/golf-week.mjs`) builds the whole plan deterministically. It re-reads Todoist, picks activity counts from the agent's input, then last week's plan, then the config defaults, and builds the golf week (below). It then places gym, stretching and meal prep around the golf load, fills meals from `config/food-planning.json`, derives one grocery list, and builds the exact Todoist payloads through the shared task pipeline. Existing Todoist tasks for the week count toward the targets and are never changed. The plan is stored as v1, a `draft`, and shown as the chat reply, which makes it `pending` with a review deadline 12 elapsed hours later, rounded up to the next quarter-hour apply check.
+5. A change such as "Move wedges to Thursday", "Tuesday needs to be the rest day", "I'm also playing Friday", "Saturday is now a competition", "Gym 3 times" or "No salmon" becomes a structured `revise`. That stores a new version, shows it with its new deadline, and restarts the 12-hour window, for example from 20:30 Saturday to 08:30 Sunday. A change that alters nothing keeps the version and its deadline. Changes never touch Todoist.
+6. An explicit "OK", "Looks good", "Create it", "Yes" or "Go ahead" to the displayed version applies it immediately. "Skip this week", "Cancel the weekly plan" or "Don't create these" cancels it, also while it waits for golf answers, and a cancelled plan never applies. A week whose golf questions were never answered is cancelled when the next week's plan starts.
+7. `Assistant weekly plan: apply due plans` is a command job that runs every 15 minutes with no model. It runs `node scripts/weekly-plan.mjs apply-due` and prints `NO_REPLY` when nothing is due. When a pending plan's deadline has passed, it creates exactly the stored operations of the displayed version and sends a per-item summary.
 
-Todoist tasks: `Gym — Tuesday`, `Golf round — Sunday`, `Golf practice — Thursday`, `Stretch — Monday` (15 min with concrete movements), `Meal prep — Tuesday`, plus one `Grocery shopping for next week` task whose description is the grouped list for the latest food plan. Each task is due on its day.
+### The golf week
+
+The golf part plans one week toward consistently good competitive golf:
+
+- The user's rounds, competitions and lessons are fixed points, and golf tasks already in Todoist for the week count toward the golf days. Practice fills the other days up to six golf days (`golf.activeDays`), with one golf-free day: after a competition or full round, or on a heavy work day. The user can ask for fewer golf days in a week, never seven.
+- Six golf days are not six hard days. A practice day is full, moderate or light: lighter next to a full round, two days before a competition, on a heavy work day, or with little time. Two or more full rounds cap all practice at moderate, three at light. The day before a competition is light competition preparation, with no technique changes.
+- Practice follows a priority: the main focus gets most sessions, the second focus fewer, and the rest is upkeep, such as scoring under pressure, a 9-hole practice round when there are few rounds, or short game. A focus that has several sessions ends its last one with a measurable pressure test; the others end with a routine finish, so not every session is a test. Heavier development work goes early in the week.
+- It plans training, not swing technique. A technical priority appears only in the user's or their coach's words; otherwise a range session says to work on the current priority from their lesson or coach.
+- It uses the user's saved golf cue word and the names of their saved pre-round routine, bad-shot reset and competition routine, read when the plan is built from their answers in chat. It never writes memory or playbooks, never reads weather, keeps no golf statistics, and sends no post-round messages.
+
+Todoist tasks: one per golf day, such as `Golf practice — Wedges 50–100 m`, `Golf — 18-hole round`, `Golf — Competition` or `Golf — Lesson`, with the whole session in the description (focus, timed blocks, mental focus, success criterion; a round's process objective and reset). Then `Gym — Tuesday`, `Stretch — Monday` (15 min with concrete movements), `Meal prep — Tuesday`, plus one `Grocery shopping for next week` task whose description is the grouped list for the latest food plan. Each task is due on its day.
 
 Idempotency and failures:
 
@@ -191,9 +202,11 @@ Idempotency and failures:
 Commands:
 
 ```bash
-npm run --silent weekly-plan -- status            # pending? when? which version? applied?
-npm run --silent weekly-plan -- show              # the current plan text
+npm run --silent weekly-plan -- status            # waiting for golf answers? pending? when? which version? applied?
+npm run --silent weekly-plan -- show              # the current plan text, or the open golf questions
 npm run --silent weekly-plan -- propose           # preview only; stores nothing, never applies
+npm run --silent weekly-plan -- answer --input-json-stdin  # the user's golf answers (see the guide)
+npm run --silent weekly-plan -- guide             # the personal agent's weekly-plan guide, with the status
 npm run --silent weekly-plan -- install --dry-run # preview the two Gateway cron jobs
 npm run --silent weekly-plan -- install           # install or update them through the Gateway
 npm run --silent weekly-plan -- status --jobs     # plan status plus installed job state

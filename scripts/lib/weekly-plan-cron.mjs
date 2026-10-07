@@ -70,6 +70,14 @@ export function buildWeeklyPlanCronJobs(schedules, { telegramUserId, projectRoot
   ];
 }
 
+/**
+ * The Saturday job's message, as installed in the live scheduler. The golf
+ * questions are asked by the planner itself (`propose --send` sends them and
+ * reports sent true), so this message and the installed job did not change
+ * when golf became a golf week; the old golf fields it lists are accepted and
+ * ignored. Changing this text changes nothing live until `weekly-plan install`
+ * runs again.
+ */
 export function buildProposeMessage(settings) {
   return [
     "Scheduled assistant routine: weekly-plan (Saturday proposal). The user explicitly asked for this weekly planning automation.",

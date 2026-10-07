@@ -1,22 +1,12 @@
 {
   "defaultTargets": {
     "gym": 2,
-    "golfRound": 1,
-    "golfPractice": 1,
     "stretch": 3,
     "mealPrep": 2
   },
   "maxSessionsPerActivity": 7,
   "preferences": {
-    "golfRound": {
-      "preferredDays": ["sunday", "saturday"],
-      "avoidDays": []
-    },
     "gym": {
-      "preferredDays": [],
-      "avoidDays": []
-    },
-    "golfPractice": {
       "preferredDays": [],
       "avoidDays": []
     },
@@ -38,15 +28,6 @@
       ],
       "beforeGolfRoundNote": "Keep the leg work moderate: golf round tomorrow."
     },
-    "golfRound": {
-      "label": "Golf round",
-      "description": "18 holes.\nAfterwards, note tee penalties, 3-putts and up-and-downs."
-    },
-    "golfPractice": {
-      "label": "Golf practice",
-      "description": "About 60-90 minutes.",
-      "focus": ["Driver and tee shots", "Wedges inside 100 m", "Putting"]
-    },
     "stretch": {
       "label": "Stretch",
       "minutes": 15,
@@ -67,6 +48,116 @@
     },
     "mealPrep": {
       "label": "Meal prep"
+    }
+  },
+  "golf": {
+    "enabled": true,
+    "activeDays": 6,
+    "direction": "Competitive performance",
+    "titles": {
+      "practice": "Golf practice",
+      "golf": "Golf"
+    },
+    "mentalFocus": "Target → breath → commit.",
+    "badShot": "Acknowledge, exhale, next shot.",
+    "competitionWarmUp": "Putts from 1–2 m, a few chips, then full swings from wedge to driver. Know your first tee target before you get there.",
+    "roundObjectives": [
+      { "short": "commitment", "text": "Full commitment to every selected target." },
+      { "short": "routine", "text": "Use the pre-shot routine on every shot." },
+      { "short": "decisions", "text": "Track decision quality rather than reacting to the score." },
+      { "short": "safe recoveries", "text": "Conservative decisions after poor positions." }
+    ],
+    "competitionObjective": 1,
+    "sessions": {
+      "wedges": {
+        "label": "Wedges",
+        "variants": {
+          "full": [["Warm up", 10], ["Distance blocks: three distances in your range, five balls each", 15], ["Random distances: a new target and distance every ball", 20]],
+          "moderate": [["Warm up", 10], ["Distance blocks: three distances in your range, five balls each", 10], ["Random distances: a new target and distance every ball", 15]],
+          "light": [["Warm up", 5], ["Distance ladder: three distances, three balls each", 10], ["Random distances", 10]]
+        },
+        "pressure": "{n}-shot pressure test: one ball each, a new distance every time; count shots that finish within about 5 m",
+        "routine": "Finish: {n} balls with the full routine, a new distance every ball"
+      },
+      "putting": {
+        "label": "Putting",
+        "variants": {
+          "full": [["Start-line drill from 1 m", 10], ["Short putts from 1–2 m around the hole", 10], ["Lag putts from 8–15 m, finishing inside 1 m", 10]],
+          "moderate": [["Start-line drill from 1 m", 10], ["Short putts from 1–2 m around the hole", 10], ["Lag putts from 8–15 m, finishing inside 1 m", 10]],
+          "light": [["Start-line drill from 1 m", 5], ["Short putts from 1–2 m", 10], ["Lag putts from 8–15 m", 5]]
+        },
+        "pressure": "Pressure test: {n} putts from 1.5–2 m, one ball, the full routine on every putt; count the makes",
+        "routine": "Finish: {n} putts from 1.5–2 m with the full routine"
+      },
+      "short-game": {
+        "label": "Short game",
+        "variants": {
+          "full": [["Warm up: chips to one landing spot", 10], ["Technique block: one club, one shot", 15], ["Random lies and clubs", 20]],
+          "moderate": [["Warm up: chips to one landing spot", 10], ["Technique block: one club, one shot", 10], ["Random lies and clubs", 15]],
+          "light": [["Landing-spot chips", 10], ["Random lies", 10]]
+        },
+        "pressure": "Up-and-down test: {n} balls from different lies, one ball each, hole out; count the up-and-downs",
+        "routine": "Finish: {n} balls from different lies with the full routine, holing out each one"
+      },
+      "range": {
+        "label": "Long game",
+        "variants": {
+          "full": [["Warm up with wedges, then a few mid-irons", 10], ["Technical priority: slow rehearsals, then half and full speed", 20], ["A new club and target every ball", 15]],
+          "moderate": [["Warm up", 10], ["Technical priority: slow rehearsals, then half speed", 15], ["A new club and target every ball", 10]],
+          "light": [["Warm up", 5], ["Technical priority: slow rehearsals", 10], ["A new club and target every ball", 10]]
+        },
+        "pressure": "Pressure finish: {n} balls, one each, the full routine, a new club and target every time; count the shots inside your target width",
+        "routine": "Finish: {n} balls with the full routine, a new club and target every time"
+      },
+      "on-course": {
+        "label": "On-course practice",
+        "holes": 9,
+        "steps": [
+          "Play 9 holes with one ball, on the course or a short course",
+          "Before each tee shot: pick the target and the safe miss",
+          "The full routine on every shot",
+          "Afterwards: note two good decisions and one to change"
+        ],
+        "pressure": "Score it: count the shots where you fully committed"
+      },
+      "scoring": {
+        "label": "Scoring + pressure",
+        "selfContained": true,
+        "variants": {
+          "full": [["Warm up: chips and putts", 10], ["Up-and-down game: 9 spots around the green, hole out, par 2 each; score against 18", 20], ["Short-putt pressure: putts from 1 m until you make 10 in a row; a miss restarts the count", 10], ["Record both scores", 5]],
+          "moderate": [["Warm up: chips and putts", 10], ["Up-and-down game: 9 spots around the green, hole out, par 2 each; score against 18", 20], ["Short-putt pressure: putts from 1 m until you make 10 in a row; a miss restarts the count", 10], ["Record both scores", 5]],
+          "light": [["Warm up", 5], ["Up-and-down game: 6 spots, par 2 each; score against 12", 15], ["Short-putt pressure: 5 in a row from 1 m", 5]]
+        },
+        "success": "Both games played with the full routine; write down the scores."
+      },
+      "comp-prep": {
+        "label": "Competition preparation",
+        "selfContained": true,
+        "variants": {
+          "prep": [["Putting: start line, then 1–2 m with the full routine", 10], ["Chips and pitches to feel, no technique changes", 10], ["A few full shots with the full routine", 5], ["Course plan: tee targets and safe misses for the hardest holes", 10], ["Pressure finish: 5 putts from 1.5 m in a row", 5]]
+        },
+        "success": "Leave feeling ready, not tired. No swing changes this close to the competition."
+      },
+      "process": {
+        "label": "Routine and course plan",
+        "selfContained": true,
+        "variants": {
+          "full": [["Warm up", 10], ["Every ball with the full routine: a new club and target each time", 20], ["Play your course on the range: the first six holes, shot by shot", 10], ["Note where the routine slipped", 5]],
+          "moderate": [["Warm up", 10], ["Every ball with the full routine: a new club and target each time", 15], ["Play your course on the range: the first three holes, shot by shot", 10]],
+          "light": [["Routine rehearsal at home: ten slow swings, each with the full routine", 10], ["Picture the first three tee shots of your next round", 5], ["Course plan: safe targets for the hardest holes", 10]]
+        },
+        "success": "The full routine on every ball, without rushing."
+      },
+      "general": {
+        "label": "Practice",
+        "variants": {
+          "full": [["Warm up", 10], ["Technique block: one thing at a time", 15], ["Varied practice: change the target or lie every ball", 20]],
+          "moderate": [["Warm up", 10], ["Technique block: one thing at a time", 10], ["Varied practice: change the target or lie every ball", 15]],
+          "light": [["Warm up", 5], ["Technique block: one thing at a time", 10], ["Varied practice", 10]]
+        },
+        "pressure": "Pressure test: {n} attempts, one ball each, the full routine; count the successes",
+        "routine": "Finish: {n} balls with the full routine"
+      }
     }
   },
   "shoppingTaskTitle": "Grocery shopping for next week",

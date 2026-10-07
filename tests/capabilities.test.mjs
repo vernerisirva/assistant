@@ -165,6 +165,7 @@ describe("capability registry", () => {
       "calendar.read",
       "calendar.preview",
       "weekly-plan.plan",
+      "weekly-plan.golf",
     ]) {
       assert.equal(capabilityById(id)?.status, "available", id);
     }
@@ -188,6 +189,7 @@ describe("capability registry", () => {
       "golf.tee-times": "mingolf",
       "golf.booking": "mingolf",
       "weekly-plan.plan": "weekly-plan",
+      "weekly-plan.golf": "weekly-plan",
       "routines.briefings": "routine",
       "routines.check-ins": "routines:status",
       "routines.controls": "routines:set-time",
@@ -291,11 +293,33 @@ describe("capability boundaries", () => {
     assert.match(plan.limit, /Say OK to add them right away, or ask for a change, which restarts the 12 hours/);
     assert.match(plan.limit, /It only adds new tasks of your own: nothing is edited or deleted, and Calendar and email are never touched/);
 
-    // It is the only standing authorization and the only automatic writer.
-    assert.deepEqual(ids(availableEntries.filter((entry) => entry.approval === "standing")), ["weekly-plan.plan"]);
+    // It is the only standing authorization and the only automatic writer;
+    // its golf week is described as a part of it, never as a second routine.
+    const whole = (entry) => !entry.partOf;
+    assert.deepEqual(ids(availableEntries.filter((entry) => entry.approval === "standing" && whole(entry))), ["weekly-plan.plan"]);
     assert.deepEqual(policy.trustedRoutines.map((routine) => routine.id), ["weekly-plan"]);
-    assert.deepEqual(ids(availableEntries.filter((entry) => entry.automatic && entry.effect !== "none")), ["weekly-plan.plan"]);
+    assert.deepEqual(ids(availableEntries.filter((entry) => entry.automatic && entry.effect !== "none" && whole(entry))), ["weekly-plan.plan"]);
+    for (const part of availableEntries.filter((entry) => entry.partOf)) {
+      const parent = capabilityById(part.partOf);
+      assert.equal(parent?.status, "available", part.id);
+      for (const field of ["automatic", "effect", "approval", "requires"]) assert.equal(part[field], parent[field], `${part.id} ${field}`);
+      assert.deepEqual(part.schedule, parent.schedule, part.id);
+    }
     assert.match(capabilityById("routines.check-ins").summary, /they change nothing/);
+  });
+
+  it("describes the golf week truthfully: asked, not guessed, six golf days, one task each, the same 12-hour review", () => {
+    const golf = capabilityById("weekly-plan.golf");
+    assert.equal(golf.partOf, "weekly-plan.plan");
+    assert.match(golf.summary, /I ask which days you're playing \(9 or 18 holes\), your 1–2 focus areas and any competition or lesson/);
+    assert.match(golf.summary, /six golf days and a rest day toward competitive golf/);
+    assert.match(golf.limit, /Playing days, competitions and technique come only from you, never guessed/);
+    assert.match(golf.limit, /Each golf day gets one Todoist task with a full session plan/);
+    assert.match(golf.limit, /added 12 hours after you see the plan unless you change or cancel it; OK adds them now/);
+    assert.match(capabilityById("weekly-plan.plan").summary, /^every Saturday I ask about your golf week/);
+    // Not claimed: booking or paying for rounds, weather, scheduled coaching.
+    const text = [golf.summary, golf.limit, ...golf.examples].join(" ");
+    assert.doesNotMatch(text, /\b(book|weather|forecast|statistic|strokes gained|swing fix|daily|after each round)/i);
   });
 
   it("keeps the disabled weather jobs out of every normal view", () => {
@@ -363,6 +387,7 @@ describe("capability views", () => {
       "golf.booking",
       "golf.payment",
       "weekly-plan.plan",
+      "weekly-plan.golf",
     ]);
     const text = formatCapabilityView(golf);
     assert.match(text, /^Golf: what I can do\n/);
@@ -381,7 +406,8 @@ describe("capability views", () => {
 
   it("lists only what runs on its own, with what is switched on", () => {
     const view = viewFor({ automatic: true });
-    assert.deepEqual(ids(view.capabilities), ["weekly-plan.plan", "routines.check-ins"]);
+    assert.deepEqual(ids(view.capabilities), ["weekly-plan.plan", "weekly-plan.golf", "routines.check-ins"]);
+    assert.deepEqual(ids(viewFor({ tag: "golf", automatic: true }).capabilities), ["weekly-plan.plan", "weekly-plan.golf"]);
     const text = formatCapabilityView(view);
     assert.match(text, /^What I do automatically\n/);
     assert.match(text, /On now: midday check-in, workout window and Sunday weekly review\. Off: morning brief and evening review\./);

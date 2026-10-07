@@ -2,7 +2,9 @@
 /**
  * Weekly plan CLI.
  *
- *   propose   preview next week's plan, or store and show it (--send or --reply)
+ *   propose   preview next week's plan, or store and show it (--send or --reply);
+ *             with golf on, this first asks the week's golf questions
+ *   answer    store the user's golf answers; once complete, build and show the plan
  *   revise    store a new version from structured changes and restart the review window
  *   accept    apply the displayed version now after an explicit OK
  *   cancel    cancel a draft or pending plan; nothing is created
@@ -10,9 +12,10 @@
  *   status    read-only summary: pending? when? which version? applied?
  *   apply-due deterministic deadline check used by the scheduled command job
  *   install   install or update the two scheduled jobs through the Gateway cron CLI
+ *   guide     the personal agent's weekly-plan guide, with the current status (text)
  */
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -36,17 +39,32 @@ import {
   formatWeekLabel,
   isWeeklyPlanAcceptance,
   nextWeekStart,
+  normalizeExistingTasks,
   weekdayIndex,
 } from "./lib/weekly-plan.mjs";
+import {
+  GolfInputError,
+  applyGolfChanges,
+  emptyGolfInputs,
+  formatGolfClarification,
+  formatGolfFollowUp,
+  formatGolfQuestion,
+  golfInputStatus,
+  readSavedGolfRoutines,
+} from "./lib/golf-week.mjs";
 import {
   OPEN_STATUSES,
   addPlanRevision,
   cancelPlan,
+  completeAwaitingDocument,
+  createAwaitingDocument,
   createPlanDocument,
   createWeeklyPlanStore,
   isPlanDue,
   markPlanDisplayed,
   newPlanId,
+  recordGolfAnswer,
+  recordGolfQuestion,
   summarizeWeeklyPlans,
   versionEntry,
 } from "./lib/weekly-plan-store.mjs";
@@ -57,7 +75,10 @@ import { localDateInTimeZone } from "./lib/routine-skips.mjs";
 const execFileAsync = promisify(execFile);
 const currentFile = fileURLToPath(import.meta.url);
 const projectRoot = resolve(dirname(currentFile), "..");
-const COMMANDS = ["propose", "revise", "accept", "cancel", "show", "status", "apply-due", "install", "help"];
+const COMMANDS = ["propose", "answer", "revise", "accept", "cancel", "show", "status", "apply-due", "install", "guide", "help"];
+export const WEEKLY_PLAN_GUIDE_PATH = "agents/personal/guides/weekly-plan.md";
+const TODOIST_UNREADABLE_NOTE = "I couldn't read Todoist just now; duplicates are re-checked before anything is created.";
+const GOLF_TOPIC = /\b(golf\w*|rounds?|holes?|practi[cs]\w*|putt\w*|wedges?|range|competitions?|tee times?|lessons?)\b/i;
 
 export function parseWeeklyPlanArgs(argv) {
   const [command = "help", ...rest] = argv;
@@ -116,6 +137,10 @@ export function parseWeeklyPlanArgs(argv) {
   if (command === "accept" && (options.version === undefined || options.replyText === undefined)) {
     throw new Error("accept requires --version (the displayed version) and --reply-text (the user's exact reply).");
   }
+  if (command === "answer" && !options.inputJson && !options.inputJsonStdin) {
+    throw new Error('answer requires --input-json or --input-json-stdin with {"golf": {"replyText": "...", ...}}.');
+  }
+  if (command === "guide" && rest.length > 0) throw new Error("guide does not accept options.");
   return { command, options };
 }
 
@@ -130,6 +155,7 @@ export async function runWeeklyPlanCli(argv, overrides = {}) {
         examples: [
           "npm run --silent weekly-plan -- status",
           "npm run --silent weekly-plan -- propose --send --input-json-stdin <<'JSON'\n{\"days\":{\"wednesday\":\"heavy\"}}\nJSON",
+          "npm run --silent weekly-plan -- answer --input-json-stdin <<'JSON'\n{\"golf\":{\"replyText\":\"18 holes Wednesday, focus putting\",\"addRounds\":[{\"day\":\"wednesday\",\"holes\":18}],\"focus\":[\"Putting\"]}}\nJSON",
           "npm run --silent weekly-plan -- revise --expect-version 1 --changes-json '{\"targets\":{\"gym\":3}}'",
           "npm run --silent weekly-plan -- accept --version 2 --reply-text \"OK\"",
           "npm run --silent weekly-plan -- cancel --reason \"Skip this week\"",
@@ -137,6 +163,8 @@ export async function runWeeklyPlanCli(argv, overrides = {}) {
       };
     case "propose":
       return propose(parsed.options, context);
+    case "answer":
+      return answer(parsed.options, context);
     case "revise":
       return revise(parsed.options, context);
     case "accept":
@@ -151,6 +179,8 @@ export async function runWeeklyPlanCli(argv, overrides = {}) {
       return applyDue(parsed.options, context);
     case "install":
       return install(parsed.options, context);
+    case "guide":
+      return guide(context);
     default:
       throw new Error(`Unknown weekly-plan command: ${parsed.command}`);
   }
@@ -166,6 +196,7 @@ function createContext({
   todoistClient,
   sendMessage,
   runOpenClaw,
+  memoryPath,
   now = () => new Date(),
   stdin = process.stdin,
   random,
@@ -222,6 +253,8 @@ function createContext({
     settings,
     schedules: loadedSchedules,
     store: store ?? createWeeklyPlanStore({ stateDir: resolvedStateDir }),
+    // Read-only: the golf week quotes a saved cue word and routine names.
+    memoryPath: memoryPath ?? (env.ASSISTANT_MEMORY_PATH || projectPath(root, ".openclaw/state/memory/preferences.json")),
     planning: () => {
       planningCache ??= loadPlanningConfig
         ? loadPlanningConfig()
@@ -264,9 +297,13 @@ function createContext({
 
 async function propose(options, context) {
   const input = (await readJsonOption(options.inputJson, options.inputJsonStdin, context.stdin, "input")) ?? {};
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("The input must be a JSON object.");
+  // Golf answers come only from the user in chat. The scheduled proposal has
+  // no user words, so a golf object there is ignored and the questions are asked.
+  const { golf: golfAnswer, ...planInput } = input;
   const now = context.now();
   const { timezone } = context.settings();
-  const weekStart = input.weekStart ?? nextWeekStart(now, timezone);
+  const weekStart = planInput.weekStart ?? nextWeekStart(now, timezone);
   const thisMonday = mondayOf(localDateInTimeZone(now, timezone));
   if (typeof weekStart !== "string" || weekStart < thisMonday) {
     throw new Error(`weekStart must be a Monday from ${thisMonday} onward.`);
@@ -276,6 +313,11 @@ async function propose(options, context) {
   const plans = store.listPlans();
   const active = plans.filter((plan) => plan.weekStart === weekStart && plan.status !== "cancelled").at(-1);
   if (active) {
+    if (active.status === "awaiting_input") {
+      if (options.reply && golfAnswer) return answerGolf(active.planId, { golf: golfAnswer }, context);
+      // Ask again in chat, or retry a Saturday send that never reached Telegram.
+      if (options.reply || (options.send && !active.awaiting?.askedAt)) return askGolf(active.planId, options, context);
+    }
     if (active.status === "draft" && (options.send || options.reply)) {
       return display(active.planId, options, context);
     }
@@ -293,29 +335,59 @@ async function propose(options, context) {
 
   const { config, food } = context.planning();
   const notes = [];
-  let existingTasks = input.existingTasks;
+  let existingTasks = planInput.existingTasks;
   if (existingTasks === undefined) {
     try {
       existingTasks = await context.todoist().getTasks({});
       if (!Array.isArray(existingTasks)) throw new Error("Todoist did not return a task list.");
     } catch (error) {
       existingTasks = [];
-      notes.push("I couldn't read Todoist just now; duplicates are re-checked before anything is created.");
+      notes.push(TODOIST_UNREADABLE_NOTE);
     }
   }
 
   const previous = plans
-    .filter((plan) => plan.weekStart < weekStart && plan.status !== "cancelled" && plan.status !== "draft")
+    .filter((plan) => plan.weekStart < weekStart && plan.versions.length > 0 && !["cancelled", "draft"].includes(plan.status))
     .at(-1);
   const inputs = buildInitialPlanInputs(
-    { ...input, existingTasks },
+    { ...planInput, existingTasks },
     { config, weekStart, previousTargets: previous ? versionEntry(previous, previous.currentVersion).plan.targets : null },
   );
   inputs.notes.push(...notes);
+  const planId = newPlanId(weekStart, context.random);
+
+  if (config.golf?.enabled) {
+    // The golf questions are the planner's own; a golf question the scheduled
+    // job added would repeat them in the finished plan.
+    if (inputs.question && GOLF_TOPIC.test(inputs.question)) inputs.question = null;
+    if (!options.send && !options.reply) {
+      return {
+        status: "preview",
+        planId: null,
+        version: null,
+        sent: false,
+        telegramText: formatGolfQuestion({ weekStart, previousWeek: previousGolfWeek(plans, weekStart) }),
+        message: "Preview only. Nothing was stored. The plan is built after the user answers these golf questions.",
+      };
+    }
+    await supersedeUnansweredWeeks(store, weekStart, context);
+    store.writePlan(
+      createAwaitingDocument({
+        planId,
+        weekStart,
+        baseInputs: inputs,
+        golf: emptyGolfInputs(config),
+        now,
+        source: options.reply ? "chat" : "scheduled",
+        timezone,
+      }),
+    );
+    if (options.reply && golfAnswer) return answerGolf(planId, { golf: golfAnswer }, context);
+    return askGolf(planId, options, context);
+  }
+
   const plan = buildWeeklyPlan(inputs, { config, food });
   await resolveConfiguredTarget(plan, config, context);
-
-  const planId = newPlanId(weekStart, context.random);
   const document = createPlanDocument({ planId, inputs, plan, now, source: options.reply ? "chat" : "scheduled", timezone });
 
   if (!options.send && !options.reply) {
@@ -337,6 +409,185 @@ async function propose(options, context) {
   // a displayed plan without a stored record, and a draft never applies.
   store.writePlan(document);
   return display(planId, options, context);
+}
+
+/**
+ * Asks the week's golf questions: sends them (--send, the Saturday job) or
+ * hands them back as the chat reply. After a partial answer it asks only for
+ * what is missing. No plan version exists yet, so no review window runs.
+ */
+async function askGolf(planId, options, context) {
+  const store = context.store;
+  return store.withPlanLock(planId, async () => {
+    let document = store.readPlan(planId);
+    const answered = document.history.some((entry) => entry.event === "golf-answered");
+    const { missing } = golfInputStatus(document.awaiting.golf);
+    const text = answered
+      ? formatGolfFollowUp({ golf: document.awaiting.golf, missing })
+      : formatGolfQuestion({ weekStart: document.weekStart, previousWeek: previousGolfWeek(store.listPlans(), document.weekStart) });
+
+    let messageId = null;
+    if (options.send) {
+      try {
+        ({ messageId } = await context.sendMessage(text));
+      } catch (error) {
+        const failure = new Error(`Could not send the golf questions to Telegram; nothing was shown and nothing will apply: ${error.message}`);
+        failure.planId = planId;
+        throw failure;
+      }
+    }
+    document = recordGolfQuestion(document, {
+      askedAt: context.now(),
+      channel: options.send ? "telegram-send" : "chat-reply",
+      messageId,
+      followUp: answered,
+    });
+    store.writePlan(document);
+    return {
+      status: "awaiting_input",
+      planId,
+      sent: Boolean(options.send),
+      missing,
+      telegramText: options.send ? null : text,
+      message: options.send ? "Sent to Telegram. Return NO_REPLY." : "Reply to the user with telegramText exactly.",
+    };
+  });
+}
+
+async function answer(options, context) {
+  const payload = await readJsonOption(options.inputJson, options.inputJsonStdin, context.stdin, "input");
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error('answer needs {"golf": {...}} as JSON.');
+  for (const key of Object.keys(payload)) {
+    if (!["golf", "changes"].includes(key)) throw new Error(`Unknown field in the answer: ${key}. Allowed: golf, changes.`);
+  }
+  if (!payload.golf) throw new Error('answer needs a "golf" object with the user\'s exact words as replyText.');
+  const planId = resolveOpenPlanId(options.planId, context.store, ["awaiting_input"]);
+  return answerGolf(planId, payload, context);
+}
+
+/**
+ * Stores the user's golf answers. Values that are not in the user's words are
+ * refused and nothing is stored. While playing days or focus are missing it
+ * asks for them; once both are known it builds the whole plan, stores it as
+ * v1 and shows it as the chat reply, which is when the 12-hour window starts.
+ */
+async function answerGolf(planId, payload, context) {
+  const { config, food } = context.planning();
+  const { timezone, reviewWindowHours, roundMinutes } = context.settings();
+  const store = context.store;
+  return store.withPlanLock(planId, async () => {
+    let document = store.readPlan(planId);
+    const week = formatWeekLabel(document.weekStart);
+    if (document.status !== "awaiting_input") {
+      throw new Error(
+        ["draft", "pending"].includes(document.status)
+          ? `The plan for ${week} is already built (v${document.currentVersion}); change it with revise.`
+          : `The weekly plan for ${week} is ${document.status}.`,
+      );
+    }
+    const now = context.now();
+    const today = localDateInTimeZone(now, timezone);
+    const previousWeek = previousGolfWeek(store.listPlans(), document.weekStart);
+    const routines = readSavedGolfRoutines(context.memoryPath);
+    const golfContext = { today, previousWeek, normalWeekText: routines.normalWeek };
+    const result = applyGolfChanges(document.awaiting.golf, payload.golf, { ...golfContext, weekStart: document.weekStart });
+    if (result.problems.length > 0) return clarification(planId, result.problems);
+
+    document = recordGolfAnswer(document, {
+      golf: result.golf,
+      replyText: payload.golf.replyText,
+      fields: Object.keys(payload.golf).filter((key) => key !== "replyText"),
+      now,
+    });
+    const readiness = golfInputStatus(result.golf);
+    if (!readiness.complete) {
+      document = recordGolfQuestion(document, { askedAt: now, channel: "chat-reply", followUp: true });
+      store.writePlan(document);
+      return {
+        status: "needs_input",
+        planId,
+        missing: readiness.missing,
+        telegramText: formatGolfFollowUp({ golf: result.golf, missing: readiness.missing }),
+        message: "Nothing is planned yet. Reply to the user with telegramText exactly.",
+      };
+    }
+
+    // Complete: the stored context, today's Todoist tasks and the answers.
+    const base = structuredClone(document.awaiting.baseInputs);
+    try {
+      const tasks = await context.todoist().getTasks({});
+      if (!Array.isArray(tasks)) throw new Error("Todoist did not return a task list.");
+      base.existing = normalizeExistingTasks(tasks, document.weekStart);
+      base.notes = base.notes.filter((note) => note !== TODOIST_UNREADABLE_NOTE);
+    } catch {
+      if (!base.notes.includes(TODOIST_UNREADABLE_NOTE)) base.notes.push(TODOIST_UNREADABLE_NOTE);
+    }
+    let inputs = { ...base, golf: { ...result.golf, saved: routines.saved } };
+    let plan = buildWeeklyPlan(inputs, { config, food, today });
+    if (payload.changes) {
+      try {
+        ({ inputs } = applyWeeklyPlanChanges(inputs, plan, payload.changes, { config, food, golfContext }));
+      } catch (error) {
+        if (error instanceof GolfInputError) return clarification(planId, error.problems);
+        throw error;
+      }
+      plan = buildWeeklyPlan(inputs, { config, food, today });
+    }
+    await resolveConfiguredTarget(plan, config, context);
+
+    document = completeAwaitingDocument(document, { inputs, plan, now });
+    document = markPlanDisplayed(document, { version: 1, displayedAt: now, channel: "chat-reply", reviewWindowHours, roundMinutes });
+    store.writePlan(document);
+    return {
+      status: "pending",
+      planId,
+      version: 1,
+      reviewDeadline: document.reviewDeadline,
+      reviewDeadlineLocal: formatLocalDateTime(document.reviewDeadline, timezone),
+      telegramText: formatPlanMessage(document, { version: 1, deadline: document.reviewDeadline, timezone }),
+      message: "Reply to the user with telegramText exactly.",
+    };
+  });
+}
+
+function clarification(planId, problems) {
+  return {
+    status: "clarify",
+    planId,
+    changed: false,
+    problems: problems.map((problem) => problem.reason),
+    telegramText: formatGolfClarification(problems),
+    message:
+      "Nothing was stored. Use only what the user said: leave out values they did not give and run the command again, or ask them telegramText.",
+  };
+}
+
+/** The most recent earlier week whose golf answers were shown in a plan: "same as last week". */
+function previousGolfWeek(plans, weekStart) {
+  const shown = new Set(["pending", "applying", "applied", "applied_with_errors", "failed"]);
+  for (const plan of [...plans].reverse()) {
+    if (plan.weekStart >= weekStart || !shown.has(plan.status)) continue;
+    const version = plan.apply?.version ?? plan.displayedVersion ?? plan.currentVersion;
+    const golf = plan.versions.find((entry) => entry.version === version)?.inputs?.golf;
+    if (golf) return { weekStart: plan.weekStart, golf };
+  }
+  return null;
+}
+
+/** A week whose golf questions were never answered is closed when the next week's plan starts. */
+async function supersedeUnansweredWeeks(store, weekStart, context) {
+  for (const plan of store.listPlans()) {
+    if (plan.status !== "awaiting_input" || plan.weekStart >= weekStart) continue;
+    try {
+      await store.mutatePlan(plan.planId, async (current) =>
+        current.status === "awaiting_input"
+          ? cancelPlan(current, { now: context.now(), reason: "No golf answers before the next week's plan." })
+          : null,
+      );
+    } catch (error) {
+      if (error.code !== "PLAN_LOCKED") throw error;
+    }
+  }
 }
 
 /** Shows the current version: sends it (--send) or hands it back for the chat reply (--reply). */
@@ -392,44 +643,58 @@ async function display(planId, options, context) {
 async function revise(options, context) {
   const changes = await readJsonOption(options.changesJson, options.changesJsonStdin, context.stdin, "changes");
   if (!changes) throw new Error("revise needs --changes-json or --changes-json-stdin.");
-  const planId = resolveOpenPlanId(options.planId, context.store);
+  const planId = resolveOpenPlanId(options.planId, context.store, ["draft", "pending"]);
   const { config, food } = context.planning();
   const { timezone, reviewWindowHours, roundMinutes } = context.settings();
   let unchanged = false;
 
-  const document = await context.store.mutatePlan(planId, async (current) => {
-    const entry = versionEntry(current, current.currentVersion);
-    if (options.expectVersion !== current.currentVersion) {
-      throw new Error(
-        `The user was looking at v${options.expectVersion}, but the current version is v${current.currentVersion}. Show the current version first.`,
-      );
-    }
-    const { inputs, summary, note } = applyWeeklyPlanChanges(entry.inputs, entry.plan, changes, { config, food });
-    const plan = buildWeeklyPlan(inputs, { config, food });
-    await resolveConfiguredTarget(plan, config, context);
-    if (digestPlan(plan) === entry.digest) {
-      unchanged = true;
-      return null;
-    }
-    const now = context.now();
-    const revised = addPlanRevision(current, {
-      expectedVersion: options.expectVersion,
-      inputs,
-      plan,
-      changeSummary: summary,
-      note,
-      now,
+  let document;
+  try {
+    document = await context.store.mutatePlan(planId, async (current) => {
+      const entry = versionEntry(current, current.currentVersion);
+      if (options.expectVersion !== current.currentVersion) {
+        throw new Error(
+          `The user was looking at v${options.expectVersion}, but the current version is v${current.currentVersion}. Show the current version first.`,
+        );
+      }
+      const today = localDateInTimeZone(context.now(), timezone);
+      const golfContext = changes.golf
+        ? {
+            today,
+            previousWeek: previousGolfWeek(context.store.listPlans(), current.weekStart),
+            normalWeekText: readSavedGolfRoutines(context.memoryPath).normalWeek,
+          }
+        : { today };
+      const { inputs, summary, note } = applyWeeklyPlanChanges(entry.inputs, entry.plan, changes, { config, food, golfContext });
+      const plan = buildWeeklyPlan(inputs, { config, food, today });
+      await resolveConfiguredTarget(plan, config, context);
+      if (digestPlan(plan) === entry.digest) {
+        unchanged = true;
+        return null;
+      }
+      const now = context.now();
+      const revised = addPlanRevision(current, {
+        expectedVersion: options.expectVersion,
+        inputs,
+        plan,
+        changeSummary: summary,
+        note,
+        now,
+      });
+      // The revised plan is the chat reply, so it is displayed now and its
+      // review window starts over.
+      return markPlanDisplayed(revised, {
+        version: revised.currentVersion,
+        displayedAt: now,
+        channel: "chat-reply",
+        reviewWindowHours,
+        roundMinutes,
+      });
     });
-    // The revised plan is the chat reply, so it is displayed now and its
-    // review window starts over.
-    return markPlanDisplayed(revised, {
-      version: revised.currentVersion,
-      displayedAt: now,
-      channel: "chat-reply",
-      reviewWindowHours,
-      roundMinutes,
-    });
-  });
+  } catch (error) {
+    if (error instanceof GolfInputError) return clarification(planId, error.problems);
+    throw error;
+  }
 
   const version = document.currentVersion;
   if (unchanged) {
@@ -459,7 +724,7 @@ async function revise(options, context) {
 }
 
 async function accept(options, context) {
-  const planId = resolveOpenPlanId(options.planId, context.store);
+  const planId = resolveOpenPlanId(options.planId, context.store, ["awaiting_input", "draft", "pending"]);
   if (!isWeeklyPlanAcceptance(options.replyText)) {
     return {
       status: "not_accepted",
@@ -497,14 +762,17 @@ async function accept(options, context) {
 }
 
 async function cancel(options, context) {
-  const planId = resolveOpenPlanId(options.planId, context.store);
+  const planId = resolveOpenPlanId(options.planId, context.store, ["awaiting_input", "draft", "pending"]);
   const document = await context.store.mutatePlan(planId, async (current) =>
     cancelPlan(current, { now: context.now(), reason: options.reason ?? null }),
   );
   return {
     status: document.status,
     planId,
-    telegramText: `Cancelled the weekly plan for ${formatWeekLabel(document.weekStart)} (v${document.currentVersion}). Nothing was created in Todoist.`,
+    telegramText:
+      document.currentVersion === 0
+        ? `Cancelled the weekly plan for ${formatWeekLabel(document.weekStart)}. Nothing was created in Todoist.`
+        : `Cancelled the weekly plan for ${formatWeekLabel(document.weekStart)} (v${document.currentVersion}). Nothing was created in Todoist.`,
   };
 }
 
@@ -515,6 +783,22 @@ async function show(options, context) {
     ? store.readPlan(options.planId)
     : plans.filter((plan) => OPEN_STATUSES.includes(plan.status)).at(-1) ?? plans.at(-1);
   if (!document) return { status: "none", telegramText: "There is no weekly plan yet." };
+  if (document.status === "awaiting_input" || (document.status === "cancelled" && document.currentVersion === 0)) {
+    const { missing } = golfInputStatus(document.awaiting.golf);
+    const answered = document.history.some((entry) => entry.event === "golf-answered");
+    return {
+      status: document.status,
+      planId: document.planId,
+      version: null,
+      reviewDeadline: null,
+      telegramText:
+        document.status === "cancelled"
+          ? `The weekly plan for ${formatWeekLabel(document.weekStart)} was cancelled before it was built.`
+          : answered
+            ? formatGolfFollowUp({ golf: document.awaiting.golf, missing })
+            : formatGolfQuestion({ weekStart: document.weekStart, previousWeek: previousGolfWeek(plans, document.weekStart) }),
+    };
+  }
   const { timezone } = context.settings();
   const version = document.currentVersion;
   const deadline = document.reviewDeadline ?? computeReviewDeadline(context.now().toISOString(), reviewOptions(context));
@@ -561,6 +845,9 @@ async function status(options, context) {
       describeStatus(summary, timezone),
       ...(issues.length > 0 ? [`${issues.length} weekly plan file(s) could not be read and are ignored.`] : []),
     ].join("\n"),
+    ...(summary.pending.length > 0
+      ? { guidance: "Before answering, changing, accepting or cancelling, run npm run --silent weekly-plan -- guide and follow it." }
+      : {}),
   };
   if (options.jobs) {
     result.jobs = weeklyPlanJobStatus(await listCronJobs(context));
@@ -572,13 +859,20 @@ function describeStatus(summary, timezone) {
   const lines = [];
   for (const plan of summary.pending) {
     const week = formatWeekLabel(plan.weekStart);
-    if (plan.status === "draft") lines.push(`Weekly plan for ${week} is a draft (v${plan.currentVersion}); it was not shown yet and will not apply.`);
+    if (plan.status === "awaiting_input") {
+      const missing = (plan.golfMissing ?? []).map((field) => (field === "rounds" ? "which days you're playing" : "what to focus on"));
+      lines.push(
+        plan.golfQuestionsAskedAt
+          ? `Weekly plan for ${week} is waiting for your golf answers${missing.length > 0 ? ` (${missing.join(" and ")})` : ""}; nothing is created until you've seen the full plan.`
+          : `Weekly plan for ${week} couldn't ask its golf questions yet; nothing will be created.`,
+      );
+    } else if (plan.status === "draft") lines.push(`Weekly plan for ${week} is a draft (v${plan.currentVersion}); it was not shown yet and will not apply.`);
     else if (plan.status === "applying") lines.push(`Weekly plan for ${week} (v${plan.currentVersion}) is being applied now.`);
     else lines.push(`Weekly plan for ${week} is pending (v${plan.currentVersion}); I'll create its tasks at ${formatLocalDateTime(plan.reviewDeadline, timezone)} unless you change or cancel it.`);
   }
   if (summary.pending.length === 0) lines.push("No weekly plan is pending.");
   const latest = summary.latest;
-  if (latest && !["draft", "pending", "applying"].includes(latest.status)) {
+  if (latest && !OPEN_STATUSES.includes(latest.status)) {
     const week = formatWeekLabel(latest.weekStart);
     const outcome = {
       applied: "applied",
@@ -589,7 +883,7 @@ function describeStatus(summary, timezone) {
     lines.push(
       latest.appliedAt
         ? `Last plan (${week}) was ${outcome} at ${formatLocalDateTime(latest.appliedAt, timezone)} (v${latest.appliedVersion}).`
-        : `Last plan (${week}) was ${outcome}.`,
+        : `Last plan (${week}) was ${outcome}${latest.currentVersion === 0 ? " before it was built" : ""}.`,
     );
     if (latest.failureReason) lines.push(`Reason: ${latest.failureReason}`);
   }
@@ -698,12 +992,40 @@ async function resolveConfiguredTarget(plan, config, context) {
   for (const operation of plan.operations) Object.assign(operation.payload, target);
 }
 
-function resolveOpenPlanId(planId, store) {
+function resolveOpenPlanId(planId, store, statuses) {
   if (planId) return planId;
-  const open = store.listPlans().filter((plan) => ["draft", "pending"].includes(plan.status));
+  const plans = store.listPlans();
+  const open = plans.filter((plan) => statuses.includes(plan.status));
   if (open.length === 1) return open[0].planId;
-  if (open.length === 0) throw new Error("There is no pending weekly plan.");
-  throw new Error(`Several weekly plans are open (${open.map((plan) => plan.planId).join(", ")}); pass --plan-id.`);
+  if (open.length > 1) throw new Error(`Several weekly plans are open (${open.map((plan) => plan.planId).join(", ")}); pass --plan-id.`);
+  if (!statuses.includes("awaiting_input") && plans.some((plan) => plan.status === "awaiting_input")) {
+    throw new Error("The weekly plan is still waiting for golf answers; use answer (a change can go along with it).");
+  }
+  if (statuses.length === 1 && statuses[0] === "awaiting_input") {
+    throw new Error(
+      plans.some((plan) => ["draft", "pending"].includes(plan.status))
+        ? "The plan is already built; change it with revise."
+        : "No weekly plan is waiting for golf answers.",
+    );
+  }
+  throw new Error("There is no pending weekly plan.");
+}
+
+/** The guide always prints; an unreadable plan store is reported, never hidden. */
+function guide(context) {
+  const text = readFileSync(projectPath(context.root, WEEKLY_PLAN_GUIDE_PATH), "utf8").trim();
+  let statusText;
+  try {
+    const now = context.now();
+    const { timezone } = context.settings();
+    statusText = describeStatus(
+      summarizeWeeklyPlans(context.store.listPlansWithIssues().plans, { now, currentWeekStart: nextWeekStart(now, timezone) }),
+      timezone,
+    );
+  } catch (error) {
+    statusText = `The weekly plan store could not be read: ${error.message}`;
+  }
+  return { text: `Current weekly plan status:\n${statusText}\n\n${text}` };
 }
 
 function reviewOptions(context) {
@@ -753,7 +1075,7 @@ function readJsonIfPresent(path) {
 }
 
 export function formatWeeklyPlanCliResult(command, result, { json = false, text = false } = {}) {
-  if (command === "apply-due") return result.text;
+  if (command === "apply-due" || command === "guide") return result.text;
   if (json) return JSON.stringify(result, null, 2);
   if (text && typeof result.telegramText === "string") return result.telegramText;
   return JSON.stringify(result, null, 2);

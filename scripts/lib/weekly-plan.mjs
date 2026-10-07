@@ -12,36 +12,49 @@ import { createHash } from "node:crypto";
 import { isApprovalMessage, normalizeApprovalText } from "./approval-language.mjs";
 import { buildTodoistCreatePlan } from "./todoist-create.mjs";
 import { localDateInTimeZone } from "./routine-skips.mjs";
+import {
+  GOLF_ROLES_WITH_TASKS,
+  GolfInputError,
+  applyGolfChanges,
+  classifyGolfTitle,
+  deriveGolfWeek,
+  formatGolfSection,
+  golfTask,
+  keepCurrentGolfWeek,
+} from "./golf-week.mjs";
+import {
+  MONTHS,
+  addDays,
+  assertIsoDate,
+  formatWeekLabel,
+  resolvePlanDay,
+  shortWeekday,
+  weekDates,
+  weekdayIndex,
+  weekdayName,
+} from "./weekly-plan-dates.mjs";
+
+export { addDays, formatWeekLabel, resolvePlanDay, weekDates, weekdayIndex, weekdayName };
 
 export const WEEKLY_PLAN_TIMEZONE = "Europe/Stockholm";
 export const DEFAULT_REVIEW_WINDOW_HOURS = 12;
 export const DEFAULT_APPLY_CHECK_MINUTES = 15;
 
-/** Display order for targets and messages. */
-export const TARGET_KEYS = Object.freeze(["gym", "golfRound", "golfPractice", "stretch", "mealPrep"]);
+/** Display order for targets and messages. Golf is not a count: it is the golf week (golf-week.mjs). */
+export const TARGET_KEYS = Object.freeze(["gym", "stretch", "mealPrep"]);
+/**
+ * Golf used to be two counts. The Saturday job's message and plans stored
+ * before the golf week still name them, so they are accepted and ignored on
+ * input, and refused as changes with a pointer to the golf changes instead.
+ */
+const LEGACY_GOLF_TARGETS = Object.freeze(["golfRound", "golfPractice"]);
 /** The least flexible activities are placed first. */
-const PLACEMENT_ORDER = Object.freeze(["golfRound", "gym", "golfPractice", "mealPrep", "stretch"]);
+const PLACEMENT_ORDER = Object.freeze(["gym", "mealPrep", "stretch"]);
 /** Order of activities inside one day and of operations inside one date. */
-const DAY_ORDER = Object.freeze(["shopping", "mealPrep", "gym", "golfPractice", "golfRound", "stretch"]);
-const DEMANDING = new Set(["gym", "golfRound", "golfPractice", "mealPrep"]);
-const WEEKDAYS = Object.freeze(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]);
-const MONTHS = Object.freeze(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]);
-const WEEKDAY_ALIASES = Object.freeze({
-  mon: "monday",
-  tue: "tuesday",
-  tues: "tuesday",
-  wed: "wednesday",
-  thu: "thursday",
-  thur: "thursday",
-  thurs: "thursday",
-  fri: "friday",
-  sat: "saturday",
-  sun: "sunday",
-});
+const DAY_ORDER = Object.freeze(["shopping", "mealPrep", "gym", "golf", "golfPractice", "golfRound", "stretch"]);
+const DEMANDING = new Set(["gym", "mealPrep"]);
 const TARGET_LABELS = Object.freeze({
   gym: "Gym",
-  golfRound: "Golf",
-  golfPractice: "Practice",
   stretch: "Stretch",
   mealPrep: "Meal prep",
 });
@@ -49,6 +62,7 @@ const SCHEDULE_LABELS = Object.freeze({
   shopping: "Shop",
   mealPrep: "Meal prep",
   gym: "Gym",
+  golf: "Golf",
   golfPractice: "Golf practice",
   golfRound: "Golf round",
   stretch: "Stretch",
@@ -68,23 +82,7 @@ const SECTION_LABELS = Object.freeze({
 });
 
 // ---------------------------------------------------------------------------
-// Dates. Plan days are plain YYYY-MM-DD strings; arithmetic happens in UTC so a
-// DST change can never shift a calendar day.
-
-export function addDays(date, days) {
-  assertIsoDate(date);
-  return new Date(Date.parse(`${date}T00:00:00.000Z`) + days * 86_400_000).toISOString().slice(0, 10);
-}
-
-/** 0 = Monday ... 6 = Sunday. */
-export function weekdayIndex(date) {
-  assertIsoDate(date);
-  return (new Date(`${date}T00:00:00.000Z`).getUTCDay() + 6) % 7;
-}
-
-export function weekdayName(date) {
-  return capitalize(WEEKDAYS[weekdayIndex(date)]);
-}
+// Dates. Plan days are plain YYYY-MM-DD strings (weekly-plan-dates.mjs).
 
 /** The Monday of the week after the one containing `now`, in the plan timezone. */
 export function nextWeekStart(now = new Date(), timezone = WEEKLY_PLAN_TIMEZONE) {
@@ -99,27 +97,6 @@ export function isoWeekId(monday) {
   const ordinal = Math.round((Date.parse(`${thursday}T00:00:00.000Z`) - Date.UTC(year, 0, 1)) / 86_400_000) + 1;
   const week = Math.floor((ordinal - 1) / 7) + 1;
   return `${year}-W${String(week).padStart(2, "0")}`;
-}
-
-export function weekDates(weekStart) {
-  if (weekdayIndex(weekStart) !== 0) throw new Error(`Weekly plan must start on a Monday: ${weekStart}`);
-  return Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
-}
-
-/** Accepts a weekday name ("friday", "Fri") or a YYYY-MM-DD date inside the plan week. */
-export function resolvePlanDay(ref, weekStart) {
-  const value = String(ref ?? "").trim().toLowerCase();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    if (!weekDates(weekStart).includes(value)) {
-      throw new Error(`${value} is not part of the plan week starting ${weekStart}.`);
-    }
-    return value;
-  }
-
-  const name = WEEKDAY_ALIASES[value] ?? value;
-  const index = WEEKDAYS.indexOf(name);
-  if (index < 0) throw new Error(`Unknown day: ${ref}. Use a weekday name or a YYYY-MM-DD date.`);
-  return addDays(weekStart, index);
 }
 
 /**
@@ -158,22 +135,16 @@ export function formatLocalDateTime(iso, timezone = WEEKLY_PLAN_TIMEZONE) {
   return `${parts.hour}:${parts.minute} on ${parts.weekday} ${Number(parts.day)} ${MONTHS[Number(parts.month) - 1]}`;
 }
 
-export function formatWeekLabel(weekStart) {
-  const end = addDays(weekStart, 6);
-  return `${shortDate(weekStart)}–${shortDate(end)}`;
-}
-
-function shortDate(date) {
-  return `${Number(date.slice(8, 10))} ${MONTHS[Number(date.slice(5, 7)) - 1]}`;
-}
-
 // ---------------------------------------------------------------------------
 // Inputs.
 
 /**
  * Builds the stored planner inputs for a new proposal. Targets come from the
  * agent when it supplied them, then from the previous plan, then from config,
- * so a normal week needs no questions at all.
+ * so a normal week needs no questions at all. The golf week is not part of
+ * these inputs: it comes from the user's own answers (golf-week.mjs), and
+ * `golf` stays null until they are complete. A saved practice focus passed as
+ * golfPracticeFocus is not that week's focus, so it is accepted and ignored.
  */
 export function buildInitialPlanInputs(rawInput = {}, { config, weekStart, previousTargets } = {}) {
   const input = requireObject(rawInput ?? {}, "Weekly plan input");
@@ -192,11 +163,19 @@ export function buildInitialPlanInputs(rawInput = {}, { config, weekStart, previ
   const start = input.weekStart ?? weekStart;
   weekDates(start);
 
-  const targets = { ...config.defaultTargets, ...(previousTargets ?? {}) };
+  const targets = { ...config.defaultTargets };
+  for (const key of TARGET_KEYS) {
+    if (previousTargets?.[key] !== undefined) targets[key] = previousTargets[key];
+  }
   for (const [key, value] of Object.entries(input.targets ?? {})) {
+    if (LEGACY_GOLF_TARGETS.includes(key)) continue;
     targets[requireTargetKey(key)] = requireTargetCount(value, key, config);
   }
+  for (const key of Object.keys(targets)) {
+    if (!TARGET_KEYS.includes(key)) delete targets[key];
+  }
   for (const key of TARGET_KEYS) targets[key] = requireTargetCount(targets[key] ?? 0, key, config);
+  normalizeTextList(input.golfPracticeFocus, "golfPracticeFocus", { max: 5 });
 
   return {
     weekStart: start,
@@ -207,7 +186,7 @@ export function buildInitialPlanInputs(rawInput = {}, { config, weekStart, previ
     pins: [],
     existing: normalizeExistingTasks(input.existingTasks ?? [], start),
     food: normalizeFoodInput(input.food ?? {}),
-    golfPracticeFocus: normalizeTextList(input.golfPracticeFocus, "golfPracticeFocus", { max: 5 }),
+    golf: null,
     question: normalizeOptionalText(input.question, "question", 280),
     notes: normalizeTextList(input.notes, "notes", { max: 5 }),
   };
@@ -239,18 +218,18 @@ function normalizePreferences(preferences, weekStart, config) {
       avoidDays: (supplied?.avoidDays ?? fromConfig.avoidDays ?? []).map((ref) => resolvePlanDay(ref, weekStart)),
     };
   }
-  for (const key of Object.keys(preferences)) requireTargetKey(key);
+  for (const key of Object.keys(preferences)) {
+    if (!LEGACY_GOLF_TARGETS.includes(key)) requireTargetKey(key);
+  }
   return result;
 }
 
 const EXISTING_PATTERNS = [
   ["shopping", /^(grocery shopping|groceries|grocery|food shopping|shopping list|buy groceries)\b/],
   ["mealPrep", /^meal ?prep\b/],
-  ["golfRound", /^(golf round|golf: ?round|play golf|18 holes|9 holes)\b/],
-  ["golfPractice", /^(golf practice|golf training|driving range|range session|short game|putting practice|chipping practice)\b/],
+  ["golf", /^(golf|play golf|\d+ holes|driving range|range session|short game|putting practice|chipping practice)\b/],
   ["gym", /^(gym|strength|workout|weights|lifting)\b/],
   ["stretch", /^(stretch|stretching|mobility|yoga)\b/],
-  ["golfPractice", /^golf\b/],
 ];
 
 /**
@@ -283,7 +262,7 @@ export function normalizeExistingTasks(tasks, weekStart) {
     if (!title || !dates.has(date)) continue;
     const activity = classifyExistingTask(title);
     if (!activity) continue;
-    result.push({ activity, date, title: title.slice(0, 120) });
+    result.push({ activity, date, title: title.slice(0, 120), ...(activity === "golf" ? { golfKind: classifyGolfTitle(title) } : {}) });
   }
   return result.sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title));
 }
@@ -347,18 +326,34 @@ function normalizeShoppingItem(item) {
 // Planning.
 
 /**
- * @returns the complete plan for one version: targets, day-by-day schedule,
- *   food, shopping list and the exact Todoist operations to create.
+ * @param today the local date the plan is built on, or null. Nothing new is
+ *   placed before it, which matters when golf answers arrive after the week
+ *   has started.
+ * @returns the complete plan for one version: targets, the golf week,
+ *   day-by-day schedule, food, shopping list and the exact Todoist operations
+ *   to create.
  */
-export function buildWeeklyPlan(inputs, { config, food: foodConfig }) {
+export function buildWeeklyPlan(inputs, { config, food: foodConfig, today = null }) {
   const dates = weekDates(inputs.weekStart);
   const notes = [...inputs.notes];
-  const placements = schedulePlacements({ dates, inputs, notes });
+  const golf = inputs.golf
+    ? deriveGolfWeek({
+        golf: inputs.golf,
+        weekStart: inputs.weekStart,
+        existing: inputs.existing.filter((entry) => entry.activity === "golf"),
+        dayLoads: inputs.days,
+        skipDays: inputs.skipDays,
+        today,
+        config,
+      })
+    : null;
+  const golfDays = new Map((golf?.days ?? []).map((day) => [day.date, day]));
+  const placements = schedulePlacements({ dates, inputs, notes, golfDays, today });
   const mealPrepDates = placements.filter((entry) => entry.activity === "mealPrep").map((entry) => entry.date).sort();
   const foodPlan = planFood({ inputs, mealPrepDates, foodConfig, notes });
   const shopping = planShopping({ inputs, foodPlan, foodConfig });
   const existingShopping = inputs.existing.find((entry) => entry.activity === "shopping");
-  const shoppingDate = shopping.itemCount > 0 ? pickShoppingDate({ dates, inputs, mealPrepDates }) : null;
+  const shoppingDate = shopping.itemCount > 0 ? pickShoppingDate({ dates, inputs, mealPrepDates, today }) : null;
   shopping.date = shoppingDate;
   if (shoppingDate && existingShopping) {
     notes.push(`A grocery task is already in Todoist (${existingShopping.title}), so no new one is added.`);
@@ -371,6 +366,7 @@ export function buildWeeklyPlan(inputs, { config, food: foodConfig }) {
       ...inputs.existing
         .filter((entry) => entry.date === date)
         .map((entry) => ({ activity: entry.activity, status: "existing", title: entry.title })),
+      ...(GOLF_ROLES_WITH_TASKS.includes(golfDays.get(date)?.role) ? [{ activity: "golf", status: "new" }] : []),
       ...placements
         .filter((entry) => entry.date === date)
         .map((entry) => ({ activity: entry.activity, status: "new" })),
@@ -382,6 +378,8 @@ export function buildWeeklyPlan(inputs, { config, food: foodConfig }) {
     inputs,
     config,
     placements,
+    golf,
+    golfDays,
     foodPlan,
     shopping,
     createShoppingTask: Boolean(shoppingDate && !existingShopping),
@@ -391,6 +389,7 @@ export function buildWeeklyPlan(inputs, { config, food: foodConfig }) {
     weekStart: inputs.weekStart,
     weekEnd: dates[6],
     targets: { ...inputs.targets },
+    ...(golf ? { golf } : {}),
     placements,
     schedule,
     food: foodPlan,
@@ -401,7 +400,7 @@ export function buildWeeklyPlan(inputs, { config, food: foodConfig }) {
   };
 }
 
-function schedulePlacements({ dates, inputs, notes }) {
+function schedulePlacements({ dates, inputs, notes, golfDays, today }) {
   const occupancy = new Map(dates.map((date) => [date, new Set()]));
   for (const entry of inputs.existing) {
     if (entry.activity !== "shopping") occupancy.get(entry.date)?.add(entry.activity);
@@ -411,6 +410,7 @@ function schedulePlacements({ dates, inputs, notes }) {
 
   const blocked = (activity, date, { explicit = false } = {}) => {
     if (!occupancy.has(date) || skip.has(date) || occupancy.get(date).has(activity)) return true;
+    if (today && date < today) return true;
     if (explicit) return false;
     if (inputs.days[date]?.load === "unavailable") return true;
     return inputs.preferences[activity]?.avoidDays.includes(date) ?? false;
@@ -440,7 +440,7 @@ function schedulePlacements({ dates, inputs, notes }) {
         .filter((date) => !blocked(activity, date))
         .map((date) => ({
           date,
-          cost: placementCost(activity, date, { dates, inputs, occupancy }),
+          cost: placementCost(activity, date, { dates, inputs, occupancy, golfDays }),
           preferenceRank: rankOf(inputs.preferences[activity]?.preferredDays ?? [], date),
         }))
         .filter((candidate) => Number.isFinite(candidate.cost))
@@ -465,10 +465,14 @@ function schedulePlacements({ dates, inputs, notes }) {
   );
 }
 
-function placementCost(activity, date, { dates, inputs, occupancy }) {
+function placementCost(activity, date, { dates, inputs, occupancy, golfDays }) {
   const index = weekdayIndex(date);
   const on = (offset, type) => occupancy.get(addDays(date, offset))?.has(type) ?? false;
-  const activitiesToday = occupancy.get(date).size;
+  const golf = (offset) => golfLoad(addDays(date, offset), { golfDays, occupancy });
+  const golfToday = golf(0);
+  const golfBefore = golf(-1);
+  const golfAfter = golf(1);
+  const activitiesToday = occupancy.get(date).size + (golfToday.load && !on(0, "golf") ? 1 : 0);
   const sameTypeGaps = dates
     .filter((other) => other !== date && occupancy.get(other).has(activity))
     .map((other) => Math.abs(weekdayIndex(other) - index));
@@ -479,24 +483,21 @@ function placementCost(activity, date, { dates, inputs, occupancy }) {
   if (load === "light" && DEMANDING.has(activity)) cost -= 1;
   if (inputs.preferences[activity]?.preferredDays.includes(date)) cost -= 4;
 
+  // Golf is physical load: no gym on a round day or the day before a
+  // competition, little next to a full round, and the golf-free day stays a
+  // recovery day when the week allows it.
   switch (activity) {
-    case "golfRound":
-      if (on(0, "gym")) cost += 8;
-      break;
     case "gym":
-      if (on(0, "golfRound")) cost += 8;
-      if (on(-1, "golfRound") || on(1, "golfRound")) cost += 3;
-      if (on(0, "golfPractice")) cost += 2;
+      if (golfToday.load === "high") cost += 8;
+      if (golfAfter.competition) cost += 8;
+      else if (golfBefore.load === "high" || golfAfter.load === "high") cost += 3;
+      if (golfToday.load === "medium") cost += 2;
+      if (golfToday.rest) cost += 3;
       for (const gap of sameTypeGaps) cost += gap === 1 ? 5 : gap === 2 ? 1 : 0;
-      break;
-    case "golfPractice":
-      if (on(0, "golfRound")) cost += 6;
-      if (on(0, "gym")) cost += 2;
-      for (const gap of sameTypeGaps) cost += gap === 1 ? 1 : 0;
       break;
     case "mealPrep": {
       if (on(0, "gym")) cost += 2;
-      if (on(0, "golfRound")) cost += 2;
+      if (golfToday.load === "high") cost += 2;
       for (const gap of sameTypeGaps) cost += gap < 2 ? 6 : gap === 2 ? 1 : 0;
       // Spread sessions evenly with the first one early in the week.
       const ideal = Math.round((sameTypeGaps.length * 7) / Math.max(1, inputs.targets.mealPrep));
@@ -504,7 +505,7 @@ function placementCost(activity, date, { dates, inputs, occupancy }) {
       break;
     }
     case "stretch":
-      if (on(-1, "gym") || on(-1, "golfRound")) cost -= 1;
+      if (on(-1, "gym") || golfBefore.load === "high") cost -= 1;
       if (activitiesToday >= 2) cost += 1;
       for (const gap of sameTypeGaps) cost += gap === 1 ? 2 : 0;
       break;
@@ -515,10 +516,45 @@ function placementCost(activity, date, { dates, inputs, occupancy }) {
   return cost;
 }
 
-function pickShoppingDate({ dates, inputs, mealPrepDates }) {
+/**
+ * How much golf a day carries: `high` for a full round or competition,
+ * `medium` for a 9-hole round, a lesson or a full practice, `low` for a light
+ * one. A golf task already in Todoist counts too, by its title.
+ */
+function golfLoad(date, { golfDays, occupancy }) {
+  const day = golfDays.get(date);
+  if (!day) return { load: occupancy.get(date)?.has("golf") ? "medium" : null, competition: false, rest: false };
+  switch (day.role) {
+    case "competition":
+      return { load: "high", competition: true, rest: false };
+    case "round":
+      return { load: (day.holes ?? 18) >= 18 ? "high" : "medium", competition: false, rest: false };
+    case "existing": {
+      // The user's own words about that day beat the task title.
+      const round = day.round;
+      const playing = round ? round.competition || (round.holes ?? 18) >= 18 : ["round", "competition"].includes(day.existingKind);
+      return {
+        load: playing ? "high" : "medium",
+        competition: round ? round.competition : day.existingKind === "competition",
+        rest: false,
+      };
+    }
+    case "lesson":
+      return { load: "medium", competition: false, rest: false };
+    case "practice":
+      return { load: day.intensity === "light" || day.intensity === "prep" ? "low" : "medium", competition: false, rest: false };
+    case "rest":
+      return { load: null, competition: false, rest: true };
+    default:
+      return { load: null, competition: false, rest: false };
+  }
+}
+
+function pickShoppingDate({ dates, inputs, mealPrepDates, today }) {
   if (mealPrepDates.length > 0) return mealPrepDates[0];
   const skip = new Set(inputs.skipDays);
-  return dates.find((date) => !skip.has(date) && inputs.days[date]?.load !== "unavailable") ?? dates[0];
+  const open = dates.filter((date) => !today || date >= today);
+  return open.find((date) => !skip.has(date) && inputs.days[date]?.load !== "unavailable") ?? open[0] ?? dates[6];
 }
 
 function planFood({ inputs, mealPrepDates, foodConfig, notes }) {
@@ -647,13 +683,17 @@ function describeQuantity(item) {
   return parts.length > 0 ? parts.join(" + ") : null;
 }
 
-function buildOperations({ inputs, config, placements, foodPlan, shopping, createShoppingTask }) {
+function buildOperations({ inputs, config, placements, golf, golfDays, foodPlan, shopping, createShoppingTask }) {
   const activities = config.activities;
   const operations = [];
   const counters = { gym: 0, stretch: 0 };
-  const hasOn = (date, activity) =>
-    placements.some((entry) => entry.date === date && entry.activity === activity) ||
-    inputs.existing.some((entry) => entry.date === date && entry.activity === activity);
+  const roundOn = (date) => {
+    const day = golfDays.get(date);
+    if (day) {
+      return ["round", "competition"].includes(day.role) || (day.role === "existing" && (Boolean(day.round) || ["round", "competition"].includes(day.existingKind)));
+    }
+    return inputs.existing.some((entry) => entry.date === date && entry.activity === "golf" && ["round", "competition"].includes(entry.golfKind));
+  };
 
   const add = (activity, date, content, description) => {
     const plan = buildTodoistCreatePlan({ content, description, dueString: date });
@@ -670,6 +710,13 @@ function buildOperations({ inputs, config, placements, foodPlan, shopping, creat
     add("shopping", shopping.date, config.shoppingTaskTitle, formatShoppingDescription(shopping, foodPlan));
   }
 
+  // One main golf task per golf day; existing golf tasks are never touched.
+  for (const day of golf?.days ?? []) {
+    if (!GOLF_ROLES_WITH_TASKS.includes(day.role)) continue;
+    const task = golfTask(day, golf, config.golf);
+    add("golf", day.date, task.content, task.description);
+  }
+
   for (const entry of placements) {
     const { activity, date } = entry;
     const title = `${activities[activity].label} — ${weekdayName(date)}`;
@@ -678,16 +725,8 @@ function buildOperations({ inputs, config, placements, foodPlan, shopping, creat
         const sessions = activities.gym.sessions;
         const lines = [sessions[counters.gym % sessions.length]];
         counters.gym += 1;
-        if (hasOn(addDays(date, 1), "golfRound")) lines.push(activities.gym.beforeGolfRoundNote);
+        if (roundOn(addDays(date, 1))) lines.push(activities.gym.beforeGolfRoundNote);
         add(activity, date, title, lines.join("\n"));
-        break;
-      }
-      case "golfRound":
-        add(activity, date, title, activities.golfRound.description);
-        break;
-      case "golfPractice": {
-        const focus = inputs.golfPracticeFocus.length > 0 ? inputs.golfPracticeFocus : activities.golfPractice.focus;
-        add(activity, date, title, `${activities.golfPractice.description}\nFocus: ${focus.join(", ")}.`);
         break;
       }
       case "stretch": {
@@ -748,26 +787,41 @@ const CHANGE_KEYS = Object.freeze([
   "removeMeals",
   "addShopping",
   "removeShopping",
+  "golf",
   "note",
 ]);
+
+const GOLF_CHANGE_HINT =
+  'Golf is planned as a golf week: change it with {"golf": {"replyText": "EXACT USER WORDS", ...}}, for example "activeDays": 0 for no golf, "addRounds", "restDay" or "moves" (see the weekly-plan guide).';
 
 /**
  * Applies one structured modification to the stored inputs of the current
  * version. Placements that the change does not touch stay pinned, so "gym 3
- * times" adds a session instead of reshuffling the week.
+ * times" adds a session instead of reshuffling the week; the golf week keeps
+ * its sessions and golf-free day the same way.
+ *
+ * @param golfContext `{ today, previousWeek, normalWeekText }` for golf changes
+ * @throws GolfInputError when a golf change cannot be traced to the user's words
  */
-export function applyWeeklyPlanChanges(previousInputs, previousPlan, rawChanges, { config, food } = {}) {
+export function applyWeeklyPlanChanges(previousInputs, previousPlan, rawChanges, { config, food, golfContext = {} } = {}) {
   const changes = requireObject(rawChanges ?? {}, "Weekly plan changes");
   rejectUnknownKeys(changes, CHANGE_KEYS, "weekly plan changes");
   const substantive = Object.keys(changes).filter((key) => key !== "note");
   if (substantive.length === 0) throw new Error("A weekly plan revision needs at least one change.");
+  if (previousInputs.golf === undefined && LEGACY_GOLF_TARGETS.some((key) => previousInputs.targets?.[key] > 0)) {
+    throw new Error(
+      "This plan was made before the golf week planner, so it can still be accepted or cancelled but not changed. Cancel it and ask for a new plan to change it.",
+    );
+  }
 
   const inputs = structuredClone(previousInputs);
   const weekStart = inputs.weekStart;
   const summary = [];
   let pins = previousPlan.placements.map((entry) => ({ ...entry }));
+  if (inputs.golf && previousPlan.golf) inputs.golf = keepCurrentGolfWeek(inputs.golf, previousPlan.golf);
 
   for (const [key, value] of Object.entries(changes.targets ?? {})) {
+    if (LEGACY_GOLF_TARGETS.includes(key)) throw new Error(GOLF_CHANGE_HINT);
     const activity = requireTargetKey(key);
     const next = requireTargetCount(value, key, config);
     const before = inputs.targets[activity];
@@ -787,6 +841,7 @@ export function applyWeeklyPlanChanges(previousInputs, previousPlan, rawChanges,
   for (const move of changes.moves ?? []) {
     requireObject(move, "move");
     rejectUnknownKeys(move, ["activity", "from", "to"], "move");
+    if (move.activity === "golf" || LEGACY_GOLF_TARGETS.includes(move.activity)) throw new Error(GOLF_CHANGE_HINT);
     const activity = requireTargetKey(move.activity);
     const from = resolvePlanDay(move.from, weekStart);
     const to = resolvePlanDay(move.to, weekStart);
@@ -870,6 +925,14 @@ export function applyWeeklyPlanChanges(previousInputs, previousPlan, rawChanges,
     summary.push(`Shopping − ${capitalize(name)}`);
   }
 
+  if (changes.golf !== undefined) {
+    if (!inputs.golf) throw new Error("This plan has no golf week to change.");
+    const result = applyGolfChanges(inputs.golf, changes.golf, { ...golfContext, weekStart, plan: previousPlan.golf ?? null });
+    if (result.problems.length > 0) throw new GolfInputError(result.problems);
+    inputs.golf = result.golf;
+    summary.push(...result.summary);
+  }
+
   inputs.pins = pins.map(({ activity, date, explicit }) => ({ activity, date, ...(explicit ? { explicit: true } : {}) }));
   return {
     inputs,
@@ -878,17 +941,15 @@ export function applyWeeklyPlanChanges(previousInputs, previousPlan, rawChanges,
   };
 }
 
-function shortWeekday(date) {
-  return weekdayName(date).slice(0, 3);
-}
-
 // ---------------------------------------------------------------------------
 // Integrity.
 
+/** A plan stored before the golf week has no `golf`, which JSON leaves out, so its digest is unchanged. */
 export function digestPlan(plan) {
   const canonical = JSON.stringify({
     weekStart: plan.weekStart,
     targets: plan.targets,
+    golf: plan.golf,
     schedule: plan.schedule,
     food: plan.food,
     shopping: plan.shopping,
@@ -973,15 +1034,26 @@ export function formatPlanMessage(document, { version, deadline, changeSummary =
     `${version === 1 ? "Next week's plan" : "Updated plan"} · ${formatWeekLabel(plan.weekStart)} · v${version}`,
   ];
   if (changeSummary.length > 0) lines.push(`Changes: ${changeSummary.join(" · ")}`);
+  const targets = TARGET_KEYS.map((key) => `${TARGET_LABELS[key]} ${plan.targets[key]}`).join(" · ");
+  const labelsOf = (day, { withGolf }) =>
+    day.activities
+      .filter((activity) => withGolf || activity.activity !== "golf")
+      .map((activity) => `${SCHEDULE_LABELS[activity.activity]}${activity.status === "existing" ? " (in Todoist)" : ""}`);
 
-  lines.push("", "Targets", TARGET_KEYS.map((key) => `${TARGET_LABELS[key]} ${plan.targets[key]}`).join(" · "));
-
-  lines.push("", "Schedule");
-  for (const day of plan.schedule) {
-    const labels = day.activities.map(
-      (activity) => `${SCHEDULE_LABELS[activity.activity]}${activity.status === "existing" ? " (in Todoist)" : ""}`,
-    );
-    lines.push(`${day.weekday.slice(0, 3)} — ${labels.length > 0 ? labels.join(" · ") : "Rest"}`);
+  if (plan.golf) {
+    // The golf week has its own section; the schedule below lists the rest.
+    lines.push("", ...formatGolfSection(plan.golf));
+    lines.push("", "Gym, stretching and meal prep", targets);
+    for (const day of plan.schedule) {
+      const labels = labelsOf(day, { withGolf: false });
+      if (labels.length > 0) lines.push(`${day.weekday.slice(0, 3)} — ${labels.join(" · ")}`);
+    }
+  } else {
+    lines.push("", "Targets", targets, "", "Schedule");
+    for (const day of plan.schedule) {
+      const labels = labelsOf(day, { withGolf: true });
+      lines.push(`${day.weekday.slice(0, 3)} — ${labels.length > 0 ? labels.join(" · ") : "Rest"}`);
+    }
   }
 
   lines.push("", "Food");
@@ -1017,7 +1089,9 @@ export function formatPlanMessage(document, { version, deadline, changeSummary =
       : `Nothing new to add to Todoist; I'll close this plan at ${when} unless you change it.`,
     changeSummary.length > 0
       ? `The 12-hour review window restarted with this change. Reply OK to ${count > 0 ? "create them" : "close it"} now, or tell me what else to change.`
-      : `Reply OK to ${count > 0 ? "create them" : "close it"} now, or tell me what to change, e.g. "Gym 3 times", "Move Friday gym to Sunday", "No salmon", "Add bananas" or "Skip this week".`,
+      : `Reply OK to ${count > 0 ? "create them" : "close it"} now, or tell me what to change, e.g. ${
+          plan.golf ? '"Move wedges to Thursday", "Gym 3 times", "No salmon"' : '"Gym 3 times", "Move Friday gym to Sunday", "No salmon", "Add bananas"'
+        } or "Skip this week".`,
   );
 
   return lines.join("\n");
@@ -1114,12 +1188,4 @@ function capitalize(value) {
 
 function slug(value) {
   return String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
-}
-
-/** A real calendar date: JavaScript would quietly turn 2026-02-30 into 2 March. */
-function assertIsoDate(date) {
-  const ms = typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date) ? Date.parse(`${date}T00:00:00.000Z`) : NaN;
-  if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 10) !== date) {
-    throw new Error(`Invalid date: ${date}`);
-  }
 }
