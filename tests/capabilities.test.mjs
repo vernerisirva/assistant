@@ -434,6 +434,12 @@ describe("capability views", () => {
     assert.ok(ids(view.capabilities).includes("calendar.preview"));
   });
 
+  it("routes a topic plus a kind of action to the combined view", () => {
+    const guide = readFileSync(CAPABILITIES_GUIDE_PATH, "utf8");
+    assert.match(guide, /Filters combine\. A topic plus a kind of action gets both: `What do you do automatically for golf\?` → `npm run --silent capabilities -- --tag golf --automatic`/);
+    assert.deepEqual(parseCapabilitiesArgs(["--tag", "golf", "--automatic"]).filters, { tag: "golf", automatic: true });
+  });
+
   it("combines filters and says so when nothing matches", () => {
     assert.deepEqual(ids(viewFor({ tag: "golf", requiresApproval: true }).capabilities), ["golf.booking"]);
     const text = formatCapabilityView(viewFor({ tag: "email", automatic: true }));

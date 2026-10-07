@@ -164,6 +164,26 @@ describe("golf week input readiness", () => {
     assert.deepEqual(problemsOf({ replyText: "18 holes", addRounds: [{ day: "sunday" }] }), ["Sunday is not in the user's words."]);
   });
 
+  it("understands Swedish compounds for days, competitions, lessons and routines", () => {
+    assert.deepEqual(
+      problemsOf({ replyText: "18 hål onsdagskvällen och lördagsmorgon", addRounds: [{ day: "wednesday", holes: 18 }, { day: "saturday", holes: 18 }] }),
+      [],
+    );
+    assert.deepEqual(problemsOf({ replyText: "Klubbtävling på lördag", addRounds: [{ day: "saturday", competition: true }] }), []);
+    assert.deepEqual(problemsOf({ replyText: "Seriematch söndag", addRounds: [{ day: "sunday", competition: true }] }), []);
+    assert.deepEqual(problemsOf({ replyText: "A mismatch on Sunday", addRounds: [{ day: "sunday", competition: true }] }), [
+      "A competition on Sunday is not in the user's words.",
+    ]);
+    assert.deepEqual(problemsOf({ replyText: "Golflektion på torsdag", addLessons: [{ day: "thursday" }] }), []);
+    assert.equal(golfFocusKind("Rutinen före slaget"), "process");
+    // Neither a day name nor an abbreviation matches inside another word,
+    // and "reflektion" is not a lesson.
+    assert.deepEqual(problemsOf({ replyText: "A sunny round", addRounds: [{ day: "sunday" }] }), ["Sunday is not in the user's words."]);
+    assert.deepEqual(problemsOf({ replyText: "A Mondayish plan", addRounds: [{ day: "monday" }] }), ["Monday is not in the user's words."]);
+    assert.deepEqual(problemsOf({ replyText: "Reflektion på torsdag", addLessons: [{ day: "thursday" }] }), ["A lesson is not in the user's words."]);
+    assert.deepEqual(problemsOf({ replyText: "Playing Wednesdays", addRounds: [{ day: "wednesday" }] }), []);
+  });
+
   it('accepts "choose the practice balance for me" as a focus answer, and only when asked', () => {
     const golf = answered(
       { replyText: "No specific technical focus — choose the practice balance", focus: "balance" },
