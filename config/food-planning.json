@@ -16,217 +16,208 @@
     "enabled": true,
     "cadence": "weekly-with-ad-hoc-updates",
     "sections": [
-      "protein",
-      "vegetables",
-      "fruit",
-      "carbs",
-      "dairy-or-alternatives",
-      "snacks",
-      "breakfast",
-      "pantry",
-      "backup-meals"
+      "produce",
+      "bread",
+      "meat-fish",
+      "dairy",
+      "dry-goods",
+      "canned",
+      "frozen",
+      "other"
     ],
     "principles": [
-      "healthy-convenience",
+      "only-what-planned-dishes-need",
+      "plus-items-the-user-names",
       "simple-prep",
-      "realistic-portions",
-      "easy-default-meals"
+      "realistic-portions"
     ]
   },
   "weeklyMealPlan": {
-    "portionsPerPrep": 3,
+    "defaultLanguage": "sv",
     "meals": [
       {
         "id": "chicken-rice-veg",
-        "name": "Chicken, rice and vegetables",
-        "portions": 3,
+        "name": {
+          "sv": "Kyckling med ris och grönsaker",
+          "fi": "Kana-kasvispannu ja riisi",
+          "en": "Chicken, rice and vegetables"
+        },
+        "servings": 3,
+        "minutes": 35,
         "ingredients": [
-          {
-            "name": "Chicken breast",
-            "section": "protein",
-            "perPortion": 150,
-            "unit": "g"
-          },
-          {
-            "name": "Rice",
-            "section": "carbs",
-            "perPortion": 75,
-            "unit": "g"
-          },
-          {
-            "name": "Broccoli",
-            "section": "vegetables"
-          },
-          {
-            "name": "Peppers",
-            "section": "vegetables"
-          }
-        ]
+          { "id": "kycklingfile", "name": { "sv": "kycklingfilé", "fi": ["broilerin rintafilee", "broilerin rintafileetä"], "en": "chicken breast" }, "amount": 450, "unit": "g", "section": "meat-fish" },
+          { "id": "jasminris", "name": { "sv": "jasminris", "fi": ["jasmiiniriisi", "jasmiiniriisiä"], "en": "jasmine rice" }, "amount": 2.5, "unit": "dl", "section": "dry-goods" },
+          { "id": "vatten-ris", "name": { "sv": "vatten", "fi": ["vesi", "vettä"], "en": "water" }, "amount": 3.75, "unit": "dl" },
+          { "id": "broccoli", "name": { "sv": "broccoli", "fi": ["parsakaali", "parsakaalia"], "en": "broccoli" }, "amount": 300, "unit": "g", "section": "produce" },
+          { "id": "rod-paprika", "name": { "sv": ["röd paprika", "röda paprikor"], "fi": ["punainen paprika", "punaista paprikaa"], "en": "red pepper" }, "amount": 2, "unit": "st", "section": "produce" },
+          { "id": "gul-lok", "name": { "sv": ["gul lök", "gula lökar"], "fi": ["keltasipuli", "keltasipulia"], "en": "yellow onion" }, "amount": 1, "unit": "st", "section": "produce" },
+          { "id": "vitloksklyfta", "name": { "sv": ["vitlöksklyfta", "vitlöksklyftor"], "fi": ["valkosipulinkynsi", "valkosipulinkynttä"], "en": "garlic clove" }, "amount": 2, "unit": "st", "section": "produce" },
+          { "id": "rapsolja", "name": { "sv": "rapsolja", "fi": ["rypsiöljy", "rypsiöljyä"], "en": "rapeseed oil" }, "amount": 2, "unit": "msk", "section": "dry-goods", "staple": true },
+          { "id": "soja", "name": { "sv": "japansk soja", "fi": ["soijakastike", "soijakastiketta"], "en": "soy sauce" }, "amount": 2, "unit": "msk", "section": "dry-goods", "staple": true },
+          { "id": "paprikapulver", "name": { "sv": "paprikapulver", "fi": ["paprikajauhe", "paprikajauhetta"], "en": "paprika powder" }, "amount": 1, "unit": "tsk", "section": "dry-goods", "staple": true },
+          { "id": "salt", "name": { "sv": "salt", "fi": ["suola", "suolaa"], "en": "salt" }, "amount": 1, "unit": "tsk", "section": "dry-goods", "staple": true },
+          { "id": "svartpeppar", "name": { "sv": "malen svartpeppar", "fi": ["jauhettu mustapippuri", "jauhettua mustapippuria"], "en": "ground black pepper" }, "amount": 0.5, "unit": "tsk", "section": "dry-goods", "staple": true }
+        ],
+        "steps": {
+          "sv": [
+            "Skölj riset i kallt vatten. Koka upp {vatten-ris} vatten, tillsätt riset och låt det sjuda under lock på svag värme i 12 minuter. Dra av kastrullen från plattan och låt riset stå under lock i 5 minuter.",
+            "Skär kycklingfilén i bitar på cirka 2 cm. Skala och hacka löken och finhacka vitlöken. Kärna ur paprikorna och skär dem i strimlor. Dela broccolin i små buketter.",
+            "Hetta upp hälften av oljan i en stor stekpanna på medelhög värme. Stek kycklingen med paprikapulver, salt och peppar i 6–8 minuter, tills den är genomstekt och inte längre rosa i mitten.",
+            "Lägg upp kycklingen på en tallrik. Häll resten av oljan i pannan och fräs lök och vitlök i 2 minuter. Tillsätt paprika och broccoli och stek i 4–5 minuter, tills grönsakerna är heta men har kvar lite tuggmotstånd.",
+            "Lägg tillbaka kycklingen, häll över sojan och vänd runt i 1 minut.",
+            "Fördela riset och kycklingen med grönsakerna i {portions} matlådor."
+          ],
+          "fi": [
+            "Huuhtele riisi kylmällä vedellä. Kiehauta {vatten-ris} vettä, lisää riisi ja anna sen hautua kannen alla miedolla lämmöllä 12 minuuttia. Nosta kattila liedeltä ja anna riisin seistä kannen alla 5 minuuttia.",
+            "Leikkaa broileri noin 2 cm:n paloiksi. Kuori ja hienonna sipuli ja valkosipulinkynnet. Poista paprikoista siemenet ja suikaloi ne. Paloittele parsakaali pieniksi kukinnoiksi.",
+            "Kuumenna puolet öljystä isossa paistinpannussa keskilämmöllä. Paista broileria paprikajauheen, suolan ja pippurin kanssa 6–8 minuuttia, kunnes se on kypsää eikä enää vaaleanpunaista keskeltä.",
+            "Nosta broileri lautaselle. Lisää pannulle loput öljystä ja kuullota sipulia ja valkosipulia 2 minuuttia. Lisää paprika ja parsakaali ja paista 4–5 minuuttia, kunnes kasvikset ovat kuumia mutta vielä hieman napakoita.",
+            "Palauta broileri pannulle, lisää soijakastike ja sekoita minuutin ajan.",
+            "Jaa riisi ja kana-kasvispannu {portions} rasiaan."
+          ]
+        },
+        "storage": {
+          "sv": "Låt maten svalna och ställ in den i kylen inom 2 timmar. Ät den inom 3 dagar, eller frys lådorna i upp till 3 månader. Värm tills maten är rykande het rakt igenom.",
+          "fi": "Jäähdytä ruoka ja nosta se jääkaappiin kahden tunnin kuluessa. Syö kolmen päivän kuluessa tai pakasta rasiat enintään kolmeksi kuukaudeksi. Kuumenna ruoka läpikotaisin höyryävän kuumaksi."
+        }
       },
       {
         "id": "salmon-potatoes-veg",
-        "name": "Salmon, potatoes and vegetables",
-        "portions": 2,
+        "name": {
+          "sv": "Ugnsbakad lax med potatis och haricots verts",
+          "fi": "Uunilohi, perunat ja vihreät pavut",
+          "en": "Salmon, potatoes and vegetables"
+        },
+        "servings": 2,
+        "minutes": 40,
+        "oven": { "celsius": 200, "mode": "conventional" },
         "ingredients": [
-          {
-            "name": "Salmon fillet",
-            "section": "protein",
-            "perPortion": 125,
-            "unit": "g"
-          },
-          {
-            "name": "Potatoes",
-            "section": "carbs",
-            "perPortion": 250,
-            "unit": "g"
-          },
-          {
-            "name": "Green beans",
-            "section": "vegetables"
-          }
-        ]
+          { "id": "laxfile", "name": { "sv": "laxfilé", "fi": ["lohifilee", "lohifileetä"], "en": "salmon fillet" }, "amount": 250, "unit": "g", "section": "meat-fish" },
+          { "id": "potatis", "name": { "sv": "fast potatis", "fi": ["kiinteä peruna", "kiinteitä perunoita"], "en": "potatoes" }, "amount": 500, "unit": "g", "section": "produce" },
+          { "id": "haricots-verts", "name": { "sv": "haricots verts", "fi": ["vihreät pavut", "vihreitä papuja"], "en": "green beans" }, "amount": 200, "unit": "g", "section": "produce" },
+          { "id": "citron", "name": { "sv": ["citron", "citroner"], "fi": ["sitruuna", "sitruunaa"], "en": "lemon" }, "amount": 1, "unit": "st", "section": "produce" },
+          { "id": "olivolja", "name": { "sv": "olivolja", "fi": ["oliiviöljy", "oliiviöljyä"], "en": "olive oil" }, "amount": 2, "unit": "msk", "section": "dry-goods", "staple": true },
+          { "id": "salt", "name": { "sv": "salt", "fi": ["suola", "suolaa"], "en": "salt" }, "amount": 1, "unit": "tsk", "section": "dry-goods", "staple": true },
+          { "id": "svartpeppar", "name": { "sv": "malen svartpeppar", "fi": ["jauhettu mustapippuri", "jauhettua mustapippuria"], "en": "ground black pepper" }, "amount": 0.5, "unit": "tsk", "section": "dry-goods", "staple": true }
+        ],
+        "steps": {
+          "sv": [
+            "Sätt ugnen på {oven}.",
+            "Skrubba potatisen och skär den i klyftor eller bitar på cirka 3 cm. Lägg potatisen på en plåt med bakplåtspapper och vänd den med hälften av oljan, hälften av saltet och lite av pepparn. Rosta mitt i ugnen i 15 minuter.",
+            "Skär av ändarna på bönorna. Lägg laxen och bönorna bredvid potatisen, ringla över resten av oljan och krydda med resten av saltet och pepparn.",
+            "Rosta allt i ytterligare 12–15 minuter, tills potatisen är mjuk och laxen är ogenomskinlig och lätt flagnar i mitten.",
+            "Pressa saften från en halv citron över laxen och skär resten av citronen i klyftor.",
+            "Fördela lax, potatis och bönor i {portions} matlådor och lägg en citronklyfta i varje."
+          ],
+          "fi": [
+            "Kuumenna uuni lämpötilaan {oven}.",
+            "Pese perunat ja leikkaa ne lohkoiksi tai noin 3 cm:n paloiksi. Levitä perunat leivinpaperilla vuoratulle pellille ja sekoita joukkoon puolet öljystä, puolet suolasta ja vähän pippuria. Paahda uunin keskitasolla 15 minuuttia.",
+            "Leikkaa papujen päät pois. Nosta lohi ja pavut perunoiden viereen, valuta päälle loput öljystä ja mausta lopulla suolalla ja pippurilla.",
+            "Paahda kaikkea vielä 12–15 minuuttia, kunnes perunat ovat pehmeitä ja lohi on läpikypsää ja lohkeilee helposti keskeltä.",
+            "Purista puolikkaan sitruunan mehu lohen päälle ja leikkaa loput sitruunasta lohkoiksi.",
+            "Jaa lohi, perunat ja pavut {portions} rasiaan ja lisää jokaiseen sitruunalohko."
+          ]
+        },
+        "storage": {
+          "sv": "Ställ in maten i kylen inom 2 timmar och ät den inom 2 dagar – fisk håller kortare tid än kött. Lax går att frysa i upp till 2 månader, men potatisen blir lös. Värm tills maten är rykande het.",
+          "fi": "Nosta ruoka jääkaappiin kahden tunnin kuluessa ja syö se kahden päivän kuluessa – kala säilyy lihaa lyhyemmän ajan. Lohen voi pakastaa enintään kahdeksi kuukaudeksi, mutta peruna pehmenee. Kuumenna ruoka höyryävän kuumaksi."
+        }
       },
       {
         "id": "beef-chili-rice",
-        "name": "Beef chili with rice",
-        "portions": 3,
+        "name": {
+          "sv": "Chili con carne med ris",
+          "fi": "Chili con carne ja riisi",
+          "en": "Beef chili with rice"
+        },
+        "servings": 3,
+        "minutes": 45,
         "ingredients": [
-          {
-            "name": "Minced beef",
-            "section": "protein",
-            "perPortion": 125,
-            "unit": "g"
-          },
-          {
-            "name": "Kidney beans",
-            "section": "pantry",
-            "quantity": "1 tin"
-          },
-          {
-            "name": "Chopped tomatoes",
-            "section": "pantry",
-            "quantity": "2 tins"
-          },
-          {
-            "name": "Onion",
-            "section": "vegetables"
-          },
-          {
-            "name": "Rice",
-            "section": "carbs",
-            "perPortion": 75,
-            "unit": "g"
-          }
-        ]
+          { "id": "notfars", "name": { "sv": "nötfärs", "fi": ["naudan jauheliha", "naudan jauhelihaa"], "en": "minced beef" }, "amount": 400, "unit": "g", "section": "meat-fish" },
+          { "id": "gul-lok", "name": { "sv": ["gul lök", "gula lökar"], "fi": ["keltasipuli", "keltasipulia"], "en": "yellow onion" }, "amount": 1, "unit": "st", "section": "produce" },
+          { "id": "vitloksklyfta", "name": { "sv": ["vitlöksklyfta", "vitlöksklyftor"], "fi": ["valkosipulinkynsi", "valkosipulinkynttä"], "en": "garlic clove" }, "amount": 2, "unit": "st", "section": "produce" },
+          { "id": "rod-paprika", "name": { "sv": ["röd paprika", "röda paprikor"], "fi": ["punainen paprika", "punaista paprikaa"], "en": "red pepper" }, "amount": 1, "unit": "st", "section": "produce" },
+          { "id": "krossade-tomater", "name": { "sv": "krossade tomater (400 g)", "fi": ["tomaattimurska (400 g)", "tomaattimurskaa (400 g)"], "en": "chopped tomatoes" }, "amount": 1, "unit": "burk", "section": "canned" },
+          { "id": "kidneybonor", "name": { "sv": "kidneybönor (380 g)", "fi": ["kidneypavut (380 g)", "kidneypapuja (380 g)"], "en": "kidney beans" }, "amount": 1, "unit": "burk", "section": "canned" },
+          { "id": "tomatpure", "name": { "sv": "tomatpuré", "fi": ["tomaattipyree", "tomaattipyreetä"], "en": "tomato puree" }, "amount": 2, "unit": "msk", "section": "canned" },
+          { "id": "vatten", "name": { "sv": "vatten", "fi": ["vesi", "vettä"], "en": "water" }, "amount": 1, "unit": "dl" },
+          { "id": "chilipulver", "name": { "sv": "chilipulver", "fi": ["chilijauhe", "chilijauhetta"], "en": "chili powder" }, "amount": 2, "unit": "tsk", "section": "dry-goods", "staple": true },
+          { "id": "spiskummin", "name": { "sv": "malen spiskummin", "fi": ["jauhettu juustokumina", "jauhettua juustokuminaa"], "en": "ground cumin" }, "amount": 1, "unit": "tsk", "section": "dry-goods", "staple": true },
+          { "id": "rapsolja", "name": { "sv": "rapsolja", "fi": ["rypsiöljy", "rypsiöljyä"], "en": "rapeseed oil" }, "amount": 1, "unit": "msk", "section": "dry-goods", "staple": true },
+          { "id": "salt", "name": { "sv": "salt", "fi": ["suola", "suolaa"], "en": "salt" }, "amount": 1, "unit": "tsk", "section": "dry-goods", "staple": true },
+          { "id": "svartpeppar", "name": { "sv": "malen svartpeppar", "fi": ["jauhettu mustapippuri", "jauhettua mustapippuria"], "en": "ground black pepper" }, "amount": 0.5, "unit": "tsk", "section": "dry-goods", "staple": true },
+          { "id": "jasminris", "name": { "sv": "jasminris", "fi": ["jasmiiniriisi", "jasmiiniriisiä"], "en": "jasmine rice" }, "amount": 2.5, "unit": "dl", "section": "dry-goods" },
+          { "id": "vatten-ris", "name": { "sv": "vatten till riset", "fi": ["vesi riisiä varten", "vettä riisiä varten"], "en": "water for the rice" }, "amount": 3.75, "unit": "dl" }
+        ],
+        "steps": {
+          "sv": [
+            "Skala och hacka löken och finhacka vitlöken. Kärna ur paprikan och skär den i små tärningar.",
+            "Hetta upp oljan i en tjockbottnad gryta på medelhög värme. Bryn färsen i 5–6 minuter och dela den med en träslev, tills den är smulig och inte längre rosa.",
+            "Tillsätt lök, vitlök och paprika och fräs i 3 minuter. Rör ner chilipulver, spiskummin och tomatpuré och fräs 1 minut till.",
+            "Häll i de krossade tomaterna och {vatten} vatten. Låt grytan sjuda under lock på svag värme i 15 minuter och rör om då och då.",
+            "Häll av och skölj kidneybönorna och rör ner dem. Låt sjuda utan lock i 5 minuter, tills såsen har tjocknat. Smaka av med salt och peppar.",
+            "Koka under tiden riset: skölj det, koka upp {vatten-ris} vatten, tillsätt riset och låt det sjuda under lock på svag värme i 12 minuter. Låt det stå under lock i 5 minuter.",
+            "Fördela riset och chilin i {portions} matlådor."
+          ],
+          "fi": [
+            "Kuori ja hienonna sipuli ja valkosipulinkynnet. Poista paprikasta siemenet ja kuutioi se pieneksi.",
+            "Kuumenna öljy paksupohjaisessa kattilassa keskilämmöllä. Ruskista jauhelihaa 5–6 minuuttia ja riko sitä puulastalla, kunnes se on murumaista eikä enää punaista.",
+            "Lisää sipuli, valkosipuli ja paprika ja kuullota 3 minuuttia. Sekoita joukkoon chilijauhe, juustokumina ja tomaattipyree ja kuullota vielä minuutti.",
+            "Lisää tomaattimurska ja {vatten} vettä. Anna kastikkeen hautua kannen alla miedolla lämmöllä 15 minuuttia ja sekoita välillä.",
+            "Valuta ja huuhtele kidneypavut ja sekoita ne joukkoon. Anna hautua ilman kantta 5 minuuttia, kunnes kastike on paksuuntunut. Mausta suolalla ja pippurilla.",
+            "Keitä sillä välin riisi: huuhtele se, kiehauta {vatten-ris} vettä, lisää riisi ja anna sen hautua kannen alla miedolla lämmöllä 12 minuuttia. Anna seistä kannen alla 5 minuuttia.",
+            "Jaa riisi ja chili {portions} rasiaan."
+          ]
+        },
+        "storage": {
+          "sv": "Låt maten svalna och ställ in den i kylen inom 2 timmar. Ät den inom 3 dagar. Chilin passar bra att frysa och håller i upp till 3 månader. Värm tills den är rykande het rakt igenom.",
+          "fi": "Jäähdytä ruoka ja nosta se jääkaappiin kahden tunnin kuluessa. Syö kolmen päivän kuluessa. Chili sopii hyvin pakastettavaksi ja säilyy pakastimessa enintään kolme kuukautta. Kuumenna läpikotaisin höyryävän kuumaksi."
+        }
       },
       {
         "id": "turkey-pasta",
-        "name": "Turkey mince pasta with tomato sauce",
-        "portions": 3,
+        "name": {
+          "sv": "Pasta med kalkonfärs och tomatsås",
+          "fi": "Kalkkunajauheliha-tomaattipasta",
+          "en": "Turkey mince pasta with tomato sauce"
+        },
+        "servings": 3,
+        "minutes": 30,
         "ingredients": [
-          {
-            "name": "Turkey mince",
-            "section": "protein",
-            "perPortion": 125,
-            "unit": "g"
-          },
-          {
-            "name": "Pasta",
-            "section": "carbs",
-            "perPortion": 90,
-            "unit": "g"
-          },
-          {
-            "name": "Passata",
-            "section": "pantry",
-            "quantity": "1 carton"
-          },
-          {
-            "name": "Spinach",
-            "section": "vegetables"
-          }
-        ]
-      }
-    ],
-    "breakfast": [
-      {
-        "label": "Skyr + berries",
-        "items": [
-          {
-            "name": "Skyr",
-            "section": "dairy-or-alternatives",
-            "quantity": "2 kg"
-          },
-          {
-            "name": "Frozen berries",
-            "section": "fruit",
-            "quantity": "1 bag"
-          }
-        ]
-      },
-      {
-        "label": "Eggs + bread",
-        "items": [
-          {
-            "name": "Eggs",
-            "section": "protein",
-            "quantity": "12"
-          },
-          {
-            "name": "Wholegrain bread",
-            "section": "breakfast",
-            "quantity": "1 loaf"
-          }
-        ]
-      }
-    ],
-    "snacks": [
-      {
-        "label": "Fruit",
-        "items": [
-          {
-            "name": "Apples",
-            "section": "fruit",
-            "quantity": "6"
-          }
-        ]
-      },
-      {
-        "label": "Cottage cheese",
-        "items": [
-          {
-            "name": "Cottage cheese",
-            "section": "dairy-or-alternatives",
-            "quantity": "2 tubs"
-          }
-        ]
-      }
-    ],
-    "backup": [
-      {
-        "label": "Easy tuna pasta",
-        "items": [
-          {
-            "name": "Pasta",
-            "section": "backup-meals",
-            "quantity": "1 pack"
-          },
-          {
-            "name": "Tinned tuna",
-            "section": "backup-meals",
-            "quantity": "2 tins"
-          }
-        ]
-      },
-      {
-        "label": "Omelette with frozen vegetables",
-        "items": [
-          {
-            "name": "Frozen vegetables",
-            "section": "backup-meals",
-            "quantity": "1 bag"
-          }
-        ]
+          { "id": "kalkonfars", "name": { "sv": "kalkonfärs", "fi": ["kalkkunajauheliha", "kalkkunajauhelihaa"], "en": "turkey mince" }, "amount": 400, "unit": "g", "section": "meat-fish" },
+          { "id": "pasta", "name": { "sv": "pasta (penne)", "fi": ["pasta (penne)", "pastaa (penne)"], "en": "pasta" }, "amount": 270, "unit": "g", "section": "dry-goods" },
+          { "id": "passerade-tomater", "name": { "sv": "passerade tomater (500 g)", "fi": ["tomaattipassata (500 g)", "tomaattipassataa (500 g)"], "en": "passata" }, "amount": 1, "unit": "förp", "section": "canned" },
+          { "id": "babyspenat", "name": { "sv": "babyspenat", "fi": ["babypinaatti", "babypinaattia"], "en": "spinach" }, "amount": 65, "unit": "g", "section": "produce" },
+          { "id": "gul-lok", "name": { "sv": ["gul lök", "gula lökar"], "fi": ["keltasipuli", "keltasipulia"], "en": "yellow onion" }, "amount": 1, "unit": "st", "section": "produce" },
+          { "id": "vitloksklyfta", "name": { "sv": ["vitlöksklyfta", "vitlöksklyftor"], "fi": ["valkosipulinkynsi", "valkosipulinkynttä"], "en": "garlic clove" }, "amount": 1, "unit": "st", "section": "produce" },
+          { "id": "olivolja", "name": { "sv": "olivolja", "fi": ["oliiviöljy", "oliiviöljyä"], "en": "olive oil" }, "amount": 1, "unit": "msk", "section": "dry-goods", "staple": true },
+          { "id": "oregano", "name": { "sv": "torkad oregano", "fi": ["kuivattu oregano", "kuivattua oreganoa"], "en": "dried oregano" }, "amount": 1, "unit": "tsk", "section": "dry-goods", "staple": true },
+          { "id": "salt", "name": { "sv": "salt", "fi": ["suola", "suolaa"], "en": "salt" }, "amount": 2, "unit": "tsk", "section": "dry-goods", "staple": true },
+          { "id": "svartpeppar", "name": { "sv": "malen svartpeppar", "fi": ["jauhettu mustapippuri", "jauhettua mustapippuria"], "en": "ground black pepper" }, "amount": 0.5, "unit": "tsk", "section": "dry-goods", "staple": true },
+          { "id": "vatten-pasta", "name": { "sv": "vatten", "fi": ["vesi", "vettä"], "en": "water" }, "amount": 2, "unit": "l" }
+        ],
+        "steps": {
+          "sv": [
+            "Skala och hacka löken och finhacka vitlöken.",
+            "Koka upp {vatten-pasta} vatten med hälften av saltet. Koka pastan så länge som det står på förpackningen, oftast 10–12 minuter, tills den är al dente. Häll av vattnet.",
+            "Hetta upp oljan i en stor stekpanna på medelhög värme. Bryn kalkonfärsen i 5–6 minuter och dela den med en träslev, tills den är genomstekt och smulig.",
+            "Tillsätt lök och vitlök och fräs i 2 minuter. Häll i de passerade tomaterna och tillsätt oregano, resten av saltet och pepparn. Låt såsen sjuda i 8–10 minuter.",
+            "Rör ner spenaten och låt den sjunka ihop i cirka 1 minut. Blanda såsen med pastan.",
+            "Fördela pastan i {portions} matlådor."
+          ],
+          "fi": [
+            "Kuori ja hienonna sipuli ja valkosipulinkynsi.",
+            "Kiehauta {vatten-pasta} vettä ja lisää puolet suolasta. Keitä pasta pakkauksen ohjeen mukaan, yleensä 10–12 minuuttia, kunnes se on al dente. Kaada vesi pois.",
+            "Kuumenna öljy isossa paistinpannussa keskilämmöllä. Ruskista kalkkunajauhelihaa 5–6 minuuttia ja riko sitä puulastalla, kunnes se on kypsää ja murumaista.",
+            "Lisää sipuli ja valkosipuli ja kuullota 2 minuuttia. Lisää tomaattipassata, oregano, loput suolasta ja pippuri. Anna kastikkeen hautua 8–10 minuuttia.",
+            "Sekoita pinaatti kastikkeeseen ja anna sen pehmetä noin minuutin ajan. Sekoita kastike pastan joukkoon.",
+            "Jaa pasta {portions} rasiaan."
+          ]
+        },
+        "storage": {
+          "sv": "Låt maten svalna och ställ in den i kylen inom 2 timmar. Ät den inom 3 dagar, eller frys lådorna i upp till 2 månader. Värm tills maten är rykande het rakt igenom.",
+          "fi": "Jäähdytä ruoka ja nosta se jääkaappiin kahden tunnin kuluessa. Syö kolmen päivän kuluessa tai pakasta rasiat enintään kahdeksi kuukaudeksi. Kuumenna ruoka läpikotaisin höyryävän kuumaksi."
+        }
       }
     ]
   }

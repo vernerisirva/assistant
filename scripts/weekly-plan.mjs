@@ -71,6 +71,8 @@ import {
 import { applyWeeklyPlan, createWeeklyPlanTodoistGateway } from "./lib/weekly-plan-apply.mjs";
 import { buildWeeklyPlanCronCommands, buildWeeklyPlanCronJobs, weeklyPlanJobStatus } from "./lib/weekly-plan-cron.mjs";
 import { localDateInTimeZone } from "./lib/routine-skips.mjs";
+import { listMemoryEntries } from "./lib/memory.mjs";
+import { DEFAULT_RECIPE_LANGUAGE, RecipeInputError, formatRecipeClarification, localizedMealName, parseRecipeLanguage } from "./lib/recipes.mjs";
 
 const execFileAsync = promisify(execFile);
 const currentFile = fileURLToPath(import.meta.url);
@@ -300,7 +302,10 @@ async function propose(options, context) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("The input must be a JSON object.");
   // Golf answers come only from the user in chat. The scheduled proposal has
   // no user words, so a golf object there is ignored and the questions are asked.
+  // For the same reason it cannot add dishes or groceries: those would be
+  // top-ups nobody chose.
   const { golf: golfAnswer, ...planInput } = input;
+  if (options.send) planInput.food = withoutAdditions(planInput.food);
   const now = context.now();
   const { timezone } = context.settings();
   const weekStart = planInput.weekStart ?? nextWeekStart(now, timezone);
@@ -349,10 +354,22 @@ async function propose(options, context) {
   const previous = plans
     .filter((plan) => plan.weekStart < weekStart && plan.versions.length > 0 && !["cancelled", "draft"].includes(plan.status))
     .at(-1);
-  const inputs = buildInitialPlanInputs(
-    { ...planInput, existingTasks },
-    { config, weekStart, previousTargets: previous ? versionEntry(previous, previous.currentVersion).plan.targets : null },
-  );
+  let inputs;
+  try {
+    inputs = buildInitialPlanInputs(
+      { ...planInput, existingTasks },
+      {
+        config,
+        food,
+        weekStart,
+        previousTargets: previous ? versionEntry(previous, previous.currentVersion).plan.targets : null,
+        language: savedRecipeLanguage(context.memoryPath),
+      },
+    );
+  } catch (error) {
+    if (error instanceof RecipeInputError) return recipeClarification(null, error);
+    throw error;
+  }
   inputs.notes.push(...notes);
   const planId = newPlanId(weekStart, context.random);
 
@@ -514,6 +531,9 @@ async function answerGolf(planId, payload, context) {
 
     // Complete: the stored context, today's Todoist tasks and the answers.
     const base = structuredClone(document.awaiting.baseInputs);
+    // Stored before the scheduled run lost its food additions, or before recipes had a language.
+    if (document.awaiting.source === "scheduled") base.food = { ...base.food, addedMeals: [], customMeals: [], extraShopping: [] };
+    base.food.language ??= savedRecipeLanguage(context.memoryPath) ?? food.weeklyMealPlan?.defaultLanguage ?? DEFAULT_RECIPE_LANGUAGE;
     try {
       const tasks = await context.todoist().getTasks({});
       if (!Array.isArray(tasks)) throw new Error("Todoist did not return a task list.");
@@ -529,6 +549,7 @@ async function answerGolf(planId, payload, context) {
         ({ inputs } = applyWeeklyPlanChanges(inputs, plan, payload.changes, { config, food, golfContext }));
       } catch (error) {
         if (error instanceof GolfInputError) return clarification(planId, error.problems);
+        if (error instanceof RecipeInputError) return recipeClarification(planId, error);
         throw error;
       }
       plan = buildWeeklyPlan(inputs, { config, food, today });
@@ -548,6 +569,38 @@ async function answerGolf(planId, payload, context) {
       message: "Reply to the user with telegramText exactly.",
     };
   });
+}
+
+/** A recipe the user supplied is missing something: ask for exactly that, and store nothing. */
+function recipeClarification(planId, error) {
+  return {
+    status: "clarify",
+    planId,
+    changed: false,
+    problems: error.problems,
+    telegramText: formatRecipeClarification(error),
+    message:
+      "Nothing was stored. Ask the user telegramText. Never fill in an amount, unit or step the user's recipe does not give; one of the catalog recipes can be used instead if they prefer.",
+  };
+}
+
+/** The scheduled run's food input without dishes or groceries added on the user's behalf. */
+function withoutAdditions(food) {
+  if (!food || typeof food !== "object" || Array.isArray(food)) return food;
+  const { addMeals, customMeals, addShopping, ...rest } = food;
+  return rest;
+}
+
+/** A saved recipe-language preference (`food/recipe-language` in memory), read only. */
+function savedRecipeLanguage(memoryPath) {
+  try {
+    const entry = listMemoryEntries(memoryPath, { category: "food" }).find(
+      (candidate) => candidate.key === "recipe-language" && candidate.sensitivity === "low",
+    );
+    return parseRecipeLanguage(entry?.value);
+  } catch {
+    return null;
+  }
 }
 
 function clarification(planId, problems) {
@@ -693,6 +746,7 @@ async function revise(options, context) {
     });
   } catch (error) {
     if (error instanceof GolfInputError) return clarification(planId, error.problems);
+    if (error instanceof RecipeInputError) return recipeClarification(planId, error);
     throw error;
   }
 
@@ -1013,7 +1067,13 @@ function resolveOpenPlanId(planId, store, statuses) {
 
 /** The guide always prints; an unreadable plan store is reported, never hidden. */
 function guide(context) {
-  const text = readFileSync(projectPath(context.root, WEEKLY_PLAN_GUIDE_PATH), "utf8").trim();
+  let text = readFileSync(projectPath(context.root, WEEKLY_PLAN_GUIDE_PATH), "utf8").trim();
+  try {
+    const meals = context.planning().food.weeklyMealPlan.meals;
+    text += `\n\n## Recipe Ids\n\n${meals.map((meal) => `- \`${meal.id}\`: ${localizedMealName(meal, "sv")} / ${localizedMealName(meal, "fi")}`).join("\n")}`;
+  } catch (error) {
+    text += `\n\nThe recipe catalog could not be read: ${error.message}`;
+  }
   let statusText;
   try {
     const now = context.now();

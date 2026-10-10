@@ -22,32 +22,117 @@
   "activities": {
     "gym": {
       "label": "Gym",
+      "load": "Välj en vikt där du har cirka 2 repetitioner kvar i reserv efter varje set. Höj vikten nästa pass när alla set går med god teknik.",
+      "goal": "Utför alla set med kontrollerad teknik.",
+      "beforeGolf": {
+        "round": "Golfrunda i morgon",
+        "competition": "Tävling i morgon",
+        "text": "benövningarna ({exercises}) har ett set mindre och görs med cirka 3 repetitioner kvar i reserv, så att benen är pigga."
+      },
       "sessions": [
-        "Full-body strength with a lower-body focus: a squat or deadlift variation, a push, a pull and core.",
-        "Full-body strength with an upper-body focus: presses, rows, single-leg work and rotational core."
-      ],
-      "beforeGolfRoundNote": "Keep the leg work moderate: golf round tomorrow."
+        {
+          "id": "helkropp-a",
+          "name": "Helkropp A",
+          "focus": "ben, press, drag och bål",
+          "warmUp": {
+            "minutes": 8,
+            "items": [
+              "5 min cykel eller roddmaskin i lugnt tempo",
+              "Benpendlingar framåt och åt sidan – 10 per ben",
+              "Världens bästa stretch – 3 per sida",
+              "1–2 lätta set knäböj före första arbetssetet"
+            ]
+          },
+          "exercises": [
+            { "name": "Knäböj", "sets": 3, "reps": 8, "restSeconds": 120, "legs": true, "cue": "Bröstet upp, knäna i linje med tårna och hela foten i golvet.", "alternative": "goblet squat med hantel" },
+            { "name": "Rumänska marklyft med hantlar", "sets": 3, "reps": 10, "restSeconds": 90, "legs": true, "cue": "Skjut höften bakåt med rak rygg och hantlarna nära benen." },
+            { "name": "Hantelpress på bänk", "sets": 3, "reps": 10, "restSeconds": 90, "cue": "Skulderbladen ihop och nedåt; sänk hantlarna kontrollerat." },
+            { "name": "Sittande kabelrodd", "sets": 3, "reps": 10, "restSeconds": 60, "cue": "Dra handtaget mot naveln och för skulderbladen bakåt.", "alternative": "hantelrodd med bröststöd" },
+            { "name": "Pallof press", "sets": 3, "reps": 12, "perSide": true, "restSeconds": 45, "cue": "Stå stilla och låt inte kabeln vrida dig.", "alternative": "gummiband fäst i en stolpe" }
+          ]
+        },
+        {
+          "id": "helkropp-b",
+          "name": "Helkropp B",
+          "focus": "press, drag, enbensövning och rotation",
+          "warmUp": {
+            "minutes": 8,
+            "items": [
+              "5 min roddmaskin eller cykel i lugnt tempo",
+              "Armcirklar framåt och bakåt – 10 åt varje håll",
+              "Bröstryggsrotation på alla fyra – 8 per sida",
+              "1–2 lätta set axelpress före första arbetssetet"
+            ]
+          },
+          "exercises": [
+            { "name": "Stående axelpress med hantlar", "sets": 3, "reps": 8, "restSeconds": 90, "cue": "Spänn magen och sätet och pressa rakt upp utan att svanka." },
+            { "name": "Latsdrag", "sets": 3, "reps": 10, "restSeconds": 90, "cue": "Dra stången mot övre delen av bröstet med armbågarna mot sidorna.", "alternative": "assisterade chins" },
+            { "name": "Bulgarisk utfallsböj", "sets": 3, "reps": 8, "perSide": true, "restSeconds": 60, "legs": true, "cue": "Bakre foten på en bänk; sänk dig rakt ned med knät över foten." },
+            { "name": "Enarmsrodd med hantel", "sets": 3, "reps": 10, "perSide": true, "restSeconds": 60, "cue": "Stöd handen mot en bänk och dra hanteln mot höften." },
+            { "name": "Kabelrotation", "sets": 3, "reps": 10, "perSide": true, "restSeconds": 45, "cue": "Raka armar; rotera från höfterna och bröstryggen i ett jämnt tempo.", "alternative": "gummiband" },
+            { "name": "Sidoplanka", "sets": 2, "seconds": 30, "perSide": true, "restSeconds": 30, "cue": "Rak linje från huvud till fötter." }
+          ]
+        }
+      ]
     },
     "stretch": {
-      "label": "Stretch",
+      "label": "Rörlighet",
       "minutes": 15,
+      "closing": "Stretcha till en tydlig men behaglig spänning, aldrig till smärta, och andas lugnt.",
       "routines": [
-        [
-          "Hip flexor stretch: 2 x 45 s per side",
-          "Thoracic rotations: 10 per side",
-          "Figure-4 glute stretch: 2 x 45 s per side",
-          "Cat-cow: 10 slow reps"
-        ],
-        [
-          "Hamstring stretch: 2 x 45 s per side",
-          "Open books: 10 per side",
-          "Doorway chest stretch: 2 x 30 s",
-          "Deep squat hold: 3 x 30 s"
-        ]
+        {
+          "id": "hofter-brostrygg",
+          "name": "Höfter och bröstrygg",
+          "movements": [
+            { "name": "Höftböjarstretch i utfallsställning", "sets": 2, "seconds": 45, "perSide": true, "cue": "Håll bäckenet neutralt och spänn sätet på det bakre benet." },
+            { "name": "Bröstryggsrotation på alla fyra", "reps": 10, "perSide": true, "cue": "Handen bakom huvudet; följ armbågen med blicken och andas ut när du roterar upp." },
+            { "name": "Sittande sätesstretch (figur 4)", "sets": 2, "seconds": 45, "perSide": true, "cue": "Vristen över motsatt knä; håll ryggen rak och luta dig fram från höften." },
+            { "name": "Katt–ko", "reps": 10, "slow": true, "cue": "Runda och svanka ryggen en kota i taget, i takt med andningen." },
+            { "name": "Bröststretch i dörröppning", "sets": 2, "seconds": 30, "perSide": true, "cue": "Underarmen mot karmen med armbågen i axelhöjd; luta dig fram tills det drar i bröstet." },
+            { "name": "Världens bästa stretch", "reps": 5, "perSide": true, "secondsPerRep": 10, "cue": "Från utfall: armbågen mot golvet innanför främre foten, rotera sedan upp med armen mot taket." }
+          ]
+        },
+        {
+          "id": "baksida-axlar",
+          "name": "Baksida lår och axlar",
+          "movements": [
+            { "name": "Liggande hamstringsstretch med band eller handduk", "sets": 2, "seconds": 45, "perSide": true, "cue": "Håll knät nästan rakt och det andra benet kvar i golvet." },
+            { "name": "Open book (liggande bröstryggsrotation)", "reps": 10, "perSide": true, "secondsPerRep": 5, "cue": "Ligg på sidan med böjda knän; öppna den övre armen bakåt och följ handen med blicken." },
+            { "name": "Bröststretch i dörröppning", "sets": 2, "seconds": 30, "perSide": true, "cue": "Underarmen mot karmen med armbågen i axelhöjd; luta dig fram tills det drar i bröstet." },
+            { "name": "Djup knäböj, hållning", "sets": 3, "seconds": 30, "cue": "Håll i en dörrkarm om du behöver; hälarna i golvet och bröstet upp." },
+            { "name": "Sleeper stretch", "sets": 2, "seconds": 30, "perSide": true, "cue": "Ligg på sidan med överarmen i axelhöjd och tryck försiktigt ned underarmen mot golvet." },
+            { "name": "Barnets position", "sets": 2, "seconds": 45, "cue": "Sitt bakåt mot hälarna med armarna sträckta framåt och andas lugnt." }
+          ]
+        },
+        {
+          "id": "hoftrotation-vrister",
+          "name": "Höftrotation och vrister",
+          "movements": [
+            { "name": "90/90-höftrotation", "sets": 2, "reps": 8, "slow": true, "cue": "Sitt med båda knäna i 90 grader och vrid dem långsamt från sida till sida med rak rygg." },
+            { "name": "Grodställning", "sets": 2, "seconds": 45, "cue": "På alla fyra med knäna brett isär; för höften långsamt bakåt tills det drar på insidan av låren." },
+            { "name": "Vristmobilisering mot vägg", "reps": 10, "perSide": true, "cue": "Foten en handbredd från väggen; för knät mot väggen med hälen kvar i golvet." },
+            { "name": "Liggande höftrotation (vindrutetorkare)", "reps": 10, "perSide": true, "cue": "Ligg på rygg med böjda knän och fötterna brett isär; fäll knäna långsamt åt ena sidan och sedan åt den andra." },
+            { "name": "Höftböjarstretch med armsträck", "sets": 2, "seconds": 30, "perSide": true, "cue": "Från utfall: sträck armen på samma sida som det bakre benet upp och lite över mot motsatt sida." },
+            { "name": "Liggande sätesstretch", "sets": 2, "seconds": 30, "perSide": true, "cue": "Ligg på rygg och dra ena knät mot motsatt axel tills det drar i sätet." },
+            { "name": "Katt–ko", "reps": 10, "slow": true, "cue": "Runda och svanka ryggen en kota i taget, i takt med andningen." }
+          ]
+        },
+        {
+          "id": "rygg-sidor",
+          "name": "Rygg och sidor",
+          "movements": [
+            { "name": "Trä nålen", "sets": 2, "seconds": 30, "perSide": true, "cue": "På alla fyra: för ena armen under kroppen mot motsatt sida och låt axeln vila mot golvet." },
+            { "name": "Stående sidoböj", "sets": 2, "seconds": 30, "perSide": true, "cue": "Fötterna höftbrett; sträck armen över huvudet och luta dig åt sidan utan att vrida dig framåt." },
+            { "name": "Sittande rotation med en klubba över axlarna", "reps": 10, "perSide": true, "cue": "Sitt på en stol och rotera från bröstryggen med höfterna stilla." },
+            { "name": "Latsstretch på knä", "sets": 2, "seconds": 45, "cue": "Armbågarna på en bänk eller stol och händerna ihop; sänk bröstet mot golvet." },
+            { "name": "Höftböjarstretch i utfallsställning", "sets": 2, "seconds": 45, "perSide": true, "cue": "Håll bäckenet neutralt och spänn sätet på det bakre benet." },
+            { "name": "Katt–ko", "reps": 10, "slow": true, "cue": "Runda och svanka ryggen en kota i taget, i takt med andningen." }
+          ]
+        }
       ]
     },
     "mealPrep": {
-      "label": "Meal prep"
+      "label": "Matlagning"
     }
   },
   "golf": {
@@ -160,7 +245,6 @@
       }
     }
   },
-  "shoppingTaskTitle": "Grocery shopping for next week",
   "todoist": {
     "projectName": null,
     "sectionName": null

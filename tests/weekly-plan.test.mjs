@@ -30,7 +30,7 @@ const WEEK = "2026-09-28";
 
 /** `golf` is the user's golf answer; without one the plan has no golf week. */
 function planFor(input = {}, { golf, today = null, ...options } = {}) {
-  const inputs = buildInitialPlanInputs(input, { config, weekStart: WEEK, ...options });
+  const inputs = buildInitialPlanInputs(input, { config, food, weekStart: WEEK, ...options });
   if (golf) {
     const answered = applyGolfChanges(emptyGolfInputs(config), golf, { weekStart: WEEK });
     assert.deepEqual(answered.problems, []);
@@ -48,7 +48,7 @@ function opsOf(plan, activity) {
 }
 
 function revise(previous, changes) {
-  const { inputs, summary } = applyWeeklyPlanChanges(previous.inputs, previous.plan, changes, { config });
+  const { inputs, summary } = applyWeeklyPlanChanges(previous.inputs, previous.plan, changes, { config, food });
   return { inputs, summary, plan: buildWeeklyPlan(inputs, { config, food }) };
 }
 
@@ -123,11 +123,11 @@ describe("weekly plan generation", () => {
     }
     assert.equal(plan.food.prep.length, config.defaultTargets.mealPrep);
     assert.ok(plan.food.prep.every((session) => session.mealId && session.portions > 0));
-    assert.ok(plan.food.breakfast.length > 0);
-    assert.ok(plan.food.backup);
+    assert.equal(plan.food.breakfast, undefined, "no automatic breakfast");
+    assert.equal(plan.food.backup, undefined, "no automatic backup meal");
     assert.ok(plan.shopping.itemCount > 0);
     assert.equal(opsOf(plan, "shopping").length, 1);
-    assert.equal(opsOf(plan, "shopping")[0].payload.content, "Grocery shopping for next week");
+    assert.equal(opsOf(plan, "shopping")[0].payload.content, "Matinköp för veckan");
   });
 
   it("honours configurable counts for every activity", () => {
@@ -154,8 +154,9 @@ describe("weekly plan generation", () => {
 
     assert.equal(plan.placements.length, 0);
     assert.deepEqual(plan.food.prep, []);
-    // Breakfast and snacks still need buying, so one shopping task remains.
-    assert.deepEqual(plan.operations.map((operation) => operation.activity), ["shopping"]);
+    // Nothing is cooked, so nothing is bought: no grocery task at all.
+    assert.deepEqual(plan.operations, []);
+    assert.equal(plan.shopping.itemCount, 0);
   });
 
   it("rejects counts outside 0-7 and unknown activities", () => {
@@ -259,13 +260,13 @@ describe("weekly plan generation", () => {
   it("builds a shopping list that matches the food plan, with quantities", () => {
     const { plan } = planFor();
     const items = plan.shopping.sections.flatMap((section) => section.items);
-    const chicken = items.find((item) => item.name === "Chicken breast");
+    const chicken = items.find((item) => item.name === "Kycklingfilé");
 
     assert.equal(chicken.quantity, "450 g");
     assert.equal(plan.shopping.date, plan.food.prep[0].date);
     const description = opsOf(plan, "shopping")[0].payload.description;
-    assert.match(description, /^Protein:\n- Chicken breast \(450 g\)/);
-    assert.match(description, /\n\nFor:\n- Chicken, rice and vegetables x3/);
+    assert.match(description, /^Till veckans matlagning\n- Kyckling med ris och grönsaker – 3 portioner \(tisdag\)\n/);
+    assert.match(description, /\n\nKött, fågel och fisk\n- Kycklingfilé – 450 g\n/);
   });
 
   it("writes concrete stretch and training details through the Todoist pipeline", () => {
@@ -273,10 +274,10 @@ describe("weekly plan generation", () => {
     const stretch = opsOf(plan, "stretch")[0].payload;
     const gym = opsOf(plan, "gym")[0].payload;
 
-    assert.match(stretch.content, /^Stretch — (Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day$/);
-    assert.match(stretch.description, /^15 min mobility:\n- /);
-    assert.ok(stretch.description.split("\n").length >= 4);
-    assert.match(gym.content, /^Gym — /);
+    assert.match(stretch.content, /^Rörlighet – (Måndag|Tisdag|Onsdag|Torsdag|Fredag|Lördag|Söndag), 15 minuter$/);
+    assert.match(stretch.description, /^.+ · 15 minuter\n\n1\. .+ – /);
+    assert.ok(stretch.description.split("\n").filter((line) => /^\d+\. /.test(line)).length >= 5);
+    assert.match(gym.content, /^Gym – Helkropp [AB], (måndag|tisdag|onsdag|torsdag|fredag|lördag|söndag)$/);
     assert.equal(gym.due_string, opsOf(plan, "gym")[0].date);
     assert.deepEqual(Object.keys(gym).sort(), ["content", "description", "due_string"]);
   });
@@ -359,32 +360,36 @@ describe("weekly plan modifications", () => {
   it('"No salmon" removes salmon from the food plan, the shopping list and every task', () => {
     const before = planFor();
     assert.match(everyText(before.plan), /salmon/);
+    assert.match(everyText(before.plan), /laxfilé/);
 
     const after = revise(before, { excludeIngredients: ["Salmon"] });
-    assert.doesNotMatch(everyText(after.plan), /salmon/);
+    assert.doesNotMatch(everyText(after.plan), /salmon|lax/);
     assert.equal(after.plan.food.prep.length, 2);
     assert.ok(after.plan.food.prep.every((session) => session.mealId));
   });
 
   it('"Add bananas" adds them to the shopping list and the shopping task', () => {
-    const after = revise(planFor(), { addShopping: [{ name: "bananas", section: "fruit" }] });
-    const fruit = after.plan.shopping.sections.find((section) => section.id === "fruit");
+    const after = revise(planFor(), { addShopping: [{ name: "bananer", section: "fruit" }] });
+    const produce = after.plan.shopping.sections.find((section) => section.id === "produce");
 
-    assert.ok(fruit.items.some((item) => item.name === "Bananas"));
-    assert.match(opsOf(after.plan, "shopping")[0].payload.description, /- Bananas/);
+    assert.ok(produce.items.some((item) => item.name === "Bananer" && item.user));
+    assert.match(opsOf(after.plan, "shopping")[0].payload.description, /\n- Bananer\n/);
   });
 
-  it("refuses a custom meal with too many ingredients instead of dropping some", () => {
-    const ingredients = Array.from({ length: 16 }, (_, index) => ({ name: `Item ${index + 1}` }));
-    assert.throws(() => revise(planFor(), { addMeals: [{ name: "Big stew", ingredients }] }), /16 ingredients; the limit is 15/);
-    const fifteen = revise(planFor(), { addMeals: [{ name: "Big stew", ingredients: ingredients.slice(0, 15) }] });
-    assert.match(everyText(fifteen.plan), /item 15/);
+  it("refuses a recipe with too many ingredients instead of dropping some", () => {
+    const steps = ["Hacka allt och lägg det i en gryta med lite vatten.", "Låt det koka under lock i 30 minuter och rör om då och då."];
+    const ingredients = Array.from({ length: 26 }, (_, index) => ({ name: `ingrediens ${index + 1}`, amount: 1, unit: "dl", section: "other" }));
+    assert.throws(() => revise(planFor(), { addMeals: [{ name: "Stor gryta", servings: 2, ingredients, steps }] }), /26 ingredients; the limit is 25/);
+    const all = revise(planFor(), { addMeals: [{ name: "Stor gryta", servings: 2, ingredients: ingredients.slice(0, 25), steps }] });
+    assert.match(everyText(all.plan), /ingrediens 25/);
   });
 
-  it('"Add pasta" adds a pasta meal and its ingredients', () => {
+  it('"Add pasta" cooks the pasta in a session of its own, with its recipe and ingredients', () => {
     const after = revise(planFor(), { addMeals: ["turkey-pasta"] });
-    assert.deepEqual(after.plan.food.extras.map((meal) => meal.mealId), ["turkey-pasta"]);
-    assert.match(everyText(after.plan), /turkey mince/);
+    assert.ok(after.plan.food.prep.some((session) => session.mealId === "turkey-pasta"));
+    assert.deepEqual(after.summary, ["Added Pasta med kalkonfärs och tomatsås", "Meal prep 2 → 3"]);
+    assert.ok(opsOf(after.plan, "mealPrep").some((operation) => operation.payload.content === "Matlagning – Pasta med kalkonfärs och tomatsås"));
+    assert.match(everyText(after.plan), /kalkonfärs/);
   });
 
   it('"Meal prep once" leaves one session and a matching shopping list', () => {
@@ -392,7 +397,7 @@ describe("weekly plan modifications", () => {
 
     assert.equal(opsOf(after.plan, "mealPrep").length, 1);
     assert.equal(after.plan.food.prep.length, 1);
-    assert.doesNotMatch(everyText(after.plan), /salmon/);
+    assert.doesNotMatch(everyText(after.plan), /salmon|lax/);
   });
 
   it('"Skip Saturday completely" keeps new activities, golf included, off Saturday', () => {

@@ -46,8 +46,29 @@ JSON
   - `Saturday is now a competition` → `{"golf": {"replyText": "…", "addRounds": [{"day": "saturday", "competition": true}]}}`. The round keeps its known hole count.
   - `Putting should be the main focus` → `{"golf": {"replyText": "…", "focus": ["Putting", "Wedges 50–100 m"]}}`, keeping the other area second.
   - `I only have 30 minutes Monday` → `"minutes": {"monday": 30}`. `No range sessions this week` → `"avoid": ["range"]`. `No golf next week` → `"activeDays": 0`. `Lesson on Thursday` → `"addLessons": [{"day": "thursday"}]`. `My coach wants me working on clubface control` → `"technicalPriority": "Clubface control"`.
-- Other changes: `Gym 3 times` → `{"targets":{"gym":3}}`; `Stretch four times` → `{"targets":{"stretch":4}}`; `Meal prep only once` → `{"targets":{"mealPrep":1}}`; `Move Friday gym to Sunday` → `{"moves":[{"activity":"gym","from":"friday","to":"sunday"}]}`; `Don't use salmon` → `{"excludeIngredients":["salmon"]}`; `Add pasta` → `{"addMeals":["turkey-pasta"]}`; `Add bananas to the shopping list` → `{"addShopping":[{"name":"Bananas","section":"fruit"}]}`; `Skip Saturday completely` → `{"skipDays":["saturday"]}`; `I'm busy on Wednesday` → `{"dayLoads":{"wednesday":"heavy"}}`.
+- Other changes: `Gym 3 times` → `{"targets":{"gym":3}}`; `Stretch four times` → `{"targets":{"stretch":4}}`; `Meal prep only once` → `{"targets":{"mealPrep":1}}`; `Move Friday gym to Sunday` → `{"moves":[{"activity":"gym","from":"friday","to":"sunday"}]}`; `Skip Saturday completely` → `{"skipDays":["saturday"]}`; `I'm busy on Wednesday` → `{"dayLoads":{"wednesday":"heavy"}}`.
+- Food changes, with the recipe ids listed at the end of this guide: `Don't use salmon` → `{"excludeIngredients":["salmon"]}` (any language works, `lax` too; a dish that needs it is replaced, never cooked without it); `Add pasta` → `{"addMeals":["turkey-pasta"]}` (the dish gets its own meal-prep session, so meal prep goes up by one unless a session is free); `Swap the salmon for chili` → `{"removeMeals":["salmon-potatoes-veg"],"addMeals":["beef-chili-rice"]}`; `Make 4 portions of the chili` → `{"mealPortions":{"beef-chili-rice":4}}`; `Recipes in Finnish` → `{"recipeLanguage":"fi"}` (`"sv"` switches back); `Add bananas to the shopping list` → `{"addShopping":[{"name":"Bananer","section":"produce"}]}`; `I already have rice` → `{"removeShopping":["ris"]}` (it stays in the recipe).
 - If a change is unclear, ask one short question instead of guessing. If `revise` returns `clarify`, handle it as for answers. If it reports another error, for example that an existing Todoist task cannot be moved, say so plainly.
+
+## Food And Recipes
+
+- Every meal-prep session cooks one dish with a complete recipe, and each dish gets its own task, `Matlagning – <dish>`, with portions, every ingredient amount and numbered steps. The one grocery task, `Matinköp för veckan`, lists exactly what those dishes need plus what the user explicitly added. Never add a dish, snack, backup meal or grocery the user did not ask for: there are no top-ups.
+- Recipes are in Swedish unless the user asked for Finnish. Shopping items the user adds are named in that language too, and their section is one of `produce`, `bread`, `meat-fish`, `dairy`, `dry-goods`, `canned`, `frozen`, `other`.
+- A recipe the user gives you (`Cook this on Thursday: …`) goes in `addMeals` as a complete recipe, in a quoted heredoc:
+
+```json
+{"addMeals": [{"name": "Mormors köttfärssås", "servings": 4, "portions": 3, "minutes": 45, "oven": {"temperature": 350, "unit": "F", "mode": "fan"}, "ingredients": [{"id": "fars", "name": "nötfärs", "amount": 1, "unit": "lb", "section": "meat-fish"}, {"name": ["gul lök", "gula lökar"], "amount": 1, "unit": "st", "section": "produce"}, {"name": "salt", "toTaste": true, "staple": true}], "steps": ["Sätt ugnen på {oven}.", "Bryn {fars} färs i en gryta.", "…"], "storage": "…"}]}
+```
+
+- Translate the name, every ingredient name, the steps and the storage advice into the week's recipe language, not just the title. Keep the source's own amounts and units in `amount` and `unit` (lb, oz, cups, tbsp, tsp, °F): the planner converts them, cups to dl and never to grams. Never convert, round or invent an amount yourself.
+- `servings` is what the recipe makes; `portions` is what the user wants, and the recipe is scaled to it. In steps, write amounts only as `{ingredient-id}` placeholders (the ingredient's `id`, or its name in lower case with dashes), `{oven}` or `{portions}`, so they scale. Two name forms help the wording: Swedish singular and plural, `["gul lök", "gula lökar"]`, or Finnish nominative and partitive, `["keltasipuli", "keltasipulia"]`. `toTaste` is only for seasoning the recipe gives no amount for, and `staple` marks basics such as oil and salt.
+- If the result is `clarify`, nothing was stored: ask the user its `telegramText`. Never fill in a missing amount, unit or step; offer one of the recipes below instead if they prefer.
+- `Always give me recipes in Finnish` is an explicit request to remember: `npm run memory -- remember --category food --key recipe-language --value "finska" --source telegram`. Plans built after that use Finnish; a pending plan changes only with `recipeLanguage`.
+
+## Gym And Stretching
+
+- Each gym task holds a whole session: a warm-up, every exercise with sets × repetitions and rest, load as repetitions in reserve, and the total time. Each stretching task holds a 15-minute routine of named movements with hold times or repetitions per side. They come from config; never add weights, medical advice or restrictions in chat.
+- The day before a round or competition the plan picks the session with less leg work and takes a set off each leg exercise, and the task says so.
 
 ## Accepting And Cancelling
 
