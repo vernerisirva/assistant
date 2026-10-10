@@ -232,6 +232,13 @@ describe("weekly plan food: cooking tasks and the grocery list come from the sam
     assert.match(opsOf(after.plan, "mealPrep").find((operation) => operation.date === chili.date).payload.description, /\nPortioner: 4\n[\s\S]*\n- 530 g nötfärs\n/);
   });
 
+  it("takes portions in the first request by meal name too", () => {
+    const { plan } = planFor({ food: { mealIds: ["beef-chili-rice"], portions: { chili: 4 } } });
+    assertFoodInvariants(plan);
+    assert.equal(plan.food.prep.find((session) => session.mealId === "beef-chili-rice").portions, 4);
+    assert.throws(() => planFor({ food: { portions: { lasagne: 4 } } }), /Unknown meal: lasagne/);
+  });
+
   it("plans a recipe the user supplies from English, converted, with its cooking task and groceries", () => {
     const after = revise(planFor(), {
       addMeals: [

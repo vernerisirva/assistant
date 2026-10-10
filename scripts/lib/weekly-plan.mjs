@@ -210,12 +210,13 @@ export function buildInitialPlanInputs(rawInput = {}, { config, food: foodConfig
   };
   if (foodConfig) {
     const known = [...foodConfig.weeklyMealPlan.meals, ...inputs.food.customMeals, ...inputs.food.addedMeals.filter((meal) => typeof meal === "object")];
-    inputs.food.addedMeals = inputs.food.addedMeals.map((ref) => {
-      if (typeof ref !== "string") return ref;
+    const resolve = (ref) => {
       const meal = known.find((candidate) => candidate.id === ref) ?? findMealByTerm(known, ref);
       if (!meal) throw new Error(`Unknown meal: ${ref}. Use a meal id or pass a complete recipe.`);
       return meal.id;
-    });
+    };
+    inputs.food.addedMeals = inputs.food.addedMeals.map((ref) => (typeof ref === "string" ? resolve(ref) : ref));
+    inputs.food.portions = Object.fromEntries(Object.entries(inputs.food.portions).map(([ref, count]) => [resolve(ref), count]));
     if (input.targets?.mealPrep === undefined) makeRoomForAddedMeals(inputs, foodConfig, { config, summary: [] });
   }
   return inputs;
