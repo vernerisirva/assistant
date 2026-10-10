@@ -309,7 +309,7 @@ describe("weekly plan workflow", () => {
       assert.match(applied.text, /^Applied weekly plan · 28 Sep–4 Oct · v2/);
       const created = todoist.calls.addTask.map((call) => call.payload);
       assert.deepEqual(created, versionEntry(plan(), 2).plan.operations.map((operation) => operation.payload));
-      assert.equal(created.filter((payload) => payload.content.startsWith("Gym — ")).length, 3);
+      assert.equal(created.filter((payload) => payload.content.startsWith("Gym – ")).length, 3);
       assert.equal(created.filter((payload) => payload.content.startsWith("Golf")).length, 0);
     });
 

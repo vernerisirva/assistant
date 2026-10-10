@@ -94,7 +94,7 @@ function sectionsForRoutine(routineId) {
     case "midday-check-in":
       return [
         section("food", "Check lunch, snack, hydration, and evening meal friction."),
-        section("movement", "Suggest a realistic movement reset."),
+        section("movement", "Suggest one realistic movement reset: named movements with repetitions or seconds."),
         section("energy", "Ask one concise energy or stress question if useful."),
         section("schedule-pressure", "Adapt the afternoon plan to calendar pressure."),
       ];
@@ -110,11 +110,11 @@ function sectionsForRoutine(routineId) {
         ),
         section(
           "workout",
-          "For a training day, suggest one primary workout and one lighter fallback.",
+          "For a training day, suggest one primary workout and one lighter fallback, each with named exercises, sets × reps or time, rest and total minutes.",
         ),
         section(
           "golf-active",
-          "For a golf/active day, avoid pushing a gym workout; suggest warm-up, mobility, recovery, fueling, or hydration support.",
+          "For a golf/active day, avoid pushing a gym workout; suggest a specific warm-up or mobility routine (named movements with hold times or repetitions), recovery, fueling, or hydration support.",
         ),
         section(
           "rest-day",

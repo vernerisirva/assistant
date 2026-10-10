@@ -85,7 +85,7 @@ behavior. See `docs/setup/review.md` for setup and cost controls.
 - `config/agents.json`: agent registry, prompt directories, workspaces, and model env names.
 - `config/approval-policy.json`: safety and approval policy source.
 - `config/schedules.json`: routine schedule defaults.
-- `config/food-planning.json`: food-planning defaults.
+- `config/food-planning.json`: the Swedish/Finnish recipe catalog and grocery sections.
 - `scripts/review.mjs`: independent model review harness.
 - `scripts/lib/live-cron.mjs`: the only interface to the live Gateway scheduler; jobs live in its SQLite store, not `cron/jobs.json`.
 - `scripts/`: local CLI helpers.

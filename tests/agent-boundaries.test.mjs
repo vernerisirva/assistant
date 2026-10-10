@@ -376,6 +376,22 @@ describe("agent configuration", () => {
     }
   });
 
+  it("teaches the weekly plan's food rules in the guide: one recipe per dish, converted units, no top-ups", () => {
+    const guide = readFileSync("agents/personal/guides/weekly-plan.md", "utf8");
+    const food = JSON.parse(readFileSync("config/food-planning.json", "utf8"));
+
+    assert.match(guide, /`Add pasta` → `\{"addMeals":\["turkey-pasta"\]\}` \(the dish gets its own meal-prep session/);
+    assert.match(guide, /`Swap the salmon for chili` → `\{"removeMeals":\["salmon-potatoes-veg"\],"addMeals":\["beef-chili-rice"\]\}`/);
+    assert.match(guide, /`Make 4 portions of the chili` → `\{"mealPortions":\{"beef-chili-rice":4\}\}`/);
+    assert.match(guide, /`Recipes in Finnish` → `\{"recipeLanguage":"fi"\}`/);
+    assert.match(guide, /Never add a dish, snack, backup meal or grocery the user did not ask for: there are no top-ups\./);
+    assert.match(guide, /Keep the source's own amounts and units in `amount` and `unit` \(lb, oz, cups, tbsp, tsp, °F\): the planner converts them, cups to dl and never to grams\. Never convert, round or invent an amount yourself\./);
+    assert.match(guide, /If the result is `clarify`, nothing was stored: ask the user its `telegramText`\. Never fill in a missing amount, unit or step/);
+    for (const [, id] of guide.matchAll(/"((?:chicken|salmon|beef|turkey)-[a-z-]+)"/g)) {
+      assert.ok(food.weeklyMealPlan.meals.some((meal) => meal.id === id), `${id} is not a recipe id`);
+    }
+  });
+
   it("keeps the weekly plan's detail in a guide that stays subordinate to the standing orders", () => {
     const guide = readFileSync("agents/personal/guides/weekly-plan.md", "utf8");
 
@@ -411,6 +427,26 @@ describe("agent configuration", () => {
     const prompt = readFileSync(`${healthAgent.promptDir}/AGENTS.md`, "utf8");
 
     assert.match(prompt, /must not create, change or apply its Todoist tasks/);
+  });
+
+  it("makes every workout, mobility session and recipe Hilla plans specific, localized and free of top-ups", () => {
+    const health = readFileSync(`${agents.find((agent) => agent.id === "health").promptDir}/AGENTS.md`, "utf8");
+    const personal = readFileSync(`${agents.find((agent) => agent.id === "personal").promptDir}/AGENTS.md`, "utf8");
+
+    // Personal answers every Telegram message itself, so it carries the short form.
+    assert.match(personal, /A workout or mobility session names every exercise with sets × reps or hold time, rest, side and total minutes, never just `stretch 15 minutes`; a plain reminder stays plain\./);
+    assert.match(personal, /A recipe is in Swedish \(Finnish if asked\) whatever the source's language, with portions, every amount in g, dl, msk, tsk, st or °C \(convert cups, oz, lb and °F; ask when an amount is missing\) and numbered steps\./);
+    assert.match(personal, /A grocery list holds only what planned dishes need plus items the user names, never top-ups or backup food\./);
+
+    assert.match(health, /names each exercise or movement with sets × repetitions or hold time, rest where useful, which side, a short warm-up and the total minutes/);
+    assert.match(health, /Never invent weights or medical restrictions\. Keep leg work light the day before a golf round or competition\./);
+    assert.match(health, /A plain reminder the user asks for \(`Remind me to go to the gym`\) stays a plain reminder\./);
+    assert.match(health, /Recipes are always in Swedish, or Finnish when the user asks or has saved that preference, whatever the source's language/);
+    assert.match(health, /cups to dl \(never a cup of flour to grams\)/);
+    assert.match(health, /If an amount or step is missing or cannot be converted reliably, ask instead of guessing\./);
+    assert.match(health, /Build a grocery list only from the meals actually planned, scaled to their portions, plus items the user names\./);
+    assert.match(health, /Never add optional top-ups, backup meals, snacks or extra shopping "just in case"\./);
+    assert.doesNotMatch(health, /backup meals\.\n|Keep healthy convenience foods available|Include easy backup options/);
   });
 
   it("teaches the personal agent to run memory-aware daily routines", () => {

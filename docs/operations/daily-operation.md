@@ -191,7 +191,7 @@ If `--match-content` resolves multiple tasks, ask one clarifying question instea
 
 ## Weekly Plan
 
-Every Saturday at 09:00 Hilla asks which days you're playing golf next week, your 1–2 focus areas and any competition or lesson. Your answer completes next week's editable plan: food, grocery shopping, gym, stretching and a six-day golf week with one rest day. Unless it is changed or cancelled, its Todoist tasks are created 12 hours after the latest version was shown. An explicit OK creates them immediately. Full behavior and the standing authorization are in `docs/setup/routines.md` and `docs/security/approval-model.md`.
+Every Saturday at 09:00 Hilla asks which days you're playing golf next week, your 1–2 focus areas and any competition or lesson. Your answer completes next week's editable plan: food, grocery shopping, gym, stretching and a six-day golf week with one rest day. Every cooked dish gets its own recipe task, the one grocery list holds only what those dishes need plus what you add, and gym and stretching tasks name every exercise with sets, repetitions or hold times. Unless it is changed or cancelled, its Todoist tasks are created 12 hours after the latest version was shown. An explicit OK creates them immediately. Full behavior and the standing authorization are in `docs/setup/routines.md` and `docs/security/approval-model.md`.
 
 ```bash
 npm run --silent weekly-plan -- status            # pending? when does it apply? which version? applied?

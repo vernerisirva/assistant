@@ -7,11 +7,34 @@
  * Todoist payloads. A revision re-runs the same code over the stored inputs
  * plus the user's structured changes, so the plan the user sees is always the
  * plan that gets stored, and applying it never needs the model again.
+ *
+ * Food follows one rule: every cooking session is a dish with a complete
+ * recipe (recipes.mjs), every planned dish gets its own cooking task, and the
+ * grocery list is derived from exactly those scaled recipes plus what the user
+ * explicitly added. Nothing is bought "just in case".
  */
 import { createHash } from "node:crypto";
 import { isApprovalMessage, normalizeApprovalText } from "./approval-language.mjs";
 import { buildTodoistCreatePlan } from "./todoist-create.mjs";
 import { localDateInTimeZone } from "./routine-skips.mjs";
+import {
+  DEFAULT_RECIPE_LANGUAGE,
+  buildShoppingList,
+  cookingTask,
+  englishFoodWords,
+  ingredientNames,
+  localWeekday,
+  localizedMealName,
+  mealNames,
+  normalizeCustomRecipe,
+  parseRecipeLanguage,
+  recipeIssues,
+  resolveRecipe,
+  sectionId,
+  shoppingTask,
+  termMatches,
+} from "./recipes.mjs";
+import { assignGymSessions, gymTask, stretchTask } from "./workouts.mjs";
 import {
   GOLF_ROLES_WITH_TASKS,
   GolfInputError,
@@ -68,18 +91,8 @@ const SCHEDULE_LABELS = Object.freeze({
   stretch: "Stretch",
 });
 const DAY_LOADS = new Set(["light", "normal", "heavy", "unavailable"]);
-const SECTION_LABELS = Object.freeze({
-  protein: "Protein",
-  vegetables: "Vegetables",
-  fruit: "Fruit",
-  carbs: "Carbs",
-  "dairy-or-alternatives": "Dairy",
-  snacks: "Snacks",
-  breakfast: "Breakfast",
-  pantry: "Pantry",
-  "backup-meals": "Backup meals",
-  other: "Other",
-});
+const LANGUAGE_NAMES = Object.freeze({ sv: "Swedish", fi: "Finnish" });
+const MAX_MEAL_PORTIONS = 8;
 
 // ---------------------------------------------------------------------------
 // Dates. Plan days are plain YYYY-MM-DD strings (weekly-plan-dates.mjs).
@@ -145,8 +158,13 @@ export function formatLocalDateTime(iso, timezone = WEEKLY_PLAN_TIMEZONE) {
  * these inputs: it comes from the user's own answers (golf-week.mjs), and
  * `golf` stays null until they are complete. A saved practice focus passed as
  * golfPracticeFocus is not that week's focus, so it is accepted and ignored.
+ *
+ * @param food the food config, needed to give dishes the user added their
+ *   own cooking sessions
+ * @param language the recipe language when the input names none: a saved
+ *   preference, else the food config's default
  */
-export function buildInitialPlanInputs(rawInput = {}, { config, weekStart, previousTargets } = {}) {
+export function buildInitialPlanInputs(rawInput = {}, { config, food: foodConfig, weekStart, previousTargets, language } = {}) {
   const input = requireObject(rawInput ?? {}, "Weekly plan input");
   rejectUnknownKeys(input, [
     "weekStart",
@@ -177,7 +195,7 @@ export function buildInitialPlanInputs(rawInput = {}, { config, weekStart, previ
   for (const key of TARGET_KEYS) targets[key] = requireTargetCount(targets[key] ?? 0, key, config);
   normalizeTextList(input.golfPracticeFocus, "golfPracticeFocus", { max: 5 });
 
-  return {
+  const inputs = {
     weekStart: start,
     targets,
     days: normalizeDayLoads(input.days ?? {}, start),
@@ -185,11 +203,27 @@ export function buildInitialPlanInputs(rawInput = {}, { config, weekStart, previ
     preferences: normalizePreferences(input.preferences ?? {}, start, config),
     pins: [],
     existing: normalizeExistingTasks(input.existingTasks ?? [], start),
-    food: normalizeFoodInput(input.food ?? {}),
+    food: normalizeFoodInput(input.food ?? {}, { language: language ?? defaultLanguage(foodConfig) }),
     golf: null,
     question: normalizeOptionalText(input.question, "question", 280),
     notes: normalizeTextList(input.notes, "notes", { max: 5 }),
   };
+  if (foodConfig) {
+    const known = [...foodConfig.weeklyMealPlan.meals, ...inputs.food.customMeals, ...inputs.food.addedMeals.filter((meal) => typeof meal === "object")];
+    const resolve = (ref) => {
+      const meal = known.find((candidate) => candidate.id === ref) ?? findMealByTerm(known, ref);
+      if (!meal) throw new Error(`Unknown meal: ${ref}. Use a meal id or pass a complete recipe.`);
+      return meal.id;
+    };
+    inputs.food.addedMeals = inputs.food.addedMeals.map((ref) => (typeof ref === "string" ? resolve(ref) : ref));
+    inputs.food.portions = Object.fromEntries(Object.entries(inputs.food.portions).map(([ref, count]) => [resolve(ref), count]));
+    if (input.targets?.mealPrep === undefined) makeRoomForAddedMeals(inputs, foodConfig, { config, summary: [] });
+  }
+  return inputs;
+}
+
+function defaultLanguage(foodConfig) {
+  return foodConfig?.weeklyMealPlan?.defaultLanguage ?? DEFAULT_RECIPE_LANGUAGE;
 }
 
 function normalizeDayLoads(days, weekStart) {
@@ -225,11 +259,11 @@ function normalizePreferences(preferences, weekStart, config) {
 }
 
 const EXISTING_PATTERNS = [
-  ["shopping", /^(grocery shopping|groceries|grocery|food shopping|shopping list|buy groceries)\b/],
-  ["mealPrep", /^meal ?prep\b/],
+  ["shopping", /^(grocery shopping|groceries|grocery|food shopping|shopping list|buy groceries|matinköp|veckohandla|veckohandling|ruokaostokset|viikon ruokaostokset)\b/],
+  ["mealPrep", /^(meal ?prep|matlagning|ruoanlaitto)\b/],
   ["golf", /^(golf|play golf|\d+ holes|driving range|range session|short game|putting practice|chipping practice)\b/],
-  ["gym", /^(gym|strength|workout|weights|lifting)\b/],
-  ["stretch", /^(stretch|stretching|mobility|yoga)\b/],
+  ["gym", /^(gym|strength|workout|weights|lifting|styrketräning|kuntosali)\b/],
+  ["stretch", /^(stretch|stretching|mobility|yoga|rörlighet|liikkuvuus|venyttely)\b/],
 ];
 
 /**
@@ -267,57 +301,66 @@ export function normalizeExistingTasks(tasks, weekStart) {
   return result.sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title));
 }
 
-function normalizeFoodInput(food) {
+/**
+ * A custom meal must be a complete recipe in the week's recipe language
+ * (recipes.mjs refuses anything less, saying what is missing). Shopping items
+ * here are the user's own explicit additions.
+ */
+function normalizeFoodInput(food, { language }) {
   requireObject(food, "food");
-  rejectUnknownKeys(food, ["mealIds", "customMeals", "excludeIngredients", "addMeals", "addShopping"], "food");
+  rejectUnknownKeys(food, ["mealIds", "customMeals", "excludeIngredients", "addMeals", "addShopping", "language", "portions"], "food");
+  const recipeLanguage = food.language === undefined || food.language === null ? language : requireRecipeLanguage(food.language);
   return {
+    language: recipeLanguage,
     mealIds: normalizeTextList(food.mealIds, "food.mealIds", { max: 7 }),
-    customMeals: (food.customMeals ?? []).map(normalizeCustomMeal),
+    customMeals: (food.customMeals ?? []).map((meal) => normalizeCustomRecipe(meal, { language: recipeLanguage })),
     excludeIngredients: normalizeTextList(food.excludeIngredients, "food.excludeIngredients", { max: 20 }).map((term) => term.toLowerCase()),
-    addedMeals: (food.addMeals ?? []).map(normalizeMealRef),
+    addedMeals: (food.addMeals ?? []).map((ref) => normalizeMealRef(ref, recipeLanguage)),
     removedMealIds: [],
-    extraShopping: (food.addShopping ?? []).map(normalizeShoppingItem),
+    extraShopping: (food.addShopping ?? []).map((item) => normalizeShoppingItem(item, { language: recipeLanguage })),
     removedShopping: [],
+    portions: normalizePortionMap(food.portions ?? {}, "food.portions"),
   };
 }
 
-function normalizeMealRef(ref) {
+function normalizeMealRef(ref, language) {
   if (typeof ref === "string") return normalizeOptionalText(ref, "meal id", 60);
-  return normalizeCustomMeal(ref);
+  return normalizeCustomRecipe(ref, { language });
 }
 
-function normalizeCustomMeal(meal) {
-  requireObject(meal, "custom meal");
-  rejectUnknownKeys(meal, ["id", "name", "portions", "ingredients"], "custom meal");
-  const name = normalizeOptionalText(meal.name, "custom meal name", 80);
-  if (!name) throw new Error("A custom meal needs a name.");
-  const portions = meal.portions === undefined ? 2 : Number(meal.portions);
-  if (!Number.isInteger(portions) || portions < 1 || portions > 8) {
-    throw new Error("Custom meal portions must be an integer from 1 to 8.");
-  }
-  if (!Array.isArray(meal.ingredients) || meal.ingredients.length === 0) {
-    throw new Error(`Custom meal "${name}" needs at least one ingredient.`);
-  }
-  if (meal.ingredients.length > 15) {
-    throw new Error(`Custom meal "${name}" has ${meal.ingredients.length} ingredients; the limit is 15.`);
-  }
-  return {
-    id: meal.id ? normalizeOptionalText(meal.id, "custom meal id", 60) : `custom-${slug(name)}`,
-    name,
-    portions,
-    ingredients: meal.ingredients.map(normalizeShoppingItem),
-  };
+function normalizePortionMap(value, label) {
+  requireObject(value, label);
+  const result = {};
+  for (const [ref, count] of Object.entries(value)) result[ref] = requirePortions(count, ref);
+  return result;
 }
 
-function normalizeShoppingItem(item) {
+function requirePortions(value, ref) {
+  const count = Number(value);
+  if (!Number.isInteger(count) || count < 1 || count > MAX_MEAL_PORTIONS) {
+    throw new Error(`Portions for ${ref} must be a whole number from 1 to ${MAX_MEAL_PORTIONS}.`);
+  }
+  return count;
+}
+
+function requireRecipeLanguage(value) {
+  const language = parseRecipeLanguage(value);
+  if (!language) throw new Error(`Recipes can be in Swedish (sv) or Finnish (fi), not ${value}.`);
+  return language;
+}
+
+function normalizeShoppingItem(item, { language } = {}) {
   const value = typeof item === "string" ? { name: item } : requireObject(item, "shopping item");
   rejectUnknownKeys(value, ["name", "section", "quantity"], "shopping item");
   const name = normalizeOptionalText(value.name, "shopping item name", 60);
   if (!name) throw new Error("A shopping item needs a name.");
-  const section = String(value.section ?? "other").toLowerCase();
+  // The grocery list is in the recipe language; the user's request may not be.
+  if (englishFoodWords(name).length > 0) {
+    throw new Error(`Shopping items are written in ${LANGUAGE_NAMES[language] ?? "Swedish"} like the rest of the list: translate "${name}" and run the change again.`);
+  }
   return {
     name: capitalize(name),
-    section: SECTION_LABELS[section] ? section : "other",
+    section: sectionId(value.section),
     ...(value.quantity ? { quantity: normalizeOptionalText(value.quantity, "shopping quantity", 30) } : {}),
   };
 }
@@ -348,10 +391,19 @@ export function buildWeeklyPlan(inputs, { config, food: foodConfig, today = null
       })
     : null;
   const golfDays = new Map((golf?.days ?? []).map((day) => [day.date, day]));
-  const placements = schedulePlacements({ dates, inputs, notes, golfDays, today });
+  // Every meal-prep session cooks a dish with a complete recipe, so there are
+  // never more sessions than such dishes.
+  const menu = planMenu(inputs, foodConfig);
+  const wantedMealPrep = Math.max(0, inputs.targets.mealPrep - inputs.existing.filter((entry) => entry.activity === "mealPrep").length);
+  if (wantedMealPrep > menu.queue.length) {
+    notes.push(
+      `Only ${menu.queue.length} dish${menu.queue.length === 1 ? "" : "es"} with a complete recipe ${menu.queue.length === 1 ? "is" : "are"} left after your changes, so meal prep is ${menu.queue.length} instead of ${wantedMealPrep}. Name a dish or send me a recipe to add one.`,
+    );
+  }
+  const placements = schedulePlacements({ dates, inputs, notes, golfDays, today, menu });
   const mealPrepDates = placements.filter((entry) => entry.activity === "mealPrep").map((entry) => entry.date).sort();
-  const foodPlan = planFood({ inputs, mealPrepDates, foodConfig, notes });
-  const shopping = planShopping({ inputs, foodPlan, foodConfig });
+  const { food: foodPlan, recipes } = planFood({ placements, menu, notes, target: inputs.targets.mealPrep });
+  const shopping = planShopping({ inputs, foodPlan, recipes });
   const existingShopping = inputs.existing.find((entry) => entry.activity === "shopping");
   const shoppingDate = shopping.itemCount > 0 ? pickShoppingDate({ dates, inputs, mealPrepDates, today }) : null;
   shopping.date = shoppingDate;
@@ -380,7 +432,7 @@ export function buildWeeklyPlan(inputs, { config, food: foodConfig, today = null
     placements,
     golf,
     golfDays,
-    foodPlan,
+    recipes,
     shopping,
     createShoppingTask: Boolean(shoppingDate && !existingShopping),
   });
@@ -400,7 +452,7 @@ export function buildWeeklyPlan(inputs, { config, food: foodConfig, today = null
   };
 }
 
-function schedulePlacements({ dates, inputs, notes, golfDays, today }) {
+function schedulePlacements({ dates, inputs, notes, golfDays, today, menu }) {
   const occupancy = new Map(dates.map((date) => [date, new Set()]));
   for (const entry of inputs.existing) {
     if (entry.activity !== "shopping") occupancy.get(entry.date)?.add(entry.activity);
@@ -415,23 +467,31 @@ function schedulePlacements({ dates, inputs, notes, golfDays, today }) {
     if (inputs.days[date]?.load === "unavailable") return true;
     return inputs.preferences[activity]?.avoidDays.includes(date) ?? false;
   };
-  const place = (activity, date, explicit) => {
+  // A meal-prep session keeps its dish across revisions.
+  const place = (activity, date, explicit, mealId) => {
     occupancy.get(date).add(activity);
-    placements.push({ activity, date, ...(explicit ? { explicit: true } : {}) });
+    placements.push({ activity, date, ...(explicit ? { explicit: true } : {}), ...(mealId ? { mealId } : {}) });
   };
+  const keepsDish = (pin) => Number(Boolean(pin.mealId && menu.eligible.has(pin.mealId)));
 
   for (const activity of PLACEMENT_ORDER) {
     const target = inputs.targets[activity];
     const existingCount = inputs.existing.filter((entry) => entry.activity === activity).length;
     let need = Math.max(0, target - existingCount);
+    if (activity === "mealPrep") need = Math.min(need, menu.queue.length);
 
     const pins = inputs.pins
       .filter((pin) => pin.activity === activity)
-      .sort((a, b) => Number(Boolean(b.explicit)) - Number(Boolean(a.explicit)) || a.date.localeCompare(b.date));
+      .sort(
+        (a, b) =>
+          keepsDish(b) - keepsDish(a) ||
+          Number(Boolean(b.explicit)) - Number(Boolean(a.explicit)) ||
+          a.date.localeCompare(b.date),
+      );
     for (const pin of pins) {
       if (need === 0) break;
       if (blocked(activity, pin.date, { explicit: pin.explicit })) continue;
-      place(activity, pin.date, pin.explicit);
+      place(activity, pin.date, pin.explicit, activity === "mealPrep" ? pin.mealId : null);
       need -= 1;
     }
 
@@ -451,11 +511,11 @@ function schedulePlacements({ dates, inputs, notes, golfDays, today }) {
             weekdayIndex(a.date) - weekdayIndex(b.date),
         );
       if (candidates.length === 0) {
-        const placed = target - existingCount - need;
+        const placed = placements.filter((entry) => entry.activity === activity).length;
         notes.push(`Only room for ${placed + existingCount} of ${target} ${SCHEDULE_LABELS[activity].toLowerCase()} sessions.`);
         break;
       }
-      place(activity, candidates[0].date, false);
+      place(activity, candidates[0].date, false, null);
       need -= 1;
     }
   }
@@ -557,143 +617,158 @@ function pickShoppingDate({ dates, inputs, mealPrepDates, today }) {
   return open.find((date) => !skip.has(date) && inputs.days[date]?.load !== "unavailable") ?? open[0] ?? dates[6];
 }
 
-function planFood({ inputs, mealPrepDates, foodConfig, notes }) {
-  const catalog = foodConfig.weeklyMealPlan;
-  const excluded = inputs.food.excludeIngredients;
+/**
+ * Which dishes this week can be cooked: every recipe that is complete in the
+ * week's language and not removed or excluded. The queue fills free sessions
+ * in order: dishes the user added, then their preferred meals, then the
+ * catalog. Dishes the user added that cannot be cooked are reported, never
+ * planned without a recipe.
+ */
+function planMenu(inputs, foodConfig) {
+  const language = inputs.food.language ?? defaultLanguage(foodConfig);
+  const catalog = foodConfig.weeklyMealPlan.meals;
+  const known = [...catalog, ...inputs.food.customMeals, ...inputs.food.addedMeals.filter((meal) => typeof meal === "object")];
+  const byId = new Map(known.map((meal) => [meal.id, meal]));
   const removed = new Set(inputs.food.removedMealIds);
-  const allMeals = knownMeals(catalog, inputs.food);
-  const byId = new Map(allMeals.map((meal) => [meal.id, meal]));
-  const orderedIds = [...new Set([...inputs.food.mealIds, ...catalog.meals.map((meal) => meal.id)])];
-  const usable = orderedIds
-    .map((id) => byId.get(id))
-    .filter((meal) => meal && !removed.has(meal.id) && !mealIsExcluded(meal, excluded));
+  const excluded = inputs.food.excludeIngredients;
+  const issues = [];
+  const usable = (meal) => !removed.has(meal.id) && !mealIsExcluded(meal, excluded) && recipeIssues(meal, language).length === 0;
 
-  const prep = mealPrepDates.map((date, index) => {
-    const meal = usable[index];
-    if (!meal) return { date, mealId: null, name: null, portions: 0 };
-    return { date, mealId: meal.id, name: meal.name, portions: meal.portions ?? catalog.portionsPerPrep };
-  });
-  if (prep.some((session) => !session.mealId)) {
-    notes.push("Not enough meals left after your changes; one meal-prep session is your choice.");
-  }
-
-  const usedIds = new Set(prep.map((session) => session.mealId).filter(Boolean));
-  const extras = [];
+  const added = [];
   for (const ref of inputs.food.addedMeals) {
-    const meal = typeof ref === "string" ? byId.get(ref) ?? findMealByTerm(allMeals, ref) : ref;
-    if (!meal) throw new Error(`Unknown meal: ${ref}. Use a meal id or pass a custom meal with ingredients.`);
-    if (removed.has(meal.id) || mealIsExcluded(meal, excluded) || usedIds.has(meal.id)) continue;
-    usedIds.add(meal.id);
-    extras.push({ mealId: meal.id, name: meal.name, portions: meal.portions ?? 2 });
+    const meal = typeof ref === "string" ? byId.get(ref) ?? findMealByTerm(known, ref) : ref;
+    if (!meal) throw new Error(`Unknown meal: ${ref}. Use a meal id or pass a complete recipe.`);
+    if (removed.has(meal.id) || added.includes(meal.id)) continue;
+    const problems = recipeIssues(meal, language);
+    if (problems.length > 0) {
+      issues.push(`${problems[0]} Send me the whole recipe (ingredients with amounts and the steps) to cook it.`);
+      continue;
+    }
+    if (mealIsExcluded(meal, excluded)) {
+      issues.push(`${localizedMealName(meal, language)} isn't planned: it contains something you excluded.`);
+      continue;
+    }
+    added.push(meal.id);
   }
-
-  const options = (list) => list.filter((option) => !option.items.some((item) => itemIsExcluded(item, excluded)));
+  const preferred = inputs.food.mealIds.filter((id) => byId.has(id));
+  for (const id of preferred) {
+    const meal = byId.get(id);
+    if (meal.custom === undefined && typeof meal.name === "string" && !removed.has(id)) {
+      issues.push(`${recipeIssues(meal, language)[0]} Send me the whole recipe to cook it.`);
+    }
+  }
+  const queue = [...new Set([...added, ...preferred, ...catalog.map((meal) => meal.id)])].filter((id) => usable(byId.get(id)));
   return {
-    prep,
-    extras,
-    breakfast: options(catalog.breakfast).map((option) => option.label),
-    snacks: options(catalog.snacks).map((option) => option.label),
-    backup: options(catalog.backup)[0]?.label ?? null,
+    language,
+    byId,
+    known,
+    added,
+    queue,
+    eligible: new Set(queue),
+    issues: [...new Set(issues)],
+    portionsFor: (meal) => inputs.food.portions?.[meal.id] ?? meal.portions ?? meal.servings,
   };
 }
 
-/** Catalog meals plus every custom meal the user supplied, inline or up front. */
-function knownMeals(catalog, food) {
-  const custom = [...food.customMeals, ...food.addedMeals.filter((meal) => typeof meal === "object")];
-  return [...catalog.meals, ...custom];
+/**
+ * Gives each meal-prep session its dish: a session keeps the dish it had in
+ * the version the user saw while that dish is still possible, so changing one
+ * meal changes only that session. Then each recipe is scaled once; the cooking
+ * task and the grocery list both use the result.
+ */
+function planFood({ placements, menu, notes, target }) {
+  const sessions = placements.filter((entry) => entry.activity === "mealPrep");
+  const used = new Set();
+  for (const session of sessions) {
+    if (session.mealId && menu.eligible.has(session.mealId) && !used.has(session.mealId)) used.add(session.mealId);
+    else delete session.mealId;
+  }
+  for (const session of sessions) {
+    if (session.mealId) continue;
+    // There are never more sessions than dishes in the queue (schedulePlacements caps them).
+    session.mealId = menu.queue.find((id) => !used.has(id));
+    used.add(session.mealId);
+  }
+
+  const recipes = new Map();
+  const prep = sessions.map((session) => {
+    const meal = menu.byId.get(session.mealId);
+    const recipe = resolveRecipe(meal, { language: menu.language, portions: menu.portionsFor(meal) });
+    recipes.set(session.date, recipe);
+    return {
+      date: session.date,
+      mealId: meal.id,
+      name: recipe.name,
+      portions: recipe.portions,
+      ...(recipe.minutes ? { minutes: recipe.minutes } : {}),
+      ingredients: recipe.ingredients
+        .filter((ingredient) => !ingredient.water)
+        .map((ingredient) => ({
+          name: capitalize(ingredient.forms[0]),
+          ...(ingredient.toTaste ? { toTaste: true } : { amount: ingredient.amount, unit: ingredient.unit }),
+        })),
+    };
+  });
+
+  for (const id of menu.added) {
+    if (!used.has(id)) {
+      notes.push(`${localizedMealName(menu.byId.get(id), menu.language)} isn't planned: there's no free meal-prep session. Say "Meal prep ${target + 1} times" to cook it too.`);
+    }
+  }
+  notes.push(...menu.issues);
+  return { food: { language: menu.language, prep }, recipes };
 }
 
 function findMealByTerm(meals, term) {
-  const wanted = String(term).toLowerCase();
-  return meals.find((meal) => meal.name.toLowerCase().includes(wanted) || meal.id.includes(wanted)) ?? null;
+  return meals.find((meal) => termMatches(term, mealNames(meal))) ?? null;
 }
 
+/** A dish is excluded when its name or any of its ingredients matches an excluded term, in any language. */
 function mealIsExcluded(meal, excluded) {
   if (excluded.length === 0) return false;
-  const name = meal.name.toLowerCase();
-  return excluded.some((term) => name.includes(term)) || meal.ingredients.some((item) => itemIsExcluded(item, excluded));
+  const names = mealNames(meal);
+  return excluded.some(
+    (term) => termMatches(term, names) || (meal.ingredients ?? []).some((ingredient) => termMatches(term, ingredientNames(ingredient))),
+  );
 }
 
-function itemIsExcluded(item, excluded) {
-  const name = String(item.name).toLowerCase();
-  return excluded.some((term) => name.includes(term));
+/** The week's one grocery list: the scaled recipes, the user's additions, minus what they already have. */
+function planShopping({ inputs, foodPlan, recipes }) {
+  return buildShoppingList({
+    dishes: foodPlan.prep.map((session) => ({ mealId: session.mealId, date: session.date, recipe: recipes.get(session.date) })),
+    extras: inputs.food.extraShopping,
+    removed: inputs.food.removedShopping,
+    language: foodPlan.language,
+  });
 }
 
-function planShopping({ inputs, foodPlan, foodConfig }) {
-  const catalog = foodConfig.weeklyMealPlan;
-  const byId = new Map(knownMeals(catalog, inputs.food).map((meal) => [meal.id, meal]));
-  const excluded = inputs.food.excludeIngredients;
-  const entries = [];
-
-  for (const session of [...foodPlan.prep, ...foodPlan.extras]) {
-    const meal = byId.get(session.mealId);
-    if (!meal) continue;
-    for (const item of meal.ingredients) entries.push(scaledItem(item, session.portions));
+/** "round" or "competition" when golf of that kind is planned or already in Todoist on `date`. */
+function golfEventOn(date, { golfDays, inputs }) {
+  const day = golfDays.get(date);
+  if (day) {
+    if (day.role === "competition" || day.role === "round") return day.role;
+    if (day.role === "existing") {
+      if (day.round) return day.round.competition ? "competition" : "round";
+      if (["round", "competition"].includes(day.existingKind)) return day.existingKind;
+    }
+    return null;
   }
-  const chosen = (list, labels) => list.filter((option) => labels.includes(option.label));
-  for (const option of [
-    ...chosen(catalog.breakfast, foodPlan.breakfast),
-    ...chosen(catalog.snacks, foodPlan.snacks),
-    ...chosen(catalog.backup, foodPlan.backup ? [foodPlan.backup] : []),
-  ]) {
-    entries.push(...option.items.map((item) => scaledItem(item, 1)));
-  }
-
-  const removedNames = inputs.food.removedShopping.map((name) => name.toLowerCase());
-  const kept = entries
-    .filter((item) => !itemIsExcluded(item, excluded))
-    .concat(inputs.food.extraShopping.map((item) => scaledItem(item, 1)))
-    .filter((item) => !removedNames.some((term) => item.name.toLowerCase().includes(term)));
-
-  const aggregated = new Map();
-  for (const item of kept) {
-    const key = item.name.toLowerCase();
-    const current = aggregated.get(key) ?? { name: item.name, section: item.section, amounts: {}, quantities: [] };
-    if (item.amount) current.amounts[item.unit] = (current.amounts[item.unit] ?? 0) + item.amount;
-    if (item.quantity && !current.quantities.includes(item.quantity)) current.quantities.push(item.quantity);
-    aggregated.set(key, current);
-  }
-
-  const sectionOrder = [...foodConfig.groceryPlanning.sections, "other"];
-  const sections = sectionOrder
-    .map((section) => ({
-      id: section,
-      label: SECTION_LABELS[section] ?? capitalize(section),
-      items: [...aggregated.values()]
-        .filter((item) => (sectionOrder.includes(item.section) ? item.section : "other") === section)
-        .map((item) => ({ name: item.name, quantity: describeQuantity(item) })),
-    }))
-    .filter((section) => section.items.length > 0);
-
-  return { date: null, sections, itemCount: aggregated.size };
+  const entry = inputs.existing.find(
+    (candidate) => candidate.date === date && candidate.activity === "golf" && ["round", "competition"].includes(candidate.golfKind),
+  );
+  return entry?.golfKind ?? null;
 }
 
-function scaledItem(item, portions) {
-  if (item.perPortion) {
-    return { name: item.name, section: item.section, amount: item.perPortion * portions, unit: item.unit ?? "g" };
-  }
-  return { name: item.name, section: item.section, ...(item.quantity ? { quantity: item.quantity } : {}) };
-}
-
-function describeQuantity(item) {
-  const parts = [
-    ...Object.entries(item.amounts).map(([unit, amount]) => `${amount} ${unit}`),
-    ...item.quantities,
-  ];
-  return parts.length > 0 ? parts.join(" + ") : null;
-}
-
-function buildOperations({ inputs, config, placements, golf, golfDays, foodPlan, shopping, createShoppingTask }) {
+function buildOperations({ inputs, config, placements, golf, golfDays, recipes, shopping, createShoppingTask }) {
   const activities = config.activities;
   const operations = [];
-  const counters = { gym: 0, stretch: 0 };
-  const roundOn = (date) => {
-    const day = golfDays.get(date);
-    if (day) {
-      return ["round", "competition"].includes(day.role) || (day.role === "existing" && (Boolean(day.round) || ["round", "competition"].includes(day.existingKind)));
-    }
-    return inputs.existing.some((entry) => entry.date === date && entry.activity === "golf" && ["round", "competition"].includes(entry.golfKind));
-  };
+  let stretchCount = 0;
+  const golfTomorrow = (date) => golfEventOn(addDays(date, 1), { golfDays, inputs });
+  const gymSessions = assignGymSessions(
+    placements.filter((entry) => entry.activity === "gym").map((entry) => entry.date),
+    activities.gym.sessions,
+    { golfTomorrow },
+  );
 
   const add = (activity, date, content, description) => {
     const plan = buildTodoistCreatePlan({ content, description, dueString: date });
@@ -707,7 +782,8 @@ function buildOperations({ inputs, config, placements, golf, golfDays, foodPlan,
   };
 
   if (createShoppingTask) {
-    add("shopping", shopping.date, config.shoppingTaskTitle, formatShoppingDescription(shopping, foodPlan));
+    const task = shoppingTask(shopping, { weekdayOf: (date, language) => localWeekday(weekdayIndex(date), language) });
+    add("shopping", shopping.date, task.content, task.description);
   }
 
   // One main golf task per golf day; existing golf tasks are never touched.
@@ -719,33 +795,22 @@ function buildOperations({ inputs, config, placements, golf, golfDays, foodPlan,
 
   for (const entry of placements) {
     const { activity, date } = entry;
-    const title = `${activities[activity].label} — ${weekdayName(date)}`;
     switch (activity) {
       case "gym": {
-        const sessions = activities.gym.sessions;
-        const lines = [sessions[counters.gym % sessions.length]];
-        counters.gym += 1;
-        if (roundOn(addDays(date, 1))) lines.push(activities.gym.beforeGolfRoundNote);
-        add(activity, date, title, lines.join("\n"));
+        const task = gymTask(gymSessions.get(date), activities.gym, { weekdayIndex: weekdayIndex(date), beforeGolf: golfTomorrow(date) });
+        add(activity, date, task.content, task.description);
         break;
       }
       case "stretch": {
         const routines = activities.stretch.routines;
-        const routine = routines[counters.stretch % routines.length];
-        counters.stretch += 1;
-        add(activity, date, title, [`${activities.stretch.minutes} min mobility:`, ...routine.map((line) => `- ${line}`)].join("\n"));
+        const task = stretchTask(routines[stretchCount % routines.length], activities.stretch, { weekdayIndex: weekdayIndex(date) });
+        stretchCount += 1;
+        add(activity, date, task.content, task.description);
         break;
       }
       case "mealPrep": {
-        const session = foodPlan.prep.find((candidate) => candidate.date === date);
-        const lines = [
-          session?.mealId
-            ? `Cook: ${session.name}, ${session.portions} portions.`
-            : "Cook a simple high-protein meal of your choice.",
-          "Portion into containers.",
-        ];
-        if (createShoppingTask && shopping.date === date) lines.push("Do the grocery shopping first.");
-        add(activity, date, title, lines.join("\n"));
+        const task = cookingTask(recipes.get(date), { shopFirst: createShoppingTask && shopping.date === date });
+        add(activity, date, task.content, task.description);
         break;
       }
       default:
@@ -756,20 +821,6 @@ function buildOperations({ inputs, config, placements, golf, golfDays, foodPlan,
   return operations.sort(
     (a, b) => a.date.localeCompare(b.date) || DAY_ORDER.indexOf(a.activity) - DAY_ORDER.indexOf(b.activity),
   );
-}
-
-function formatShoppingDescription(shopping, foodPlan) {
-  const blocks = shopping.sections.map((section) =>
-    [
-      `${section.label}:`,
-      ...section.items.map((item) => `- ${item.name}${item.quantity ? ` (${item.quantity})` : ""}`),
-    ].join("\n"),
-  );
-  const meals = [...foodPlan.prep, ...foodPlan.extras].filter((session) => session.mealId);
-  if (meals.length > 0) {
-    blocks.push(["For:", ...meals.map((session) => `- ${session.name} x${session.portions}`)].join("\n"));
-  }
-  return blocks.join("\n\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -787,6 +838,8 @@ const CHANGE_KEYS = Object.freeze([
   "removeMeals",
   "addShopping",
   "removeShopping",
+  "mealPortions",
+  "recipeLanguage",
   "golf",
   "note",
 ]);
@@ -800,8 +853,13 @@ const GOLF_CHANGE_HINT =
  * times" adds a session instead of reshuffling the week; the golf week keeps
  * its sessions and golf-free day the same way.
  *
+ * A dish the user adds is cooked in a free meal-prep session, or gets a new
+ * one (meal prep +1, shown in the change summary), so no dish is ever on the
+ * food plan or the shopping list without its own cooking task.
+ *
  * @param golfContext `{ today, previousWeek, normalWeekText }` for golf changes
  * @throws GolfInputError when a golf change cannot be traced to the user's words
+ * @throws RecipeInputError when a recipe the user supplied is incomplete
  */
 export function applyWeeklyPlanChanges(previousInputs, previousPlan, rawChanges, { config, food, golfContext = {} } = {}) {
   const changes = requireObject(rawChanges ?? {}, "Weekly plan changes");
@@ -814,11 +872,21 @@ export function applyWeeklyPlanChanges(previousInputs, previousPlan, rawChanges,
     );
   }
 
+  if (!food?.weeklyMealPlan) throw new Error("The food config is required to change a weekly plan.");
+
   const inputs = structuredClone(previousInputs);
   const weekStart = inputs.weekStart;
   const summary = [];
-  let pins = previousPlan.placements.map((entry) => ({ ...entry }));
+  // Plans stored before recipes were required have no language or portions,
+  // and keep each session's dish only in food.prep.
+  inputs.food.language ??= defaultLanguage(food);
+  inputs.food.portions ??= {};
+  let pins = previousPlan.placements.map((entry) => {
+    const mealId = entry.activity === "mealPrep" ? entry.mealId ?? previousPlan.food?.prep?.find((session) => session.date === entry.date)?.mealId : null;
+    return { ...entry, ...(mealId ? { mealId } : {}) };
+  });
   if (inputs.golf && previousPlan.golf) inputs.golf = keepCurrentGolfWeek(inputs.golf, previousPlan.golf);
+  const addedIds = () => inputs.food.addedMeals.map((meal) => (typeof meal === "string" ? meal : meal.id));
 
   for (const [key, value] of Object.entries(changes.targets ?? {})) {
     if (LEGACY_GOLF_TARGETS.includes(key)) throw new Error(GOLF_CHANGE_HINT);
@@ -830,9 +898,16 @@ export function applyWeeklyPlanChanges(previousInputs, previousPlan, rawChanges,
     summary.push(`${TARGET_LABELS[activity]} ${before} → ${next}`);
     if (next < before) {
       const existingCount = inputs.existing.filter((entry) => entry.activity === activity).length;
+      // Sessions cooking a dish the user asked for go last.
+      const asked = new Set(addedIds());
       const keep = pins
         .filter((pin) => pin.activity === activity)
-        .sort((a, b) => Number(Boolean(b.explicit)) - Number(Boolean(a.explicit)) || a.date.localeCompare(b.date))
+        .sort(
+          (a, b) =>
+            Number(asked.has(b.mealId)) - Number(asked.has(a.mealId)) ||
+            Number(Boolean(b.explicit)) - Number(Boolean(a.explicit)) ||
+            a.date.localeCompare(b.date),
+        )
         .slice(0, Math.max(0, next - existingCount));
       pins = pins.filter((pin) => pin.activity !== activity || keep.includes(pin));
     }
@@ -896,21 +971,66 @@ export function applyWeeklyPlanChanges(previousInputs, previousPlan, rawChanges,
     inputs.food.excludeIngredients = inputs.food.excludeIngredients.filter((candidate) => candidate !== lower);
     summary.push(`${capitalize(lower)} allowed again`);
   }
-  const mealName = (id) =>
-    [...(food?.weeklyMealPlan?.meals ?? []), ...inputs.food.customMeals].find((meal) => meal.id === id)?.name ?? id;
-  for (const ref of changes.addMeals ?? []) {
-    const meal = normalizeMealRef(ref);
-    inputs.food.addedMeals.push(meal);
-    inputs.food.removedMealIds = inputs.food.removedMealIds.filter((id) => id !== (meal.id ?? meal));
-    summary.push(`Added ${typeof meal === "string" ? mealName(meal) : meal.name}`);
+  const knownMeals = () => [...food.weeklyMealPlan.meals, ...inputs.food.customMeals, ...inputs.food.addedMeals.filter((meal) => typeof meal === "object")];
+  const resolveMealId = (ref) => {
+    const meals = knownMeals();
+    return meals.find((meal) => meal.id === ref)?.id ?? findMealByTerm(meals, ref)?.id ?? null;
+  };
+  const mealName = (id) => {
+    const meal = knownMeals().find((candidate) => candidate.id === id);
+    return meal ? localizedMealName(meal, inputs.food.language) : id;
+  };
+
+  // The language first, so a recipe added in the same change is checked against it.
+  if (changes.recipeLanguage !== undefined) {
+    const next = requireRecipeLanguage(changes.recipeLanguage);
+    if (next !== inputs.food.language) {
+      const planned = new Set([...inputs.food.mealIds, ...addedIds()]);
+      const written = knownMeals().filter((meal) => meal.custom && meal.language !== next && planned.has(meal.id) && !inputs.food.removedMealIds.includes(meal.id));
+      if (written.length > 0) {
+        throw new Error(
+          `${written.map((meal) => meal.name).join(" and ")} ${written.length === 1 ? "is" : "are"} written in ${LANGUAGE_NAMES[inputs.food.language]}. Send ${written.length === 1 ? "it" : "them"} again in ${LANGUAGE_NAMES[next]}, or remove ${written.length === 1 ? "it" : "them"}, before the recipes switch to ${LANGUAGE_NAMES[next]}.`,
+        );
+      }
+      inputs.food.language = next;
+      summary.push(`Recipes in ${LANGUAGE_NAMES[next]}`);
+    }
   }
-  for (const id of normalizeTextList(changes.removeMeals, "removeMeals", { max: 10 })) {
+
+  const newlyAdded = [];
+  for (const ref of changes.addMeals ?? []) {
+    const meal = normalizeMealRef(ref, inputs.food.language);
+    let id;
+    if (typeof meal === "string") {
+      id = resolveMealId(meal);
+      if (!id) throw new Error(`Unknown meal: ${meal}. Use a meal id or pass a complete recipe.`);
+      if (!addedIds().includes(id)) inputs.food.addedMeals.push(id);
+    } else {
+      id = meal.id;
+      inputs.food.addedMeals = inputs.food.addedMeals.filter((entry) => (typeof entry === "string" ? entry : entry.id) !== id);
+      inputs.food.addedMeals.push(meal);
+    }
+    inputs.food.removedMealIds = inputs.food.removedMealIds.filter((entry) => entry !== id);
+    newlyAdded.push(id);
+    summary.push(`Added ${mealName(id)}`);
+  }
+  for (const ref of normalizeTextList(changes.removeMeals, "removeMeals", { max: 10 })) {
+    const id = resolveMealId(ref) ?? ref;
+    const name = mealName(id);
     if (!inputs.food.removedMealIds.includes(id)) inputs.food.removedMealIds.push(id);
     inputs.food.addedMeals = inputs.food.addedMeals.filter((meal) => (typeof meal === "string" ? meal : meal.id) !== id);
-    summary.push(`Removed ${mealName(id)}`);
+    summary.push(`Removed ${name}`);
+  }
+  if (changes.mealPortions !== undefined) {
+    for (const [ref, count] of Object.entries(requireObject(changes.mealPortions, "mealPortions"))) {
+      const id = resolveMealId(ref);
+      if (!id) throw new Error(`Unknown meal: ${ref}.`);
+      inputs.food.portions[id] = requirePortions(count, ref);
+      summary.push(`${mealName(id)} ×${inputs.food.portions[id]}`);
+    }
   }
   for (const item of changes.addShopping ?? []) {
-    const normalized = normalizeShoppingItem(item);
+    const normalized = normalizeShoppingItem(item, { language: inputs.food.language });
     inputs.food.extraShopping.push(normalized);
     inputs.food.removedShopping = inputs.food.removedShopping.filter(
       (name) => name.toLowerCase() !== normalized.name.toLowerCase(),
@@ -933,12 +1053,65 @@ export function applyWeeklyPlanChanges(previousInputs, previousPlan, rawChanges,
     summary.push(...result.summary);
   }
 
-  inputs.pins = pins.map(({ activity, date, explicit }) => ({ activity, date, ...(explicit ? { explicit: true } : {}) }));
+  // A dish added before every dish needed its own session (a plan's "extras")
+  // gets one now, as if it had just been added.
+  const waiting = [...newlyAdded, ...(previousPlan.food?.extras ?? []).map((extra) => extra.mealId)];
+  if (waiting.length > 0) {
+    pins = makeRoomForAddedMeals(inputs, food, {
+      config,
+      pins,
+      onlyIds: waiting,
+      explicitTarget: changes.targets?.mealPrep !== undefined,
+      summary,
+    });
+  }
+
+  inputs.pins = pins.map(({ activity, date, explicit, mealId }) => ({
+    activity,
+    date,
+    ...(explicit ? { explicit: true } : {}),
+    ...(mealId ? { mealId } : {}),
+  }));
   return {
     inputs,
     summary,
     note: normalizeOptionalText(changes.note, "note", 200),
   };
+}
+
+/**
+ * Dishes the user added need a session each. Free sessions are used first;
+ * when there are none, meal prep grows by the missing number. When the same
+ * change also set the number of sessions, that number stands: the latest
+ * sessions give up their automatically chosen dish instead.
+ * @param onlyIds the dishes added in this change; all added dishes when null
+ * @returns the pins, possibly with dishes released
+ */
+function makeRoomForAddedMeals(inputs, foodConfig, { config, pins = [], onlyIds = null, explicitTarget = false, summary }) {
+  const menu = planMenu(inputs, foodConfig);
+  const sessions = Math.max(0, inputs.targets.mealPrep - inputs.existing.filter((entry) => entry.activity === "mealPrep").length);
+  const mealPins = pins.filter((pin) => pin.activity === "mealPrep");
+  const kept = new Set(mealPins.map((pin) => pin.mealId).filter((id) => id && menu.eligible.has(id)));
+  const waiting = menu.added.filter((id) => !kept.has(id) && (!onlyIds || onlyIds.includes(id)));
+  const missing = waiting.length - (sessions - kept.size);
+  if (missing <= 0) return pins;
+  if (!explicitTarget) {
+    const next = inputs.targets.mealPrep + missing;
+    const max = config.maxSessionsPerActivity ?? 7;
+    if (next > max) throw new Error(`There's no room for another meal-prep session (at most ${max}). Remove a meal first.`);
+    summary.push(`${TARGET_LABELS.mealPrep} ${inputs.targets.mealPrep} → ${next}`);
+    inputs.targets.mealPrep = next;
+    return pins;
+  }
+  const released = mealPins
+    .filter((pin) => pin.mealId && !menu.added.includes(pin.mealId))
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, missing);
+  return pins.map((pin) => {
+    if (!released.includes(pin)) return pin;
+    const { mealId, ...rest } = pin;
+    return rest;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1056,6 +1229,9 @@ export function formatPlanMessage(document, { version, deadline, changeSummary =
     }
   }
 
+  // Plans stored before recipes were required have no food language; they
+  // show their extras, breakfast and backup lines exactly as before.
+  const recipePlan = Boolean(plan.food.language);
   lines.push("", "Food");
   for (const session of plan.food.prep) {
     lines.push(
@@ -1064,17 +1240,19 @@ export function formatPlanMessage(document, { version, deadline, changeSummary =
         : `• Meal of your choice (prep ${weekdayName(session.date).slice(0, 3)})`,
     );
   }
-  for (const extra of plan.food.extras) lines.push(`• ${extra.name} ×${extra.portions}`);
-  if (plan.food.breakfast.length > 0) lines.push(`• Breakfast: ${plan.food.breakfast.join(" / ")}`);
+  for (const extra of plan.food.extras ?? []) lines.push(`• ${extra.name} ×${extra.portions}`);
+  if (plan.food.breakfast?.length > 0) lines.push(`• Breakfast: ${plan.food.breakfast.join(" / ")}`);
   if (plan.food.backup) lines.push(`• Backup: ${plan.food.backup}`);
+  if (recipePlan && plan.food.prep.length === 0) lines.push("• No meal prep this week");
+  if (recipePlan && plan.food.language !== DEFAULT_RECIPE_LANGUAGE) lines.push(`• Recipes in ${LANGUAGE_NAMES[plan.food.language]}`);
 
   if (plan.shopping.sections.length > 0) {
-    const items = plan.shopping.sections.flatMap((section) => section.items.map((item) => item.name));
-    lines.push(
-      "",
-      `Shopping${plan.shopping.date ? ` (${weekdayName(plan.shopping.date).slice(0, 3)})` : ""}`,
-      items.join(", "),
-    );
+    const names = (sections) => sections.flatMap((section) => section.items.map((item) => item.name));
+    const toBuy = recipePlan ? names(plan.shopping.sections.filter((section) => section.id !== "staples")) : names(plan.shopping.sections);
+    const staples = recipePlan ? names(plan.shopping.sections.filter((section) => section.id === "staples")) : [];
+    lines.push("", `Shopping${plan.shopping.date ? ` (${weekdayName(plan.shopping.date).slice(0, 3)})` : ""}`);
+    if (toBuy.length > 0) lines.push(toBuy.join(", "));
+    if (staples.length > 0) lines.push(`Check you have: ${staples.join(", ")}`);
   }
 
   if (plan.notes.length > 0) lines.push("", ...plan.notes.map((note) => `Note: ${note}`));
@@ -1184,8 +1362,4 @@ function rankOf(list, value) {
 function capitalize(value) {
   const text = String(value);
   return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
-function slug(value) {
-  return String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
 }

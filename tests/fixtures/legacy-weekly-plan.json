@@ -1,0 +1,1437 @@
+{
+  "schemaVersion": 1,
+  "planId": "wp-2026-W40-abc123",
+  "weekId": "2026-W40",
+  "weekStart": "2026-09-28",
+  "weekEnd": "2026-10-04",
+  "timezone": "Europe/Stockholm",
+  "status": "pending",
+  "createdAt": "2026-09-26T07:00:00.000Z",
+  "updatedAt": "2026-09-26T08:00:00.000Z",
+  "currentVersion": 2,
+  "displayedVersion": 2,
+  "displayedAt": "2026-09-26T08:00:00.000Z",
+  "displayedDigest": "sha256:01d65a4e2c25f7d7952bd428ef4632e9e40c8064dbb5ae03b6a552e6b2c3ed93",
+  "displayChannel": "chat-reply",
+  "reviewWindowHours": 12,
+  "reviewDeadline": "2026-09-26T20:00:00.000Z",
+  "versions": [
+    {
+      "version": 1,
+      "createdAt": "2026-09-26T07:30:00.000Z",
+      "source": "golf-answers",
+      "changeSummary": [],
+      "note": null,
+      "inputs": {
+        "weekStart": "2026-09-28",
+        "targets": {
+          "gym": 2,
+          "stretch": 3,
+          "mealPrep": 2
+        },
+        "days": {},
+        "skipDays": [],
+        "preferences": {
+          "gym": {
+            "preferredDays": [],
+            "avoidDays": []
+          },
+          "stretch": {
+            "preferredDays": [],
+            "avoidDays": []
+          },
+          "mealPrep": {
+            "preferredDays": [],
+            "avoidDays": []
+          }
+        },
+        "pins": [],
+        "existing": [],
+        "food": {
+          "mealIds": [],
+          "customMeals": [],
+          "excludeIngredients": [],
+          "addedMeals": [],
+          "removedMealIds": [],
+          "extraShopping": [],
+          "removedShopping": []
+        },
+        "golf": {
+          "roundsKnown": true,
+          "rounds": [
+            {
+              "date": "2026-09-30",
+              "holes": 18,
+              "competition": false
+            },
+            {
+              "date": "2026-10-03",
+              "holes": 18,
+              "competition": false
+            }
+          ],
+          "focus": {
+            "mode": "areas",
+            "areas": [
+              "Wedges 50–100 m",
+              "Putting inside 2 m"
+            ]
+          },
+          "lessons": [],
+          "technicalPriority": null,
+          "restDays": [],
+          "unavailableDays": [],
+          "minutes": {},
+          "avoid": [],
+          "activeDays": 6,
+          "activeDaysExplicit": false,
+          "pins": [],
+          "previousRestDays": [],
+          "saved": {
+            "cueWord": null,
+            "preRoundRoutine": null,
+            "badShotReset": null,
+            "competitionRoutine": null
+          }
+        },
+        "question": null,
+        "notes": []
+      },
+      "plan": {
+        "weekStart": "2026-09-28",
+        "weekEnd": "2026-10-04",
+        "targets": {
+          "gym": 2,
+          "stretch": 3,
+          "mealPrep": 2
+        },
+        "golf": {
+          "direction": "Competitive performance",
+          "targetDays": 6,
+          "activeDays": 6,
+          "restDays": 1,
+          "focus": {
+            "mode": "areas",
+            "areas": [
+              "Wedges 50–100 m",
+              "Putting inside 2 m"
+            ]
+          },
+          "technicalPriority": null,
+          "saved": {
+            "cueWord": null,
+            "preRoundRoutine": null,
+            "badShotReset": null,
+            "competitionRoutine": null
+          },
+          "days": [
+            {
+              "date": "2026-09-28",
+              "role": "practice",
+              "kind": "wedges",
+              "focusIndex": 0,
+              "label": "Wedges 50–100 m",
+              "intensity": "moderate",
+              "minutes": 45,
+              "pressure": false
+            },
+            {
+              "date": "2026-09-29",
+              "role": "practice",
+              "kind": "putting",
+              "focusIndex": 1,
+              "label": "Putting inside 2 m",
+              "intensity": "moderate",
+              "minutes": 40,
+              "pressure": false
+            },
+            {
+              "date": "2026-09-30",
+              "role": "round",
+              "holes": 18,
+              "objective": {
+                "short": "commitment",
+                "text": "Full commitment to every selected target."
+              }
+            },
+            {
+              "date": "2026-10-01",
+              "role": "practice",
+              "kind": "wedges",
+              "focusIndex": 0,
+              "label": "Wedges 50–100 m",
+              "intensity": "moderate",
+              "minutes": 45,
+              "pressure": true
+            },
+            {
+              "date": "2026-10-02",
+              "role": "practice",
+              "kind": "scoring",
+              "focusIndex": null,
+              "label": "Scoring + pressure",
+              "intensity": "moderate",
+              "minutes": 45,
+              "pressure": true
+            },
+            {
+              "date": "2026-10-03",
+              "role": "round",
+              "holes": 18,
+              "objective": {
+                "short": "routine",
+                "text": "Use the pre-shot routine on every shot."
+              }
+            },
+            {
+              "date": "2026-10-04",
+              "role": "rest"
+            }
+          ],
+          "notes": []
+        },
+        "placements": [
+          {
+            "activity": "gym",
+            "date": "2026-09-28"
+          },
+          {
+            "activity": "mealPrep",
+            "date": "2026-09-29"
+          },
+          {
+            "activity": "stretch",
+            "date": "2026-09-30"
+          },
+          {
+            "activity": "gym",
+            "date": "2026-10-01"
+          },
+          {
+            "activity": "mealPrep",
+            "date": "2026-10-02"
+          },
+          {
+            "activity": "stretch",
+            "date": "2026-10-02"
+          },
+          {
+            "activity": "stretch",
+            "date": "2026-10-04"
+          }
+        ],
+        "schedule": [
+          {
+            "date": "2026-09-28",
+            "weekday": "Monday",
+            "activities": [
+              {
+                "activity": "gym",
+                "status": "new"
+              },
+              {
+                "activity": "golf",
+                "status": "new"
+              }
+            ]
+          },
+          {
+            "date": "2026-09-29",
+            "weekday": "Tuesday",
+            "activities": [
+              {
+                "activity": "shopping",
+                "status": "new"
+              },
+              {
+                "activity": "mealPrep",
+                "status": "new"
+              },
+              {
+                "activity": "golf",
+                "status": "new"
+              }
+            ]
+          },
+          {
+            "date": "2026-09-30",
+            "weekday": "Wednesday",
+            "activities": [
+              {
+                "activity": "golf",
+                "status": "new"
+              },
+              {
+                "activity": "stretch",
+                "status": "new"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-01",
+            "weekday": "Thursday",
+            "activities": [
+              {
+                "activity": "gym",
+                "status": "new"
+              },
+              {
+                "activity": "golf",
+                "status": "new"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-02",
+            "weekday": "Friday",
+            "activities": [
+              {
+                "activity": "mealPrep",
+                "status": "new"
+              },
+              {
+                "activity": "golf",
+                "status": "new"
+              },
+              {
+                "activity": "stretch",
+                "status": "new"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-03",
+            "weekday": "Saturday",
+            "activities": [
+              {
+                "activity": "golf",
+                "status": "new"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-04",
+            "weekday": "Sunday",
+            "activities": [
+              {
+                "activity": "stretch",
+                "status": "new"
+              }
+            ]
+          }
+        ],
+        "food": {
+          "prep": [
+            {
+              "date": "2026-09-29",
+              "mealId": "chicken-rice-veg",
+              "name": "Chicken, rice and vegetables",
+              "portions": 3
+            },
+            {
+              "date": "2026-10-02",
+              "mealId": "salmon-potatoes-veg",
+              "name": "Salmon, potatoes and vegetables",
+              "portions": 2
+            }
+          ],
+          "extras": [],
+          "breakfast": [
+            "Skyr + berries",
+            "Eggs + bread"
+          ],
+          "snacks": [
+            "Fruit",
+            "Cottage cheese"
+          ],
+          "backup": "Easy tuna pasta"
+        },
+        "shopping": {
+          "date": "2026-09-29",
+          "sections": [
+            {
+              "id": "protein",
+              "label": "Protein",
+              "items": [
+                {
+                  "name": "Chicken breast",
+                  "quantity": "450 g"
+                },
+                {
+                  "name": "Salmon fillet",
+                  "quantity": "250 g"
+                },
+                {
+                  "name": "Eggs",
+                  "quantity": "12"
+                }
+              ]
+            },
+            {
+              "id": "vegetables",
+              "label": "Vegetables",
+              "items": [
+                {
+                  "name": "Broccoli",
+                  "quantity": null
+                },
+                {
+                  "name": "Peppers",
+                  "quantity": null
+                },
+                {
+                  "name": "Green beans",
+                  "quantity": null
+                }
+              ]
+            },
+            {
+              "id": "fruit",
+              "label": "Fruit",
+              "items": [
+                {
+                  "name": "Frozen berries",
+                  "quantity": "1 bag"
+                },
+                {
+                  "name": "Apples",
+                  "quantity": "6"
+                }
+              ]
+            },
+            {
+              "id": "carbs",
+              "label": "Carbs",
+              "items": [
+                {
+                  "name": "Rice",
+                  "quantity": "225 g"
+                },
+                {
+                  "name": "Potatoes",
+                  "quantity": "500 g"
+                }
+              ]
+            },
+            {
+              "id": "dairy-or-alternatives",
+              "label": "Dairy",
+              "items": [
+                {
+                  "name": "Skyr",
+                  "quantity": "2 kg"
+                },
+                {
+                  "name": "Cottage cheese",
+                  "quantity": "2 tubs"
+                }
+              ]
+            },
+            {
+              "id": "breakfast",
+              "label": "Breakfast",
+              "items": [
+                {
+                  "name": "Wholegrain bread",
+                  "quantity": "1 loaf"
+                }
+              ]
+            },
+            {
+              "id": "backup-meals",
+              "label": "Backup meals",
+              "items": [
+                {
+                  "name": "Pasta",
+                  "quantity": "1 pack"
+                },
+                {
+                  "name": "Tinned tuna",
+                  "quantity": "2 tins"
+                }
+              ]
+            }
+          ],
+          "itemCount": 15
+        },
+        "operations": [
+          {
+            "opId": "gym:2026-09-28",
+            "kind": "create-task",
+            "activity": "gym",
+            "date": "2026-09-28",
+            "payload": {
+              "content": "Gym — Monday",
+              "description": "Full-body strength with a lower-body focus: a squat or deadlift variation, a push, a pull and core.",
+              "due_string": "2026-09-28"
+            }
+          },
+          {
+            "opId": "golf:2026-09-28",
+            "kind": "create-task",
+            "activity": "golf",
+            "date": "2026-09-28",
+            "payload": {
+              "content": "Golf practice — Wedges 50–100 m",
+              "description": "Focus\nWedges 50–100 m\n\nSession · 45 min\n- Warm up: 10 min\n- Distance blocks: three distances in your range, five balls each: 10 min\n- Random distances: a new target and distance every ball: 15 min\n- Finish: 10 balls with the full routine, a new distance every ball: 10 min\n\nMental focus\nTarget → breath → commit.\n\nSuccess\nEvery ball has a clear target; note one thing that improved.",
+              "due_string": "2026-09-28"
+            }
+          },
+          {
+            "opId": "shopping:2026-09-29",
+            "kind": "create-task",
+            "activity": "shopping",
+            "date": "2026-09-29",
+            "payload": {
+              "content": "Grocery shopping for next week",
+              "description": "Protein:\n- Chicken breast (450 g)\n- Salmon fillet (250 g)\n- Eggs (12)\n\nVegetables:\n- Broccoli\n- Peppers\n- Green beans\n\nFruit:\n- Frozen berries (1 bag)\n- Apples (6)\n\nCarbs:\n- Rice (225 g)\n- Potatoes (500 g)\n\nDairy:\n- Skyr (2 kg)\n- Cottage cheese (2 tubs)\n\nBreakfast:\n- Wholegrain bread (1 loaf)\n\nBackup meals:\n- Pasta (1 pack)\n- Tinned tuna (2 tins)\n\nFor:\n- Chicken, rice and vegetables x3\n- Salmon, potatoes and vegetables x2",
+              "due_string": "2026-09-29"
+            }
+          },
+          {
+            "opId": "mealPrep:2026-09-29",
+            "kind": "create-task",
+            "activity": "mealPrep",
+            "date": "2026-09-29",
+            "payload": {
+              "content": "Meal prep — Tuesday",
+              "description": "Cook: Chicken, rice and vegetables, 3 portions.\nPortion into containers.\nDo the grocery shopping first.",
+              "due_string": "2026-09-29"
+            }
+          },
+          {
+            "opId": "golf:2026-09-29",
+            "kind": "create-task",
+            "activity": "golf",
+            "date": "2026-09-29",
+            "payload": {
+              "content": "Golf practice — Putting inside 2 m",
+              "description": "Focus\nPutting inside 2 m\n\nSession · 40 min\n- Start-line drill from 1 m: 10 min\n- Short putts from 1–2 m around the hole: 10 min\n- Lag putts from 8–15 m, finishing inside 1 m: 10 min\n- Finish: 10 putts from 1.5–2 m with the full routine: 10 min\n\nMental focus\nTarget → breath → commit.\n\nSuccess\nEvery ball has a clear target; note one thing that improved.",
+              "due_string": "2026-09-29"
+            }
+          },
+          {
+            "opId": "golf:2026-09-30",
+            "kind": "create-task",
+            "activity": "golf",
+            "date": "2026-09-30",
+            "payload": {
+              "content": "Golf — 18-hole round",
+              "description": "Process objective\nFull commitment to every selected target.\n\nMental focus\nTarget → breath → commit.\n\nAfter a bad shot\nAcknowledge, exhale, next shot.\n\nAfterwards\nNote two decisions to keep and one to change. Say “Debrief my round” to go through it.",
+              "due_string": "2026-09-30"
+            }
+          },
+          {
+            "opId": "stretch:2026-09-30",
+            "kind": "create-task",
+            "activity": "stretch",
+            "date": "2026-09-30",
+            "payload": {
+              "content": "Stretch — Wednesday",
+              "description": "15 min mobility:\n- Hip flexor stretch: 2 x 45 s per side\n- Thoracic rotations: 10 per side\n- Figure-4 glute stretch: 2 x 45 s per side\n- Cat-cow: 10 slow reps",
+              "due_string": "2026-09-30"
+            }
+          },
+          {
+            "opId": "gym:2026-10-01",
+            "kind": "create-task",
+            "activity": "gym",
+            "date": "2026-10-01",
+            "payload": {
+              "content": "Gym — Thursday",
+              "description": "Full-body strength with an upper-body focus: presses, rows, single-leg work and rotational core.",
+              "due_string": "2026-10-01"
+            }
+          },
+          {
+            "opId": "golf:2026-10-01",
+            "kind": "create-task",
+            "activity": "golf",
+            "date": "2026-10-01",
+            "payload": {
+              "content": "Golf practice — Wedges 50–100 m",
+              "description": "Focus\nWedges 50–100 m\n\nSession · 45 min\n- Warm up: 10 min\n- Distance blocks: three distances in your range, five balls each: 10 min\n- Random distances: a new target and distance every ball: 15 min\n- 10-shot pressure test: one ball each, a new distance every time; count shots that finish within about 5 m: 10 min\n\nMental focus\nTarget → breath → commit.\n\nSuccess\nAll 10 test shots with the full routine; write down the score.",
+              "due_string": "2026-10-01"
+            }
+          },
+          {
+            "opId": "mealPrep:2026-10-02",
+            "kind": "create-task",
+            "activity": "mealPrep",
+            "date": "2026-10-02",
+            "payload": {
+              "content": "Meal prep — Friday",
+              "description": "Cook: Salmon, potatoes and vegetables, 2 portions.\nPortion into containers.",
+              "due_string": "2026-10-02"
+            }
+          },
+          {
+            "opId": "golf:2026-10-02",
+            "kind": "create-task",
+            "activity": "golf",
+            "date": "2026-10-02",
+            "payload": {
+              "content": "Golf practice — Scoring + pressure",
+              "description": "Focus\nScoring under pressure.\n\nSession · 45 min\n- Warm up: chips and putts: 10 min\n- Up-and-down game: 9 spots around the green, hole out, par 2 each; score against 18: 20 min\n- Short-putt pressure: putts from 1 m until you make 10 in a row; a miss restarts the count: 10 min\n- Record both scores: 5 min\n\nMental focus\nTarget → breath → commit.\n\nSuccess\nBoth games played with the full routine; write down the scores.",
+              "due_string": "2026-10-02"
+            }
+          },
+          {
+            "opId": "stretch:2026-10-02",
+            "kind": "create-task",
+            "activity": "stretch",
+            "date": "2026-10-02",
+            "payload": {
+              "content": "Stretch — Friday",
+              "description": "15 min mobility:\n- Hamstring stretch: 2 x 45 s per side\n- Open books: 10 per side\n- Doorway chest stretch: 2 x 30 s\n- Deep squat hold: 3 x 30 s",
+              "due_string": "2026-10-02"
+            }
+          },
+          {
+            "opId": "golf:2026-10-03",
+            "kind": "create-task",
+            "activity": "golf",
+            "date": "2026-10-03",
+            "payload": {
+              "content": "Golf — 18-hole round",
+              "description": "Process objective\nUse the pre-shot routine on every shot.\n\nMental focus\nTarget → breath → commit.\n\nAfter a bad shot\nAcknowledge, exhale, next shot.\n\nAfterwards\nNote two decisions to keep and one to change. Say “Debrief my round” to go through it.",
+              "due_string": "2026-10-03"
+            }
+          },
+          {
+            "opId": "stretch:2026-10-04",
+            "kind": "create-task",
+            "activity": "stretch",
+            "date": "2026-10-04",
+            "payload": {
+              "content": "Stretch — Sunday",
+              "description": "15 min mobility:\n- Hip flexor stretch: 2 x 45 s per side\n- Thoracic rotations: 10 per side\n- Figure-4 glute stretch: 2 x 45 s per side\n- Cat-cow: 10 slow reps",
+              "due_string": "2026-10-04"
+            }
+          }
+        ],
+        "notes": [],
+        "question": null
+      },
+      "digest": "sha256:e6c6d1cb513d7743afc2aaf265ae4dd18c6db401542dc4d44de044bafa5cc3bb"
+    },
+    {
+      "version": 2,
+      "createdAt": "2026-09-26T08:00:00.000Z",
+      "source": "revision",
+      "changeSummary": [
+        "Added Turkey mince pasta with tomato sauce",
+        "Shopping + Bananas"
+      ],
+      "note": null,
+      "inputs": {
+        "weekStart": "2026-09-28",
+        "targets": {
+          "gym": 2,
+          "stretch": 3,
+          "mealPrep": 2
+        },
+        "days": {},
+        "skipDays": [],
+        "preferences": {
+          "gym": {
+            "preferredDays": [],
+            "avoidDays": []
+          },
+          "stretch": {
+            "preferredDays": [],
+            "avoidDays": []
+          },
+          "mealPrep": {
+            "preferredDays": [],
+            "avoidDays": []
+          }
+        },
+        "pins": [
+          {
+            "activity": "gym",
+            "date": "2026-09-28"
+          },
+          {
+            "activity": "mealPrep",
+            "date": "2026-09-29"
+          },
+          {
+            "activity": "stretch",
+            "date": "2026-09-30"
+          },
+          {
+            "activity": "gym",
+            "date": "2026-10-01"
+          },
+          {
+            "activity": "mealPrep",
+            "date": "2026-10-02"
+          },
+          {
+            "activity": "stretch",
+            "date": "2026-10-02"
+          },
+          {
+            "activity": "stretch",
+            "date": "2026-10-04"
+          }
+        ],
+        "existing": [],
+        "food": {
+          "mealIds": [],
+          "customMeals": [],
+          "excludeIngredients": [],
+          "addedMeals": [
+            "turkey-pasta"
+          ],
+          "removedMealIds": [],
+          "extraShopping": [
+            {
+              "name": "Bananas",
+              "section": "fruit"
+            }
+          ],
+          "removedShopping": []
+        },
+        "golf": {
+          "roundsKnown": true,
+          "rounds": [
+            {
+              "date": "2026-09-30",
+              "holes": 18,
+              "competition": false
+            },
+            {
+              "date": "2026-10-03",
+              "holes": 18,
+              "competition": false
+            }
+          ],
+          "focus": {
+            "mode": "areas",
+            "areas": [
+              "Wedges 50–100 m",
+              "Putting inside 2 m"
+            ]
+          },
+          "lessons": [],
+          "technicalPriority": null,
+          "restDays": [],
+          "unavailableDays": [],
+          "minutes": {},
+          "avoid": [],
+          "activeDays": 6,
+          "activeDaysExplicit": false,
+          "pins": [
+            {
+              "date": "2026-09-28",
+              "kind": "wedges",
+              "focusIndex": 0
+            },
+            {
+              "date": "2026-09-29",
+              "kind": "putting",
+              "focusIndex": 1
+            },
+            {
+              "date": "2026-10-01",
+              "kind": "wedges",
+              "focusIndex": 0
+            },
+            {
+              "date": "2026-10-02",
+              "kind": "scoring",
+              "focusIndex": null
+            }
+          ],
+          "previousRestDays": [
+            "2026-10-04"
+          ],
+          "saved": {
+            "cueWord": null,
+            "preRoundRoutine": null,
+            "badShotReset": null,
+            "competitionRoutine": null
+          }
+        },
+        "question": null,
+        "notes": []
+      },
+      "plan": {
+        "weekStart": "2026-09-28",
+        "weekEnd": "2026-10-04",
+        "targets": {
+          "gym": 2,
+          "stretch": 3,
+          "mealPrep": 2
+        },
+        "golf": {
+          "direction": "Competitive performance",
+          "targetDays": 6,
+          "activeDays": 6,
+          "restDays": 1,
+          "focus": {
+            "mode": "areas",
+            "areas": [
+              "Wedges 50–100 m",
+              "Putting inside 2 m"
+            ]
+          },
+          "technicalPriority": null,
+          "saved": {
+            "cueWord": null,
+            "preRoundRoutine": null,
+            "badShotReset": null,
+            "competitionRoutine": null
+          },
+          "days": [
+            {
+              "date": "2026-09-28",
+              "role": "practice",
+              "kind": "wedges",
+              "focusIndex": 0,
+              "label": "Wedges 50–100 m",
+              "intensity": "moderate",
+              "minutes": 45,
+              "pressure": false
+            },
+            {
+              "date": "2026-09-29",
+              "role": "practice",
+              "kind": "putting",
+              "focusIndex": 1,
+              "label": "Putting inside 2 m",
+              "intensity": "moderate",
+              "minutes": 40,
+              "pressure": false
+            },
+            {
+              "date": "2026-09-30",
+              "role": "round",
+              "holes": 18,
+              "objective": {
+                "short": "commitment",
+                "text": "Full commitment to every selected target."
+              }
+            },
+            {
+              "date": "2026-10-01",
+              "role": "practice",
+              "kind": "wedges",
+              "focusIndex": 0,
+              "label": "Wedges 50–100 m",
+              "intensity": "moderate",
+              "minutes": 45,
+              "pressure": true
+            },
+            {
+              "date": "2026-10-02",
+              "role": "practice",
+              "kind": "scoring",
+              "focusIndex": null,
+              "label": "Scoring + pressure",
+              "intensity": "moderate",
+              "minutes": 45,
+              "pressure": true
+            },
+            {
+              "date": "2026-10-03",
+              "role": "round",
+              "holes": 18,
+              "objective": {
+                "short": "routine",
+                "text": "Use the pre-shot routine on every shot."
+              }
+            },
+            {
+              "date": "2026-10-04",
+              "role": "rest"
+            }
+          ],
+          "notes": []
+        },
+        "placements": [
+          {
+            "activity": "gym",
+            "date": "2026-09-28"
+          },
+          {
+            "activity": "mealPrep",
+            "date": "2026-09-29"
+          },
+          {
+            "activity": "stretch",
+            "date": "2026-09-30"
+          },
+          {
+            "activity": "gym",
+            "date": "2026-10-01"
+          },
+          {
+            "activity": "mealPrep",
+            "date": "2026-10-02"
+          },
+          {
+            "activity": "stretch",
+            "date": "2026-10-02"
+          },
+          {
+            "activity": "stretch",
+            "date": "2026-10-04"
+          }
+        ],
+        "schedule": [
+          {
+            "date": "2026-09-28",
+            "weekday": "Monday",
+            "activities": [
+              {
+                "activity": "gym",
+                "status": "new"
+              },
+              {
+                "activity": "golf",
+                "status": "new"
+              }
+            ]
+          },
+          {
+            "date": "2026-09-29",
+            "weekday": "Tuesday",
+            "activities": [
+              {
+                "activity": "shopping",
+                "status": "new"
+              },
+              {
+                "activity": "mealPrep",
+                "status": "new"
+              },
+              {
+                "activity": "golf",
+                "status": "new"
+              }
+            ]
+          },
+          {
+            "date": "2026-09-30",
+            "weekday": "Wednesday",
+            "activities": [
+              {
+                "activity": "golf",
+                "status": "new"
+              },
+              {
+                "activity": "stretch",
+                "status": "new"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-01",
+            "weekday": "Thursday",
+            "activities": [
+              {
+                "activity": "gym",
+                "status": "new"
+              },
+              {
+                "activity": "golf",
+                "status": "new"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-02",
+            "weekday": "Friday",
+            "activities": [
+              {
+                "activity": "mealPrep",
+                "status": "new"
+              },
+              {
+                "activity": "golf",
+                "status": "new"
+              },
+              {
+                "activity": "stretch",
+                "status": "new"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-03",
+            "weekday": "Saturday",
+            "activities": [
+              {
+                "activity": "golf",
+                "status": "new"
+              }
+            ]
+          },
+          {
+            "date": "2026-10-04",
+            "weekday": "Sunday",
+            "activities": [
+              {
+                "activity": "stretch",
+                "status": "new"
+              }
+            ]
+          }
+        ],
+        "food": {
+          "prep": [
+            {
+              "date": "2026-09-29",
+              "mealId": "chicken-rice-veg",
+              "name": "Chicken, rice and vegetables",
+              "portions": 3
+            },
+            {
+              "date": "2026-10-02",
+              "mealId": "salmon-potatoes-veg",
+              "name": "Salmon, potatoes and vegetables",
+              "portions": 2
+            }
+          ],
+          "extras": [
+            {
+              "mealId": "turkey-pasta",
+              "name": "Turkey mince pasta with tomato sauce",
+              "portions": 3
+            }
+          ],
+          "breakfast": [
+            "Skyr + berries",
+            "Eggs + bread"
+          ],
+          "snacks": [
+            "Fruit",
+            "Cottage cheese"
+          ],
+          "backup": "Easy tuna pasta"
+        },
+        "shopping": {
+          "date": "2026-09-29",
+          "sections": [
+            {
+              "id": "protein",
+              "label": "Protein",
+              "items": [
+                {
+                  "name": "Chicken breast",
+                  "quantity": "450 g"
+                },
+                {
+                  "name": "Salmon fillet",
+                  "quantity": "250 g"
+                },
+                {
+                  "name": "Turkey mince",
+                  "quantity": "375 g"
+                },
+                {
+                  "name": "Eggs",
+                  "quantity": "12"
+                }
+              ]
+            },
+            {
+              "id": "vegetables",
+              "label": "Vegetables",
+              "items": [
+                {
+                  "name": "Broccoli",
+                  "quantity": null
+                },
+                {
+                  "name": "Peppers",
+                  "quantity": null
+                },
+                {
+                  "name": "Green beans",
+                  "quantity": null
+                },
+                {
+                  "name": "Spinach",
+                  "quantity": null
+                }
+              ]
+            },
+            {
+              "id": "fruit",
+              "label": "Fruit",
+              "items": [
+                {
+                  "name": "Frozen berries",
+                  "quantity": "1 bag"
+                },
+                {
+                  "name": "Apples",
+                  "quantity": "6"
+                },
+                {
+                  "name": "Bananas",
+                  "quantity": null
+                }
+              ]
+            },
+            {
+              "id": "carbs",
+              "label": "Carbs",
+              "items": [
+                {
+                  "name": "Rice",
+                  "quantity": "225 g"
+                },
+                {
+                  "name": "Potatoes",
+                  "quantity": "500 g"
+                },
+                {
+                  "name": "Pasta",
+                  "quantity": "270 g + 1 pack"
+                }
+              ]
+            },
+            {
+              "id": "dairy-or-alternatives",
+              "label": "Dairy",
+              "items": [
+                {
+                  "name": "Skyr",
+                  "quantity": "2 kg"
+                },
+                {
+                  "name": "Cottage cheese",
+                  "quantity": "2 tubs"
+                }
+              ]
+            },
+            {
+              "id": "breakfast",
+              "label": "Breakfast",
+              "items": [
+                {
+                  "name": "Wholegrain bread",
+                  "quantity": "1 loaf"
+                }
+              ]
+            },
+            {
+              "id": "pantry",
+              "label": "Pantry",
+              "items": [
+                {
+                  "name": "Passata",
+                  "quantity": "1 carton"
+                }
+              ]
+            },
+            {
+              "id": "backup-meals",
+              "label": "Backup meals",
+              "items": [
+                {
+                  "name": "Tinned tuna",
+                  "quantity": "2 tins"
+                }
+              ]
+            }
+          ],
+          "itemCount": 19
+        },
+        "operations": [
+          {
+            "opId": "gym:2026-09-28",
+            "kind": "create-task",
+            "activity": "gym",
+            "date": "2026-09-28",
+            "payload": {
+              "content": "Gym — Monday",
+              "description": "Full-body strength with a lower-body focus: a squat or deadlift variation, a push, a pull and core.",
+              "due_string": "2026-09-28"
+            }
+          },
+          {
+            "opId": "golf:2026-09-28",
+            "kind": "create-task",
+            "activity": "golf",
+            "date": "2026-09-28",
+            "payload": {
+              "content": "Golf practice — Wedges 50–100 m",
+              "description": "Focus\nWedges 50–100 m\n\nSession · 45 min\n- Warm up: 10 min\n- Distance blocks: three distances in your range, five balls each: 10 min\n- Random distances: a new target and distance every ball: 15 min\n- Finish: 10 balls with the full routine, a new distance every ball: 10 min\n\nMental focus\nTarget → breath → commit.\n\nSuccess\nEvery ball has a clear target; note one thing that improved.",
+              "due_string": "2026-09-28"
+            }
+          },
+          {
+            "opId": "shopping:2026-09-29",
+            "kind": "create-task",
+            "activity": "shopping",
+            "date": "2026-09-29",
+            "payload": {
+              "content": "Grocery shopping for next week",
+              "description": "Protein:\n- Chicken breast (450 g)\n- Salmon fillet (250 g)\n- Turkey mince (375 g)\n- Eggs (12)\n\nVegetables:\n- Broccoli\n- Peppers\n- Green beans\n- Spinach\n\nFruit:\n- Frozen berries (1 bag)\n- Apples (6)\n- Bananas\n\nCarbs:\n- Rice (225 g)\n- Potatoes (500 g)\n- Pasta (270 g + 1 pack)\n\nDairy:\n- Skyr (2 kg)\n- Cottage cheese (2 tubs)\n\nBreakfast:\n- Wholegrain bread (1 loaf)\n\nPantry:\n- Passata (1 carton)\n\nBackup meals:\n- Tinned tuna (2 tins)\n\nFor:\n- Chicken, rice and vegetables x3\n- Salmon, potatoes and vegetables x2\n- Turkey mince pasta with tomato sauce x3",
+              "due_string": "2026-09-29"
+            }
+          },
+          {
+            "opId": "mealPrep:2026-09-29",
+            "kind": "create-task",
+            "activity": "mealPrep",
+            "date": "2026-09-29",
+            "payload": {
+              "content": "Meal prep — Tuesday",
+              "description": "Cook: Chicken, rice and vegetables, 3 portions.\nPortion into containers.\nDo the grocery shopping first.",
+              "due_string": "2026-09-29"
+            }
+          },
+          {
+            "opId": "golf:2026-09-29",
+            "kind": "create-task",
+            "activity": "golf",
+            "date": "2026-09-29",
+            "payload": {
+              "content": "Golf practice — Putting inside 2 m",
+              "description": "Focus\nPutting inside 2 m\n\nSession · 40 min\n- Start-line drill from 1 m: 10 min\n- Short putts from 1–2 m around the hole: 10 min\n- Lag putts from 8–15 m, finishing inside 1 m: 10 min\n- Finish: 10 putts from 1.5–2 m with the full routine: 10 min\n\nMental focus\nTarget → breath → commit.\n\nSuccess\nEvery ball has a clear target; note one thing that improved.",
+              "due_string": "2026-09-29"
+            }
+          },
+          {
+            "opId": "golf:2026-09-30",
+            "kind": "create-task",
+            "activity": "golf",
+            "date": "2026-09-30",
+            "payload": {
+              "content": "Golf — 18-hole round",
+              "description": "Process objective\nFull commitment to every selected target.\n\nMental focus\nTarget → breath → commit.\n\nAfter a bad shot\nAcknowledge, exhale, next shot.\n\nAfterwards\nNote two decisions to keep and one to change. Say “Debrief my round” to go through it.",
+              "due_string": "2026-09-30"
+            }
+          },
+          {
+            "opId": "stretch:2026-09-30",
+            "kind": "create-task",
+            "activity": "stretch",
+            "date": "2026-09-30",
+            "payload": {
+              "content": "Stretch — Wednesday",
+              "description": "15 min mobility:\n- Hip flexor stretch: 2 x 45 s per side\n- Thoracic rotations: 10 per side\n- Figure-4 glute stretch: 2 x 45 s per side\n- Cat-cow: 10 slow reps",
+              "due_string": "2026-09-30"
+            }
+          },
+          {
+            "opId": "gym:2026-10-01",
+            "kind": "create-task",
+            "activity": "gym",
+            "date": "2026-10-01",
+            "payload": {
+              "content": "Gym — Thursday",
+              "description": "Full-body strength with an upper-body focus: presses, rows, single-leg work and rotational core.",
+              "due_string": "2026-10-01"
+            }
+          },
+          {
+            "opId": "golf:2026-10-01",
+            "kind": "create-task",
+            "activity": "golf",
+            "date": "2026-10-01",
+            "payload": {
+              "content": "Golf practice — Wedges 50–100 m",
+              "description": "Focus\nWedges 50–100 m\n\nSession · 45 min\n- Warm up: 10 min\n- Distance blocks: three distances in your range, five balls each: 10 min\n- Random distances: a new target and distance every ball: 15 min\n- 10-shot pressure test: one ball each, a new distance every time; count shots that finish within about 5 m: 10 min\n\nMental focus\nTarget → breath → commit.\n\nSuccess\nAll 10 test shots with the full routine; write down the score.",
+              "due_string": "2026-10-01"
+            }
+          },
+          {
+            "opId": "mealPrep:2026-10-02",
+            "kind": "create-task",
+            "activity": "mealPrep",
+            "date": "2026-10-02",
+            "payload": {
+              "content": "Meal prep — Friday",
+              "description": "Cook: Salmon, potatoes and vegetables, 2 portions.\nPortion into containers.",
+              "due_string": "2026-10-02"
+            }
+          },
+          {
+            "opId": "golf:2026-10-02",
+            "kind": "create-task",
+            "activity": "golf",
+            "date": "2026-10-02",
+            "payload": {
+              "content": "Golf practice — Scoring + pressure",
+              "description": "Focus\nScoring under pressure.\n\nSession · 45 min\n- Warm up: chips and putts: 10 min\n- Up-and-down game: 9 spots around the green, hole out, par 2 each; score against 18: 20 min\n- Short-putt pressure: putts from 1 m until you make 10 in a row; a miss restarts the count: 10 min\n- Record both scores: 5 min\n\nMental focus\nTarget → breath → commit.\n\nSuccess\nBoth games played with the full routine; write down the scores.",
+              "due_string": "2026-10-02"
+            }
+          },
+          {
+            "opId": "stretch:2026-10-02",
+            "kind": "create-task",
+            "activity": "stretch",
+            "date": "2026-10-02",
+            "payload": {
+              "content": "Stretch — Friday",
+              "description": "15 min mobility:\n- Hamstring stretch: 2 x 45 s per side\n- Open books: 10 per side\n- Doorway chest stretch: 2 x 30 s\n- Deep squat hold: 3 x 30 s",
+              "due_string": "2026-10-02"
+            }
+          },
+          {
+            "opId": "golf:2026-10-03",
+            "kind": "create-task",
+            "activity": "golf",
+            "date": "2026-10-03",
+            "payload": {
+              "content": "Golf — 18-hole round",
+              "description": "Process objective\nUse the pre-shot routine on every shot.\n\nMental focus\nTarget → breath → commit.\n\nAfter a bad shot\nAcknowledge, exhale, next shot.\n\nAfterwards\nNote two decisions to keep and one to change. Say “Debrief my round” to go through it.",
+              "due_string": "2026-10-03"
+            }
+          },
+          {
+            "opId": "stretch:2026-10-04",
+            "kind": "create-task",
+            "activity": "stretch",
+            "date": "2026-10-04",
+            "payload": {
+              "content": "Stretch — Sunday",
+              "description": "15 min mobility:\n- Hip flexor stretch: 2 x 45 s per side\n- Thoracic rotations: 10 per side\n- Figure-4 glute stretch: 2 x 45 s per side\n- Cat-cow: 10 slow reps",
+              "due_string": "2026-10-04"
+            }
+          }
+        ],
+        "notes": [],
+        "question": null
+      },
+      "digest": "sha256:01d65a4e2c25f7d7952bd428ef4632e9e40c8064dbb5ae03b6a552e6b2c3ed93"
+    }
+  ],
+  "awaiting": {
+    "source": "scheduled",
+    "baseInputs": {
+      "weekStart": "2026-09-28",
+      "targets": {
+        "gym": 2,
+        "stretch": 3,
+        "mealPrep": 2
+      },
+      "days": {},
+      "skipDays": [],
+      "preferences": {
+        "gym": {
+          "preferredDays": [],
+          "avoidDays": []
+        },
+        "stretch": {
+          "preferredDays": [],
+          "avoidDays": []
+        },
+        "mealPrep": {
+          "preferredDays": [],
+          "avoidDays": []
+        }
+      },
+      "pins": [],
+      "existing": [],
+      "food": {
+        "mealIds": [],
+        "customMeals": [],
+        "excludeIngredients": [],
+        "addedMeals": [],
+        "removedMealIds": [],
+        "extraShopping": [],
+        "removedShopping": []
+      },
+      "golf": null,
+      "question": null,
+      "notes": []
+    },
+    "golf": {
+      "roundsKnown": true,
+      "rounds": [
+        {
+          "date": "2026-09-30",
+          "holes": 18,
+          "competition": false
+        },
+        {
+          "date": "2026-10-03",
+          "holes": 18,
+          "competition": false
+        }
+      ],
+      "focus": {
+        "mode": "areas",
+        "areas": [
+          "Wedges 50–100 m",
+          "Putting inside 2 m"
+        ]
+      },
+      "lessons": [],
+      "technicalPriority": null,
+      "restDays": [],
+      "unavailableDays": [],
+      "minutes": {},
+      "avoid": [],
+      "activeDays": 6,
+      "activeDaysExplicit": false,
+      "pins": [],
+      "previousRestDays": [],
+      "saved": null
+    },
+    "askedAt": "2026-09-26T07:00:00.000Z",
+    "lastAskedAt": "2026-09-26T07:00:00.000Z",
+    "completedAt": "2026-09-26T07:30:00.000Z"
+  },
+  "apply": null,
+  "cancelledAt": null,
+  "history": [
+    {
+      "at": "2026-09-26T07:00:00.000Z",
+      "event": "created",
+      "version": 0,
+      "awaiting": "golf-input"
+    },
+    {
+      "at": "2026-09-26T07:00:00.000Z",
+      "event": "golf-asked",
+      "channel": "telegram-send",
+      "messageId": 1
+    },
+    {
+      "at": "2026-09-26T07:30:00.000Z",
+      "event": "golf-answered",
+      "fields": [
+        "addRounds",
+        "focus"
+      ],
+      "replyText": "18 holes Wednesday and Saturday. Focus on wedges 50–100 m and putting inside 2 m."
+    },
+    {
+      "at": "2026-09-26T07:30:00.000Z",
+      "event": "created",
+      "version": 1
+    },
+    {
+      "at": "2026-09-26T07:30:00.000Z",
+      "event": "displayed",
+      "version": 1,
+      "channel": "chat-reply"
+    },
+    {
+      "at": "2026-09-26T08:00:00.000Z",
+      "event": "revised",
+      "version": 2,
+      "changeSummary": [
+        "Added Turkey mince pasta with tomato sauce",
+        "Shopping + Bananas"
+      ]
+    },
+    {
+      "at": "2026-09-26T08:00:00.000Z",
+      "event": "displayed",
+      "version": 2,
+      "channel": "chat-reply"
+    }
+  ],
+  "applyDeferrals": null
+}

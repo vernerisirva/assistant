@@ -61,18 +61,18 @@ describe("food planning defaults", () => {
     assert.equal(food.groceryPlanning.enabled, true);
   });
 
-  it("groups groceries by useful store sections", () => {
+  it("groups groceries by store section, with no snack, breakfast or backup top-up sections", () => {
     assert.deepEqual(food.groceryPlanning.sections, [
-      "protein",
-      "vegetables",
-      "fruit",
-      "carbs",
-      "dairy-or-alternatives",
-      "snacks",
-      "breakfast",
-      "pantry",
-      "backup-meals",
+      "produce",
+      "bread",
+      "meat-fish",
+      "dairy",
+      "dry-goods",
+      "canned",
+      "frozen",
+      "other",
     ]);
+    assert.ok(food.groceryPlanning.principles.includes("only-what-planned-dishes-need"));
   });
 });
 
@@ -147,6 +147,9 @@ describe("routine briefs", () => {
     assert.equal(brief.agent, "health");
     assert.ok(brief.sections.some((section) => section.id === "day-type"));
     assert.ok(brief.sections.some((section) => /training day/i.test(section.instruction)));
+    // A suggested workout is a prescription, not "a push and a pull".
+    assert.match(brief.telegramPrompt, /named exercises, sets × reps or time, rest and total minutes/);
+    assert.match(brief.telegramPrompt, /named movements with hold times or repetitions/);
     assert.ok(brief.sections.some((section) => /golf\/active day/i.test(section.instruction)));
     assert.ok(brief.sections.some((section) => /rest\/no-workout day/i.test(section.instruction)));
     assert.match(brief.telegramPrompt, /First classify today as training, golf\/active, rest\/no-workout, or unclear/i);
@@ -197,7 +200,7 @@ describe("routine briefs", () => {
       ],
     );
     assert.ok(brief.sections.every((section) => /1-2|top 3|one/i.test(section.instruction)));
-    assert.ok(brief.foodSections.includes("protein"));
+    assert.ok(brief.foodSections.includes("meat-fish"));
     assert.ok(brief.memoryContext.some((line) => line.includes("golf/tee-time")));
     assert.match(brief.telegramPrompt, /Proposed actions only/i);
     assert.match(brief.telegramPrompt, /Todoist or Calendar/i);
