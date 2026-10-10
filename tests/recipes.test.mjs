@@ -11,6 +11,7 @@ import {
   detectRecipeLanguage,
   fahrenheitToCelsius,
   formatQuantity,
+  englishNoteWords,
   formatRecipeClarification,
   normalizeCustomRecipe,
   parseRecipeLanguage,
@@ -128,6 +129,12 @@ describe("the recipe catalog", () => {
     }
   });
 
+  it("passes its own language checks, so the checks do not refuse ordinary Swedish or Finnish", () => {
+    for (const dish of food.weeklyMealPlan.meals) {
+      for (const language of RECIPE_LANGUAGES) assert.deepEqual(englishNoteWords(dish.storage[language]), [], `${dish.id} ${language}`);
+    }
+  });
+
   it("keeps no breakfast, snack or backup top-up lists", () => {
     for (const key of ["breakfast", "snacks", "backup"]) assert.equal(food.weeklyMealPlan[key], undefined, key);
     assert.doesNotMatch(JSON.stringify(food.groceryPlanning), /snack|breakfast|backup/);
@@ -240,6 +247,20 @@ describe("recipes the user supplies", () => {
     assert.ok(error.problems.some((problem) => /Translate the dish name/.test(problem)));
     assert.ok(error.problems.some((problem) => /imperial units/.test(problem)));
     assert.ok(error.problems.some((problem) => /steps read as English/.test(problem)));
+  });
+
+  it("refuses English storage advice, however short", () => {
+    const error = captureRecipeError(() => normalizeCustomRecipe({ ...TRANSLATED_FROM_ENGLISH, storage: "Store in fridge." }, { language: "sv" }));
+    assert.deepEqual(error.problems, ["Translate the storage advice."]);
+  });
+
+  it(`allows "to taste" only for seasoning; anything else needs an amount`, () => {
+    const withIngredient = (ingredient) => normalizeCustomRecipe({ ...TRANSLATED_FROM_ENGLISH, ingredients: [...TRANSLATED_FROM_ENGLISH.ingredients, ingredient] }, { language: "sv" });
+    const error = captureRecipeError(() => withIngredient({ name: "kyckling", toTaste: true }));
+    assert.deepEqual(error.problems, ['How much kyckling is needed? "To taste" is only for seasoning such as salt, pepper or herbs.']);
+    for (const seasoning of ["flingsalt", "färsk koriander", "chiliflakes", "olivolja till stekning"]) {
+      assert.ok(withIngredient({ name: seasoning, toTaste: true }).ingredients.some((ingredient) => ingredient.toTaste && ingredient.name === seasoning), seasoning);
+    }
   });
 
   it("refuses a Swedish recipe for a Finnish week instead of mixing languages", () => {

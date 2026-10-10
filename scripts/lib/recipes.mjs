@@ -290,6 +290,34 @@ const ENGLISH_FOOD = new Set([
 export function englishFoodWords(name) {
   return words(name).filter((token) => ENGLISH_FOOD.has(token));
 }
+
+/** Words that only English storage advice uses; a note is short, so one is enough to refuse it. */
+const ENGLISH_NOTE_WORDS = new Set([
+  ...ENGLISH_WORDS, "store", "stored", "fridge", "freezer", "refrigerate", "refrigerated", "refrigerator", "airtight",
+  "container", "containers", "keep", "keeps", "reheat", "days", "week", "weeks", "leftovers", "cool", "covered",
+]);
+
+/** The English words in a short note such as storage advice. */
+export function englishNoteWords(text) {
+  return words(text).filter((token) => ENGLISH_NOTE_WORDS.has(token) || ENGLISH_FOOD.has(token));
+}
+
+/**
+ * Word stems of seasonings, the only ingredients that may be "to taste".
+ * Anything else needs an amount, so a recipe never says "kyckling efter smak".
+ */
+const SEASONINGS = Object.freeze([
+  "salt", "peppar", "chili", "krydd", "ört", "persilja", "dill", "koriander", "basilika", "gräslök", "mynta", "timjan",
+  "oregano", "rosmarin", "citronsaft", "citronskal", "limesaft", "socker", "honung", "soja", "vinäger", "muskot",
+  "kanel", "ingefära", "pulver", "olja", "smör", "senap",
+  "suola", "pippuri", "mauste", "yrt", "tilli", "korianteri", "ruohosipuli", "minttu", "timjami", "rosmariini",
+  "sitruunamehu", "sitruunankuori", "limemehu", "sokeri", "hunaja", "soija", "etikka", "muskotti", "kaneli",
+  "inkivääri", "jauhe", "öljy", "voi", "sinappi",
+]);
+
+function isSeasoning(forms) {
+  return forms.some((form) => words(form).some((word) => SEASONINGS.some((stem) => word === stem || word.startsWith(stem) || word.endsWith(stem))));
+}
 const SWEDISH_WORDS = new Set([
   "och", "med", "på", "till", "att", "minuter", "tills", "låt", "rör", "stek", "koka", "hetta", "tillsätt", "skär",
   "häll", "av", "under", "den", "det", "som", "eller", "vatten", "ugnen", "lägg", "värme",
@@ -400,6 +428,7 @@ export function normalizeCustomRecipe(raw, { language = DEFAULT_RECIPE_LANGUAGE 
     problems.push(`Translate the ingredient names: ${englishNames.map((ingredient) => nameForms(ingredient.name)[0]).join(", ")}.`);
   }
   if (englishFoodWords(name).length > 0) problems.push("Translate the dish name.");
+  if (storage && englishNoteWords(storage).length > 0) problems.push("Translate the storage advice.");
   const detected = detectRecipeLanguage([...steps, storage ?? ""].join(" "));
   if (detected && recipeLanguage && detected !== recipeLanguage) {
     problems.push(`The steps read as ${LANGUAGE_NAMES[detected]}; write them in ${LANGUAGE_NAMES[recipeLanguage]}.`);
@@ -477,6 +506,7 @@ function normalizeCustomIngredients(raw, problems) {
     };
     if (entry.toTaste === true) {
       if (entry.amount !== undefined) problems.push(`${capitalize(label)} has both an amount and "to taste"; keep one.`);
+      else if (!isSeasoning(forms)) problems.push(`How much ${label} is needed? "To taste" is only for seasoning such as salt, pepper or herbs.`);
       result.push({ ...ingredient, toTaste: true });
       continue;
     }
