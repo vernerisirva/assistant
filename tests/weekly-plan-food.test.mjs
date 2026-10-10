@@ -198,6 +198,12 @@ describe("weekly plan food: cooking tasks and the grocery list come from the sam
     assert.equal(opsOf(after.plan, "shopping").length, 1);
   });
 
+  it("refuses a grocery the agent did not translate, so the list stays in the recipe language", () => {
+    assert.throws(() => revise(planFor(), { addShopping: [{ name: "Bananas", section: "produce" }] }), /Shopping items are written in Swedish like the rest of the list: translate "Bananas"/);
+    assert.throws(() => planFor({ food: { language: "fi", addShopping: ["Coffee"] } }), /written in Finnish .*translate "Coffee"/);
+    assert.equal(shoppingItems(revise(planFor(), { addShopping: ["Kaffe"] }).plan).find((item) => item.user).name, "Kaffe");
+  });
+
   it("with no cooking there is no grocery task unless the user adds something", () => {
     const none = planFor({ targets: { mealPrep: 0 } });
     assert.equal(opsOf(none.plan, "shopping").length, 0);
@@ -425,10 +431,10 @@ describe("weekly plan food through the CLI", () => {
       "propose",
       "--send",
       "--input-json",
-      JSON.stringify({ food: { addShopping: ["Chips", { name: "Skyr", section: "dairy" }], addMeals: ["turkey-pasta"], customMeals: [{ name: "Reservmat" }], excludeIngredients: ["lax"] } }),
+      JSON.stringify({ food: { addShopping: ["Chips", { name: "Skyr", section: "dairy" }], addMeals: ["turkey-pasta"], customMeals: [{ name: "Reservmat" }], portions: { "chicken-rice-veg": 8 }, excludeIngredients: ["lax"] } }),
     ]);
     const base = plan().awaiting.baseInputs.food;
-    assert.deepEqual([base.addedMeals, base.customMeals, base.extraShopping], [[], [], []]);
+    assert.deepEqual([base.addedMeals, base.customMeals, base.extraShopping, base.portions], [[], [], [], {}]);
     assert.deepEqual(base.excludeIngredients, ["lax"], "an exclusion only removes, so it is kept");
 
     const shown = await run(["answer", "--input-json", answerJson(GOLF_ANSWER)]);
@@ -436,6 +442,7 @@ describe("weekly plan food through the CLI", () => {
     const v1 = versionEntry(plan(), 1).plan;
     assertFoodInvariants(v1);
     assert.doesNotMatch(JSON.stringify(v1), /Chips|Skyr|Reservmat|turkey-pasta|laxfilé/);
+    assert.equal(v1.food.prep.find((session) => session.mealId === "chicken-rice-veg").portions, 3, "the recipe's own portions");
   });
 
   it("uses a saved recipe-language preference, and records the language with the plan", async () => {

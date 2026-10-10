@@ -21,6 +21,7 @@ import {
   DEFAULT_RECIPE_LANGUAGE,
   buildShoppingList,
   cookingTask,
+  englishFoodWords,
   ingredientNames,
   localWeekday,
   localizedMealName,
@@ -315,7 +316,7 @@ function normalizeFoodInput(food, { language }) {
     excludeIngredients: normalizeTextList(food.excludeIngredients, "food.excludeIngredients", { max: 20 }).map((term) => term.toLowerCase()),
     addedMeals: (food.addMeals ?? []).map((ref) => normalizeMealRef(ref, recipeLanguage)),
     removedMealIds: [],
-    extraShopping: (food.addShopping ?? []).map(normalizeShoppingItem),
+    extraShopping: (food.addShopping ?? []).map((item) => normalizeShoppingItem(item, { language: recipeLanguage })),
     removedShopping: [],
     portions: normalizePortionMap(food.portions ?? {}, "food.portions"),
   };
@@ -347,11 +348,15 @@ function requireRecipeLanguage(value) {
   return language;
 }
 
-function normalizeShoppingItem(item) {
+function normalizeShoppingItem(item, { language } = {}) {
   const value = typeof item === "string" ? { name: item } : requireObject(item, "shopping item");
   rejectUnknownKeys(value, ["name", "section", "quantity"], "shopping item");
   const name = normalizeOptionalText(value.name, "shopping item name", 60);
   if (!name) throw new Error("A shopping item needs a name.");
+  // The grocery list is in the recipe language; the user's request may not be.
+  if (englishFoodWords(name).length > 0) {
+    throw new Error(`Shopping items are written in ${LANGUAGE_NAMES[language] ?? "Swedish"} like the rest of the list: translate "${name}" and run the change again.`);
+  }
   return {
     name: capitalize(name),
     section: sectionId(value.section),
@@ -1024,7 +1029,7 @@ export function applyWeeklyPlanChanges(previousInputs, previousPlan, rawChanges,
     }
   }
   for (const item of changes.addShopping ?? []) {
-    const normalized = normalizeShoppingItem(item);
+    const normalized = normalizeShoppingItem(item, { language: inputs.food.language });
     inputs.food.extraShopping.push(normalized);
     inputs.food.removedShopping = inputs.food.removedShopping.filter(
       (name) => name.toLowerCase() !== normalized.name.toLowerCase(),

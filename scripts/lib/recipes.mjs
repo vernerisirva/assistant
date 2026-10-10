@@ -270,15 +270,26 @@ const ENGLISH_WORDS = new Set([
   "place", "pour", "into", "then", "season", "chop", "slice", "remove", "oven", "pan", "water", "boil", "simmer",
   "combine", "whisk", "drain", "about", "over", "each", "from", "your", "when", "while", "golden", "tender",
 ]);
-/** English food words that are not also Swedish or Finnish words ("pasta", "salt", "chili" are). */
+/**
+ * English food and grocery words that are not also Swedish or Finnish words
+ * ("pasta", "salt", "chili", "juice", "orange" are, so they are not here).
+ */
 const ENGLISH_FOOD = new Set([
   "chicken", "beef", "pork", "turkey", "salmon", "fish", "rice", "onion", "onions", "garlic", "pepper", "peppers",
   "flour", "sugar", "butter", "milk", "cream", "cheese", "tomato", "tomatoes", "beans", "potato", "potatoes",
   "carrot", "carrots", "oil", "water", "egg", "eggs", "breast", "breasts", "fillet", "fillets", "ground", "minced",
-  "chopped", "fresh", "dried", "sauce", "stock", "broth", "lemon", "spinach", "peas", "mushroom", "mushrooms",
+  "chopped", "fresh", "dried", "sauce", "stock", "broth", "lemon", "lemons", "spinach", "peas", "mushroom", "mushrooms",
   "bread", "yogurt", "ginger", "parsley", "cilantro", "thyme", "basil", "cumin", "mince", "leaves", "powder",
-  "sliced", "diced", "large", "small", "medium", "canned", "with", "and", "of",
+  "sliced", "diced", "large", "small", "medium", "canned", "frozen", "with", "and", "of",
+  "banana", "bananas", "apple", "apples", "oranges", "grapes", "pear", "pears", "berries", "strawberries", "blueberries",
+  "coffee", "tea", "oats", "oatmeal", "cereal", "nuts", "almonds", "ham", "sausage", "sausages", "tuna", "cucumber",
+  "lettuce", "cabbage", "wholegrain",
 ]);
+
+/** The English food words in a name, for refusing an untranslated ingredient or grocery. */
+export function englishFoodWords(name) {
+  return words(name).filter((token) => ENGLISH_FOOD.has(token));
+}
 const SWEDISH_WORDS = new Set([
   "och", "med", "på", "till", "att", "minuter", "tills", "låt", "rör", "stek", "koka", "hetta", "tillsätt", "skär",
   "häll", "av", "under", "den", "det", "som", "eller", "vatten", "ugnen", "lägg", "värme",
@@ -384,11 +395,11 @@ export function normalizeCustomRecipe(raw, { language = DEFAULT_RECIPE_LANGUAGE 
   if (texts.some((text) => IMPERIAL_TEXT.test(text))) {
     problems.push("Convert the imperial units in the text (cups, oz, lb, °F, inches) to metric; give ingredient amounts in their own fields.");
   }
-  const englishNames = ingredients.filter((ingredient) => nameForms(ingredient.name).some((form) => words(form).some((token) => ENGLISH_FOOD.has(token))));
+  const englishNames = ingredients.filter((ingredient) => nameForms(ingredient.name).some((form) => englishFoodWords(form).length > 0));
   if (englishNames.length > 0) {
     problems.push(`Translate the ingredient names: ${englishNames.map((ingredient) => nameForms(ingredient.name)[0]).join(", ")}.`);
   }
-  if (words(name).some((token) => ENGLISH_FOOD.has(token))) problems.push("Translate the dish name.");
+  if (englishFoodWords(name).length > 0) problems.push("Translate the dish name.");
   const detected = detectRecipeLanguage([...steps, storage ?? ""].join(" "));
   if (detected && recipeLanguage && detected !== recipeLanguage) {
     problems.push(`The steps read as ${LANGUAGE_NAMES[detected]}; write them in ${LANGUAGE_NAMES[recipeLanguage]}.`);
@@ -628,7 +639,8 @@ export function resolveRecipe(meal, { language, portions }) {
     oven,
     ingredients,
     steps,
-    storage: view.storage,
+    // A supplied recipe without its own advice gets the general rule, nothing source-specific.
+    storage: view.storage ?? (meal.custom ? LABELS[language].defaultStorage : null),
   };
 }
 
@@ -818,6 +830,7 @@ const LABELS = Object.freeze({
     ingredients: "Ingredienser",
     steps: "Gör så här",
     storage: "Förvaring",
+    defaultStorage: "Kyl ned maten skyndsamt och förvara den i kylen. Frys det du inte äter inom ett par dagar, och värm tills maten är rykande het.",
     toTaste: "efter smak",
     asNeeded: "efter behov",
     shopFirst: "Handla först: inköpslistan finns i uppgiften Matinköp för veckan.",
@@ -846,6 +859,7 @@ const LABELS = Object.freeze({
     ingredients: "Ainekset",
     steps: "Valmistus",
     storage: "Säilytys",
+    defaultStorage: "Jäähdytä ruoka nopeasti ja säilytä se jääkaapissa. Pakasta se, mitä et syö parin päivän kuluessa, ja kuumenna ruoka höyryävän kuumaksi.",
     toTaste: "maun mukaan",
     asNeeded: "tarpeen mukaan",
     shopFirst: "Käy ensin kaupassa: ostoslista on tehtävässä Viikon ruokaostokset.",

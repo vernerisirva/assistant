@@ -213,6 +213,21 @@ describe("recipes the user supplies", () => {
     assert.equal(task.description.split("\n").filter((line) => /^\d+\. /.test(line)).length, 4);
   });
 
+  it("states a time only when the recipe gives one, and gives general storage advice when it has none", () => {
+    const { minutes, storage, ...bare } = TRANSLATED_FROM_ENGLISH;
+    for (const [language, heading, advice] of [
+      ["sv", "Förvaring", /^Kyl ned maten skyndsamt och förvara den i kylen\./],
+      ["fi", "Säilytys", /^Jäähdytä ruoka nopeasti ja säilytä se jääkaapissa\./],
+    ]) {
+      const source = language === "fi"
+        ? { ...bare, name: "Sitruunakana", ingredients: [{ name: ["broilerin reisifilee", "broilerin reisifileetä"], amount: 2, unit: "lb", section: "meat-fish" }], steps: ["Kuumenna uuni lämpötilaan {oven}.", "Paista broileria uunissa noin 35 minuuttia, kunnes se on kypsää."] }
+        : bare;
+      const lines = cookingTask(resolveRecipe(normalizeCustomRecipe(source, { language }), { language })).description.split("\n");
+      assert.ok(!lines.some((line) => /^(Tillagningstid|Valmistusaika):/.test(line)), "no invented time");
+      assert.match(lines[lines.indexOf(heading) + 1], advice);
+    }
+  });
+
   it("refuses a recipe that is still English, and says what to translate", () => {
     const english = {
       ...TRANSLATED_FROM_ENGLISH,

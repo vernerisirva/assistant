@@ -53,7 +53,7 @@ JSON
 ## Food And Recipes
 
 - Every meal-prep session cooks one dish with a complete recipe, and each dish gets its own task, `Matlagning – <dish>`, with portions, every ingredient amount and numbered steps. The one grocery task, `Matinköp för veckan`, lists exactly what those dishes need plus what the user explicitly added. Never add a dish, snack, backup meal or grocery the user did not ask for: there are no top-ups.
-- Recipes are in Swedish unless the user asked for Finnish. Shopping items the user adds are named in that language too, and their section is one of `produce`, `bread`, `meat-fish`, `dairy`, `dry-goods`, `canned`, `frozen`, `other`.
+- Recipes are in Swedish unless the user asked for Finnish. Shopping items the user adds are named in that language too (an English name is refused: translate it and run the change again), and their section is one of `produce`, `bread`, `meat-fish`, `dairy`, `dry-goods`, `canned`, `frozen`, `other`.
 - A recipe the user gives you (`Cook this on Thursday: …`) goes in `addMeals` as a complete recipe, in a quoted heredoc:
 
 ```json

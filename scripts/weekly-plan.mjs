@@ -532,7 +532,7 @@ async function answerGolf(planId, payload, context) {
     // Complete: the stored context, today's Todoist tasks and the answers.
     const base = structuredClone(document.awaiting.baseInputs);
     // Stored before the scheduled run lost its food additions, or before recipes had a language.
-    if (document.awaiting.source === "scheduled") base.food = { ...base.food, addedMeals: [], customMeals: [], extraShopping: [] };
+    if (document.awaiting.source === "scheduled") base.food = { ...base.food, addedMeals: [], customMeals: [], extraShopping: [], portions: {} };
     base.food.language ??= savedRecipeLanguage(context.memoryPath) ?? food.weeklyMealPlan?.defaultLanguage ?? DEFAULT_RECIPE_LANGUAGE;
     try {
       const tasks = await context.todoist().getTasks({});
@@ -584,10 +584,10 @@ function recipeClarification(planId, error) {
   };
 }
 
-/** The scheduled run's food input without dishes or groceries added on the user's behalf. */
+/** The scheduled run's food input without dishes, groceries or portions chosen on the user's behalf. */
 function withoutAdditions(food) {
   if (!food || typeof food !== "object" || Array.isArray(food)) return food;
-  const { addMeals, customMeals, addShopping, ...rest } = food;
+  const { addMeals, customMeals, addShopping, portions, ...rest } = food;
   return rest;
 }
 
