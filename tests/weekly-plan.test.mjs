@@ -416,7 +416,13 @@ describe("weekly plan modifications", () => {
 
 describe("weekly plan acceptance", () => {
   it('accepts explicit replies such as "OK", "Looks good", "Create it", "Yes" and "Go ahead"', () => {
-    for (const reply of ["OK", "ok", "Looks good", "Create it", "create them", "Yes", "Go ahead", "Sounds good"]) {
+    for (const reply of ["OK", "ok", "Looks good", "Create it", "create them", "Yes", "Go ahead", "Sounds good", "OK 👍", "Ok, go ahead!"]) {
+      assert.equal(isWeeklyPlanAcceptance(reply), true, reply);
+    }
+  });
+
+  it("accepts the same plain replies in Swedish and Finnish", () => {
+    for (const reply of ["Ja", "Okej", "Kör", "Ser bra ut", "Låter bra", "Skapa dem", "Ja, skapa dem", "Joo", "Kyllä", "Luo ne"]) {
       assert.equal(isWeeklyPlanAcceptance(reply), true, reply);
     }
   });
@@ -432,7 +438,19 @@ describe("weekly plan acceptance", () => {
       "ok but no salmon",
       "yes, gym 3 times",
       "",
+      "create it?",
+      "create them…",
+      "Skapa dem?",
+      "ok men utan lax",
+      "kör men flytta gymmet",
+      "joo mutta ei lohta",
     ]) {
+      assert.equal(isWeeklyPlanAcceptance(reply), false, reply);
+    }
+  });
+
+  it("does not let a question mark in another script, an ellipsis or an emoji pass as a plain OK", () => {
+    for (const reply of ["ok？", "ok ❓", "yes ⁉\uFE0F", "ok…", "ok...", "ok 🤔", "ok 👎", "okay ❌", "sure 🙄", "ok :/", "👍"]) {
       assert.equal(isWeeklyPlanAcceptance(reply), false, reply);
     }
   });
