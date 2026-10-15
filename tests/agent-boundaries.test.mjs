@@ -1051,3 +1051,33 @@ describe("capability help prompt", () => {
     }
   });
 });
+
+describe("travel prompt", () => {
+  const promptFor = (id) => readFileSync(`${agents.find((agent) => agent.id === id).promptDir}/AGENTS.md`, "utf8");
+  const personalPrompt = promptFor("personal");
+  // The workflow lives in the travel-deals skill, which OpenClaw lists for the
+  // model outside the project-doc budget; the prompt keeps a pointer and the
+  // booking boundary.
+  const from = personalPrompt.indexOf("Travel:\n");
+  const pointer = personalPrompt.slice(from, personalPrompt.indexOf("\n\n", from));
+
+  it("points travel requests at the skill with a short line", () => {
+    assert.ok(from >= 0, "Travel: section");
+    assert.match(pointer, /For trips, flights, hotels, holidays, packages or golf travel, first read the `travel-deals` skill and follow it\./);
+    assert.ok(Buffer.byteLength(pointer) < 300, `travel pointer is ${Buffer.byteLength(pointer)} bytes`);
+    assert.ok(existsSync("agents/personal/skills/travel-deals/SKILL.md"));
+    assert.ok(personalPrompt.indexOf("Travel:\n") < personalPrompt.indexOf("\nConfirm-before-action:\n"));
+  });
+
+  it("keeps the booking boundary in the standing orders themselves", () => {
+    assert.match(pointer, /Research only: never book, reserve, pay, sign in or fill in forms; give links instead\./);
+    assert.match(personalPrompt, /Hard stop points: do not send email, edit\/delete\/respond to Calendar events, delete\/reopen\/move\/bulk-edit Todoist tasks, book\/pay\/check in, submit forms, make purchases/);
+  });
+
+  it("keeps the travel workflow out of every agent prompt", () => {
+    for (const agent of agents) {
+      const prompt = promptFor(agent.id);
+      assert.doesNotMatch(prompt, /npm run --silent travel|travel -- compare|Google Flights/, agent.id);
+    }
+  });
+});

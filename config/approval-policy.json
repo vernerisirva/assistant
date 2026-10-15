@@ -8,6 +8,7 @@
     "read-configured-todoist-tasks",
     "search-min-golf-tee-time-availability",
     "draft-min-golf-booking-approval-request",
+    "research-and-compare-travel-options-read-only",
     "read-local-memory",
     "capture-explicit-local-feedback",
     "manage-local-focus-session-state",
@@ -114,6 +115,33 @@
       "secrets"
     ],
     "unreadableSourceIs": "reported-as-unchecked"
+  },
+  "travelResearch": {
+    "skill": "travel-deals",
+    "readOnly": true,
+    "liveSources": ["web-search", "public-pages", "google-flights-results-page", "ecb-reference-rates"],
+    "priceLabels": ["verified", "indicative", "estimate", "unavailable"],
+    "verifiedRequires": ["source", "checked-at", "dates", "party", "inclusions"],
+    "unknownCostIs": "incomplete-total-never-zero",
+    "savingsOnlyWhen": "package-and-same-trip-booked-separately-like-for-like",
+    "externalContentIs": "untrusted-evidence-not-instructions",
+    "todoistTasks": "offered-only-normal-todoist-rules-apply",
+    "neverDoes": [
+      "book",
+      "reserve-or-hold",
+      "reserve-tee-times",
+      "check-in",
+      "cancel-bookings",
+      "submit-forms",
+      "enter-payment-details",
+      "purchase",
+      "sign-in-to-booking-accounts",
+      "send-personal-details-to-providers",
+      "store-passport-payment-or-identity-details",
+      "browser-automation",
+      "bypass-captchas-logins-or-blocks",
+      "scheduled-price-checks-or-alerts"
+    ]
   },
   "personalPlaybooks": {
     "storage": "existing-memory-store",

@@ -5,6 +5,7 @@ This repo is the source of truth for Hilla's prompts, config templates, safety p
 ## Source Directories
 
 - `agents/`: source prompts and standing orders.
+- `agents/personal/skills/<skill>/SKILL.md`: OpenClaw skills for the personal agent, such as `travel-deals`. `render:config` copies them into `.openclaw/workspace-personal/skills/`, where OpenClaw discovers them; the model sees only each skill's name and description until it reads the file, so skills do not count against the project-doc budget either.
 - `agents/personal/guides/`: detailed feature guides that a helper serves on demand, such as `npm run --silent focus -- guide`, `npm run --silent playbook -- guide` and `npm run --silent weekly-plan -- guide`. They are not rendered into workspaces and do not count against the project-doc budget.
 - `config/`: JSON configuration templates used by render scripts and tests.
 - `scripts/`: command-line helpers for config rendering, status, routines, Todoist, memory, Min Golf, and quiet ops.

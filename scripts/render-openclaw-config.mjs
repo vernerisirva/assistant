@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -134,6 +134,38 @@ export function prepareAgentWorkspaces(root = projectRoot) {
     if (existsSync(soulPath)) {
       copyTextFile(soulPath, projectPath(workspace, "SOUL.md"));
     }
+
+    copyAgentSkills(projectPath(promptDir, "skills"), projectPath(workspace, "skills"));
+  }
+}
+
+/**
+ * Copies the agent's version-controlled skills (`<promptDir>/skills/<name>/`)
+ * into `<workspace>/skills/`, OpenClaw's per-agent skill root. Copies, not
+ * symlinks: OpenClaw only loads workspace skills whose real path stays inside
+ * the workspace. Skills installed there by other means are left alone, so a
+ * skill removed from the repo must also be deleted from the workspace by hand.
+ */
+export function copyAgentSkills(sourceRoot, destinationRoot) {
+  if (!existsSync(sourceRoot)) return [];
+  const copied = [];
+  for (const entry of readdirSync(sourceRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+    if (!existsSync(join(sourceRoot, entry.name, "SKILL.md"))) continue;
+    copyTree(join(sourceRoot, entry.name), join(destinationRoot, entry.name));
+    copied.push(entry.name);
+  }
+  return copied;
+}
+
+function copyTree(sourceDir, destinationDir) {
+  mkdirSync(destinationDir, { recursive: true });
+  for (const entry of readdirSync(sourceDir, { withFileTypes: true })) {
+    if (entry.name.startsWith(".")) continue;
+    const source = join(sourceDir, entry.name);
+    const destination = join(destinationDir, entry.name);
+    if (entry.isDirectory()) copyTree(source, destination);
+    else if (entry.isFile()) copyTextFile(source, destination);
   }
 }
 

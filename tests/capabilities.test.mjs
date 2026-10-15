@@ -198,6 +198,8 @@ describe("capability registry", () => {
       "system.schedule": "quiet:status",
       "system.schedule-change": "quiet:reschedule",
       "system.feedback": "feedback",
+      "travel.research": "travel",
+      "travel.itinerary": "travel",
     };
     for (const [id, script] of Object.entries(scripts)) {
       assert.equal(capabilityById(id)?.status, "available", id);
@@ -386,6 +388,9 @@ describe("capability views", () => {
       "golf.tee-times",
       "golf.booking",
       "golf.payment",
+      "travel.research",
+      "travel.itinerary",
+      "travel.booking",
       "weekly-plan.plan",
       "weekly-plan.golf",
     ]);
