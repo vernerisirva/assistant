@@ -342,6 +342,30 @@ describe("exact dates", () => {
   });
 });
 
+describe("offers the user sent", () => {
+  const userPackage = (overrides = {}) =>
+    indicative("package", {
+      amount: 9995,
+      currency: "SEK",
+      per: "person",
+      source: "user",
+      forParty: { adults: 2, rooms: 1 },
+      covers: ["flights", "hotel", "taxes_fees", "green_fees", "airport_transfer", "course_transport", "golf_bag"],
+      rounds: 5,
+      ...overrides,
+    });
+  const supplement = indicative("single_supplement", { amount: 2400, currency: "SEK", per: "person", source: "user", forParty: { adults: 1, rooms: 1 } });
+
+  it("are indicative, never verified, and say where they came from", () => {
+    const result = okResult(withCosts([userPackage(), supplement]));
+    assert.equal(optionA(result).total, 9995 + 2400);
+    assert.match(result.telegramText, /package price is from the offer you sent, not checked by me/);
+    assert.doesNotMatch(result.telegramText, /\]\(user\)/, "no link to 'user'");
+    const verified = userPackage({ status: "verified", forDates: ["2027-01-12", "2027-01-19"], includes: ["as sent"] });
+    assert.match(problemsOf(withCosts([verified, supplement])), /"user" \(an offer the user sent\) can back an indicative price, never a verified one/);
+  });
+});
+
 describe("currencies", () => {
   it("needs a rate for every converted currency", () => {
     assert.match(problemsOf(golfInput({ fx: undefined })), /fx has no rate for EUR/);
@@ -384,6 +408,24 @@ describe("room sharing and party size", () => {
     const result = okResult(withCosts([pkg, supplement]));
     assert.equal(optionA(result).total, 14995 + 2100);
     assert.equal(optionA(result).complete, true);
+  });
+
+  it("refuses a single supplement on a price already quoted for one person per room", () => {
+    const pkg = indicative("package", {
+      amount: 599,
+      currency: "EUR",
+      per: "person",
+      forParty: { adults: 1, rooms: 1 },
+      covers: ["hotel", "green_fees"],
+      rounds: 5,
+    });
+    const supplement = indicative("single_supplement", { amount: 42, currency: "EUR", per: "person_night", forParty: { adults: 1, rooms: 1 } });
+    const costs = (packageLine) => [flights(), packageLine, supplement, golfBag(), car(), { item: "taxes_fees", status: "unavailable" }];
+    assert.match(problemsOf(withCosts(costs(pkg))), /single_supplement only applies on top of a room price quoted for people sharing/);
+    const optionalSupplement = [flights(), pkg, { ...supplement, optional: true }, golfBag(), car(), { item: "taxes_fees", status: "unavailable" }];
+    assert.match(problemsOf(withCosts(optionalSupplement)), /single_supplement only applies/, "an optional supplement counts in an all-in budget");
+    const sharing = okResult(withCosts(costs({ ...pkg, forParty: { adults: 2, rooms: 1 } })));
+    assert.equal(optionA(sharing).lines.find((line) => line.item === "single_supplement").amount, sek(42 * 7));
   });
 
   it("refuses a single-room price for two people sharing", () => {
@@ -669,6 +711,33 @@ describe("free text and links", () => {
     }
   });
 
+  it("lets limits through: saved pages, negated availability", () => {
+    for (const text of [
+      "Saved offer from the golf club",
+      "Solo room cost is not confirmed",
+      "No rooms left at this price",
+      "Not guaranteed until booked",
+      "No available tee times shown online",
+      "Rooms with free breakfast",
+    ]) {
+      assert.equal(checkText(text, { max: 100 }).problem, undefined, text);
+    }
+    for (const text of [
+      "Tee times available every morning",
+      "Save money with this package",
+      "Price guaranteed",
+      "Tee times not available, but rooms left",
+      "No issue: tee times available",
+      "Not cheap, but price guaranteed",
+      "Tee times at the lovely old club are available",
+      "Available tee times",
+      "tee times: available",
+      "Rooms - confirmed",
+    ]) {
+      assert.ok(checkText(text, { max: 100 }).problem, text);
+    }
+  });
+
   it("refuses fields the schema does not know, such as a discount claim", () => {
     assert.match(problemsOf(withCosts([flights({ discount: "30%" }), golfBag(), hotel(), greenFees(), car()])), /discount isn't a known field/);
     assert.match(problemsOf(golfInput({ options: [golfOption({ saving: 1000 })] })), /saving isn't a known field/);
@@ -832,6 +901,7 @@ describe("other trips", () => {
   it("prices a flight-only request, adding bags only when asked", () => {
     const result = okResult(trip("flights", [helsinkiFlight()]));
     assert.equal(optionA(result).complete, true);
+    assert.match(result.telegramText, /^Trip\n1 traveller · SEK, flights only\n/);
     assert.doesNotMatch(result.telegramText, /Hotel|Per round/);
     const withBag = okResult(trip("flights", [helsinkiFlight()], { checkedBag: true }));
     assert.deepEqual(optionA(withBag).missing, ["checked bags"]);

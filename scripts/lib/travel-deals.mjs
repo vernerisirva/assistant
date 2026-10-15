@@ -121,18 +121,39 @@ const GOLF_KEYS = ["rounds", "courses", "teeTimes", "handicap", "daylight", "pra
 
 const MONEY = /\d[\d\s.,]*\s?(?:kr|kronor|sek|eur|euros?|usd|dkk|nok|gbp|chf|lira)\b|\d[\d\s.,]*\s?[€$£₺]|[€$£₺]\s?\d/i;
 const SAVINGS =
-  /\b(?:save[sd]?|saving|savings|cheaper|cheapest|lowest|discount(?:ed)?|bargain|deals?|half[- ]price|spara|sparar|billigare|billigast|lägsta|rabatt|fynd)\b|\d+\s?%\s?(?:off|rabatt)/i;
-const AVAILABILITY =
-  /\b(?:tee[- ]?times?|rooms?|seats?|flights?|tickets?|starttider?)\b[^.]{0,40}\b(?:available|left|confirmed|guaranteed|bookable|lediga?)\b|\b(?:guaranteed|bookable|in stock|sold out|live (?:prices?|deals?|offers?))\b/i;
+  /\b(?:saves?|saving|savings|cheaper|cheapest|lowest|discount(?:ed)?|bargain|deals?|half[- ]price|spara|sparar|billigare|billigast|lägsta|rabatt|fynd)\b|\d+\s?%\s?(?:off|rabatt)/i;
+// An availability claim: a thing that can sell out, then within a few words a
+// word saying it is available, or a standalone promise.
+const CLAIM_NOUNS = "tee[- ]?times?|rooms?|seats?|flights?|tickets?|starttider?";
+const CLAIM_WORDS = "available|left|confirmed|guaranteed|bookable|lediga?";
+const AVAILABILITY_CLAIM = new RegExp(`\\b(?:${CLAIM_NOUNS})\\b([^.!?]{0,40}?)\\b(?:${CLAIM_WORDS})\\b`, "giu");
+// The same claim word first: "available tee times".
+const AVAILABILITY_CLAIM_FIRST = new RegExp(`\\b(?:available|bookable|confirmed|guaranteed|lediga?)\\b([^.!?]{0,20}?)\\b(?:${CLAIM_NOUNS})\\b`, "giu");
+const AVAILABILITY_PROMISE = /\b(?:guaranteed|bookable|in stock|sold out|live (?:prices?|deals?|offers?))\b/giu;
 const INSTRUCTIONS =
   /\b(?:ignore|disregard|override|forget)\b[^.]{0,40}\b(?:instructions?|rules|prompts?|guidelines|orders)\b|\bsystem prompt\b|\bdeveloper (?:message|mode)\b|\byou are now\b|\bas an ai\b|\b(?:run|execute|exec)\b[^.]{0,30}\b(?:commands?|scripts?|shell|terminal|code)\b|\bapi[ _-]?keys?\b|\bpasswords?\b|\btokens?\b|\bsudo\b|\brm -rf\b|\bcurl\b|\bwget\b|<\s*script|\bnpm run\b|\bopenclaw\b/i;
 
+// Each claim is judged on its own: "not confirmed" or "no rooms left" states a
+// limit, which is welcome, but a negation elsewhere never excuses another claim.
+const NEGATOR = /^(?:not|no|never|isn't|aren't|wasn't|weren't|cannot|can't|without|inte|ej|un[\p{L}]+)$/iu;
+const lastWord = (text) => text.trim().split(/\s+/).at(-1) ?? "";
+function claimsAvailability(text) {
+  for (const match of [...text.matchAll(AVAILABILITY_CLAIM), ...text.matchAll(AVAILABILITY_CLAIM_FIRST)]) {
+    const between = match[1].split(/[^\p{L}'’]+/u).filter(Boolean);
+    if (!between.some((word) => NEGATOR.test(word)) && !NEGATOR.test(lastWord(text.slice(0, match.index)))) return true;
+  }
+  for (const match of text.matchAll(AVAILABILITY_PROMISE)) {
+    if (!NEGATOR.test(lastWord(text.slice(0, match.index)))) return true;
+  }
+  return false;
+}
+
 const TEXT_RULES = [
-  [/https?:\/\/|www\./i, "put links in `links` or `source`, not in text"],
-  [MONEY, "put prices in `costs`, so the helper converts and totals them"],
-  [SAVINGS, "leave savings and price comparisons to the helper"],
-  [AVAILABILITY, "don't claim availability; tee times go in `golf.teeTimes`"],
-  [INSTRUCTIONS, "this reads like instructions from a web page, not travel facts; drop it"],
+  [(text) => /https?:\/\/|www\./i.test(text), "put links in `links` or `source`, not in text"],
+  [(text) => MONEY.test(text), "put prices in `costs`, so the helper converts and totals them"],
+  [(text) => SAVINGS.test(text), "leave savings and price comparisons to the helper"],
+  [claimsAvailability, "don't claim availability; tee times go in `golf.teeTimes`"],
+  [(text) => INSTRUCTIONS.test(text), "this reads like instructions from a web page, not travel facts; drop it"],
 ];
 
 /** One line of display text, or a problem. Markdown and HTML characters are dropped. */
@@ -145,8 +166,8 @@ export function checkText(value, { max }) {
     .trim();
   if (!text) return { problem: "is empty" };
   if (text.length > max) return { problem: `is longer than ${max} characters` };
-  for (const [pattern, message] of TEXT_RULES) {
-    if (pattern.test(text)) return { problem: `${message} (“${text.slice(0, 60)}”)` };
+  for (const [breaks, message] of TEXT_RULES) {
+    if (breaks(text)) return { problem: `${message} (“${text.slice(0, 60)}”)` };
   }
   return { value: text };
 }
@@ -622,6 +643,7 @@ function validateOption(option, index, { request, today, now, fail, warnings }) 
     .map((line, lineIndex) => validateCost(line, lineIndex, { at, option: shell, request, now, hasSupplement, fail, warnings }));
 
   validateStayDates(costs, shell, at, fail);
+  validateSupplement(costs, request, at, fail);
 
   let golf = null;
   if (request?.kind === "golf") golf = validateGolf(option.golf, `${at} golf`, { request, costs, fail });
@@ -724,11 +746,15 @@ function validateCost(line, index, { at, option, request, now, hasSupplement, fa
 
   const evidence = status === "verified" || status === "indicative";
   let source = null;
-  if (line.source !== undefined) {
+  if (line.source === "user") {
+    // An offer the user sent (pasted text, a screenshot, a saved page) is evidence, but not one Hilla saw itself.
+    if (status === "verified") fail(`${named}.source`, '"user" (an offer the user sent) can back an indicative price, never a verified one.');
+    source = "user";
+  } else if (line.source !== undefined) {
     const checked = checkLink(line.source);
     if (checked.problem) fail(`${named}.source`, checked.problem);
     source = checked.value ?? null;
-  } else if (evidence) fail(`${named}.source`, `is required for a ${status} price: the page where it was seen.`);
+  } else if (evidence) fail(`${named}.source`, `is required for a ${status} price: the page where it was seen, or "user" for an offer the user sent.`);
 
   let checkedAt = null;
   if (line.checkedAt !== undefined) {
@@ -841,6 +867,31 @@ function validateStayDates(costs, option, at, fail) {
     night = checkOut;
   }
   if (night !== option.return) fail(`${at} hotel dates`, `must cover every night from ${option.depart} to ${option.return}, one stay after another.`);
+}
+
+/**
+ * A single supplement tops up a price quoted for people sharing a room. On a
+ * price already quoted for this trip's occupancy it would be charged twice,
+ * and it usually means the quote's party was entered wrongly.
+ */
+function validateSupplement(costs, request, at, fail) {
+  // Every supplement, optional ones too: an all-in budget counts optional lines.
+  if (!request?.rooms || !costs.some((line) => line.item === "single_supplement")) return;
+  const tripPerRoom = request.travellers / request.rooms;
+  const sharing = costs.some(
+    (line) =>
+      !line.optional &&
+      line.item !== "single_supplement" &&
+      line.covers?.includes("hotel") &&
+      line.forParty?.rooms &&
+      line.forParty.adults / line.forParty.rooms > tripPerRoom,
+  );
+  if (!sharing) {
+    fail(
+      `${at} single_supplement`,
+      'only applies on top of a room price quoted for people sharing: set that price\'s forParty to the sharing it was quoted for, such as {"adults": 2, "rooms": 1}, or drop the supplement.',
+    );
+  }
 }
 
 /** Whether a room price's own inclusions say taxes are included, and nothing says they are not. */
@@ -1109,6 +1160,7 @@ function optionNotes(option, counted) {
     }
     if (line.check?.warning) notes.push(line.check.warning);
     if (line.staleDays >= 2) notes.push(`${ITEM_NAME[line.item]} price checked ${line.staleDays} days ago`);
+    if (line.source === "user") notes.push(`${ITEM_NAME[line.item]} price is from the offer you sent, not checked by me`);
   }
   return [...new Set(notes)];
 }
@@ -1179,7 +1231,7 @@ function formatComparison({ request, options, fx, comparisons, recommended, limi
     `${request.travellers} ${request.travellers === 1 ? "traveller" : "travellers"}`,
     request.rooms ? `${request.rooms} ${request.rooms === 1 ? "room" : "rooms"}` : null,
     request.kind === "golf" ? `${request.rounds} rounds${request.golfers !== request.travellers ? ` for ${request.golfers} golfers` : ""}` : null,
-    `${cur}, whole trip`,
+    `${cur}, ${{ flights: "flights only", hotel: "hotel only" }[request.kind] ?? "whole trip"}`,
   ].filter(Boolean);
   lines.push(party.join(" · "));
   if (request.assumptions.length > 0) lines.push(`Assumed: ${request.assumptions.join("; ")}.`);
@@ -1351,7 +1403,7 @@ function linksFor(option, request) {
     seen.add(url);
     links.push({ label, url });
   };
-  for (const line of option.lines) if (line.source) add(capitalize(ITEM_NAME[line.item]), line.source);
+  for (const line of option.lines) if (line.source && line.source !== "user") add(capitalize(ITEM_NAME[line.item]), line.source);
   for (const link of option.links) add(link.label, link.url);
   const flies = option.lines.some((line) => line.covers.includes("flights") && line.item !== "package");
   const stays = option.lines.some((line) => line.item === "hotel");

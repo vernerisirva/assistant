@@ -40,6 +40,7 @@ What changes the results: departure airport, destination or climate, dates or a 
 ## 3. Flexible dates
 
 - `npm run --silent travel -- flights --from CPH --to AGP --depart-between 2027-01-04..2027-01-24 --nights 7 --max-dates 4` picks up to four departure dates spread across the window and across weekdays, and checks each. For weekends use `--weekdays fri --nights 2`, or `thu`/`sat` with 3 nights.
+- Keep the trip inside the period asked for: "a week in February" departs between 1 and 21 February.
 - Compare the fares by date, then price the stay and golf for the best two or three dates only. The cheapest flight alone doesn't make the best trip: weigh hotel, golf, transfers and flight times.
 - More airports multiply lookups (2 airports × 4 dates = 8), so narrow first.
 
@@ -47,8 +48,9 @@ What changes the results: departure airport, destination or climate, dates or a 
 
 - `verified`: a concrete price on the provider's or booking site's own page for these exact dates, this party and room sharing, with what it includes and when you saw it. The flights helper's fares are verified.
 - `indicative`: "from" prices, published examples, search-result snippets, season rate cards, and prices for other dates or another party.
-- `estimate`: your own calculation from assumptions, with its basis.
+- `estimate`: your own calculation, with a basis that says where the number comes from, such as the same rental for other dates or a published fare table. Never reuse a number from this skill's example.
 - `unavailable`: no trustworthy price found. An unknown cost is never zero.
+- An offer the user sent (pasted text, a screenshot, a saved page) is `indicative` with `"source": "user"`, never verified; check it against what you can find yourself.
 
 Never upgrade a label, and never invent a price, discount, availability, provider or link. Every price keeps the page it came from and when you checked it.
 
@@ -56,7 +58,7 @@ Never upgrade a label, and never invent a price, discount, availability, provide
 
 - Price everything unavoidable: flights, checked bags when needed, golf-bag fees each way, hotel, hotel taxes and resort fees, airport transfers, getting to the courses or a rental car, green fees for every round, carts where required, single supplements, booking fees.
 - Optional costs (dinners, sightseeing) go in with `"optional": true` and stay out of the total, unless the user wants an all-in budget (`"allInclusive": true`).
-- Hotel taxes and resort fees: when a hotel or package price includes them, say so in its `includes` (such as "taxes"); otherwise add a `taxes_fees` line, priced or `unavailable`. A stay without either is an incomplete total.
+- Hotel taxes and resort fees: when a hotel or package price includes them, say so in its `includes` (such as "taxes"); otherwise add a `taxes_fees` line, priced from the hotel's or city's own page (amount 0 when that page says there is no such tax) or `unavailable`. A stay without either is an incomplete total.
 - Get the basis right. A double room is per room (`room_night`), not per person. A package "per person, two sharing" is `per: "person"` with `forParty` 2 adults and 1 room, so a solo traveller needs the single-room price or a `single_supplement` line.
 - Never add up, convert or compare totals yourself: run compare and send its reply.
 
@@ -87,20 +89,21 @@ npm run --silent travel -- compare --json-stdin <<'JSON'
 JSON
 ```
 
-If `ok` is false, fix every listed problem and run it again; never write the reply or the totals yourself. Then send `telegramText` word for word. Recommend one option, not automatically the lowest price: if another is clearly better for a modest extra cost, pick it and say why; the helper adds the price difference.
+Write the input inside the heredoc as shown, without piping it through other commands. If `ok` is false, fix every listed problem and run it again; never write the reply or the totals yourself. Then send `telegramText` word for word. Recommend one option, not automatically the lowest price: if another is clearly better for a modest extra cost, pick it and say why; the helper adds the price difference.
 
 Input:
 
 - `request`: `title`, `kind` (`flights`, `hotel`, `trip` or `golf`), `travellers`, `rooms` (any stay), golf `rounds`, optional `golfers`, `bringClubs` (default true), `checkedBag`, `currency` (default SEK), `budget` `{"amount": 10000, "per": "trip"}` or per `person`, `allInclusive`, and up to three short `assumptions`.
 - `fx`: `"ecb"`, whenever a price is in another currency.
-- `options`: `id` (A, B, C in order), `title`, `depart`, `return`, `from` and `to` airport codes, `city` (for hotel search links), `why`, one to three `advantages` and `tradeOffs`, `costs`, `links` (real pages such as the package or hotel page), `golf` for golf trips, optional `climate` `{"kind": "climate_average", "summary": "...", "source": "..."}`, and an optional day-by-day `itinerary` `[{"day": "2027-01-12", "plan": "..."}]`.
+- `options`: `id` (A, B, C in order), `title`, `depart`, `return`, `from` and `to` airport codes, `city` (for hotel search links), `why`, one to three `advantages` and `tradeOffs`, `costs`, `links` (real pages such as the package or hotel page, each `{"label": "...", "url": "..."}`), `golf` for golf trips, optional `climate` `{"kind": "climate_average", "summary": "...", "source": "..."}`, and an optional day-by-day `itinerary` `[{"day": "2027-01-12", "plan": "..."}]`.
 - `costs`: `item` (flights, train, baggage, golf_bag, hotel, taxes_fees, single_supplement, package, green_fees, cart, club_rental, airport_transfer, course_transport, car_rental, local_transport, booking_fee, other), `label` (provider, hotel, fare), `amount`, `currency`, `per` (trip, person, room, room_night, person_night, round, person_direction, golfer_direction, or unit with `count`), `status`, `source`, `checkedAt`, `forDates`, `forParty` `{"adults": 2, "rooms": 1}`, `includes`, `excludes`, `basis` (estimates), `covers` (what a package or other line includes), `rounds` (green fees), `board`, `optional`. An `unavailable` line has no amount.
+- `checkedAt` is UTC with a `Z`, such as the output of `date -u +%Y-%m-%dT%H:%M:%SZ`; Stockholm time with a `Z` is two hours in the future and is refused.
 - A verified line needs source, checkedAt, forDates, forParty and includes; an indicative one needs source and checkedAt. Room prices and whole-trip prices also need forParty. A verified fare or package is for this trip's exact dates, and a hotel's `forDates` are its check-in and check-out; on a multi-stop trip give each hotel its own dates, back to back. Copy a flights `costLines` entry unchanged.
 - `golf`: `rounds`, `courses` `[{"name": "...", "source": "...", "note": "..."}]`, `teeTimes` `{"status": "not_checked"}` (or `"seen"` with source and checkedAt), and optional `handicap`, `daylight`, `practice`.
 - `recommendation` `{"option": "B", "why": "..."}`, optional `packageVsSeparate` `[{"package": "C", "separate": "A", "sameHotel": true}]`, and optional short `limitations`.
 - Free text (`why`, `advantages`, `tradeOffs`, labels, notes, itinerary plans) carries no prices, savings, words like "cheaper", availability claims or links; the helper writes those from the numbers.
 
-Example, one option for a solo golf week:
+Example of the structure, one option for a solo golf week. Every amount and link in it is a placeholder, never a price:
 
 ```json
 {
@@ -112,10 +115,10 @@ Example, one option for a solo golf week:
     "advantages": ["Nonstop flight"], "tradeOffs": ["Rental car needed"],
     "costs": [
       {"item": "flights", "note": "replace with the flights command's costLines entry, unchanged"},
-      {"item": "golf_bag", "label": "Airline sports equipment", "amount": 60, "currency": "EUR", "per": "golfer_direction", "status": "indicative", "source": "https://airline.example/baggage", "checkedAt": "2026-10-15T09:10:00Z"},
-      {"item": "hotel", "label": "Hotel name", "amount": 95, "currency": "EUR", "per": "room_night", "status": "indicative", "source": "https://hotel.example/rooms", "checkedAt": "2026-10-15T09:20:00Z", "forParty": {"adults": 1, "rooms": 1}, "board": "breakfast", "includes": ["breakfast", "taxes"]},
-      {"item": "green_fees", "label": "Five rounds, three courses", "amount": 85, "currency": "EUR", "per": "round", "rounds": 5, "status": "indicative", "source": "https://club.example/green-fees", "checkedAt": "2026-10-15T09:30:00Z"},
-      {"item": "car_rental", "label": "Compact car, 7 days", "amount": 180, "currency": "EUR", "per": "trip", "status": "estimate", "basis": "Typical January price for a compact car at Málaga airport"}
+      {"item": "golf_bag", "label": "Airline sports equipment", "amount": 111, "currency": "EUR", "per": "golfer_direction", "status": "indicative", "source": "https://airline.example/baggage", "checkedAt": "2026-10-15T09:10:00Z"},
+      {"item": "hotel", "label": "Hotel name", "amount": 222, "currency": "EUR", "per": "room_night", "status": "indicative", "source": "https://hotel.example/rooms", "checkedAt": "2026-10-15T09:20:00Z", "forParty": {"adults": 1, "rooms": 1}, "board": "breakfast", "includes": ["breakfast", "taxes"]},
+      {"item": "green_fees", "label": "Five rounds, three courses", "amount": 333, "currency": "EUR", "per": "round", "rounds": 5, "status": "indicative", "source": "https://club.example/green-fees", "checkedAt": "2026-10-15T09:30:00Z"},
+      {"item": "car_rental", "label": "Compact car, 7 days", "amount": 444, "currency": "EUR", "per": "trip", "status": "estimate", "basis": "Where the number comes from, such as the same car on the rental site for other dates"}
     ],
     "golf": {"rounds": 5, "courses": [{"name": "Course name", "source": "https://club.example/"}], "teeTimes": {"status": "not_checked"}},
     "climate": {"kind": "climate_average", "summary": "January highs around 17 °C, about 6 rainy days", "source": "https://climate.example/malaga"}

@@ -102,6 +102,8 @@ describe("travel-deals SKILL.md", () => {
       /labelled as averages and never as a forecast/,
       /never write the reply or the totals yourself\. Then send `telegramText` word for word/,
       /Ask at most three short questions in one message/,
+      /Never reuse a number from this skill's example/,
+      /An offer the user sent \(pasted text, a screenshot, a saved page\) is `indicative` with `"source": "user"`, never verified/,
     ]) {
       assert.match(skill, rule);
     }
@@ -120,7 +122,11 @@ describe("travel-deals SKILL.md", () => {
   });
 
   it("documents an input example that compare accepts once the flight line is filled in", async () => {
-    const example = JSON.parse(skill.match(/Example, one option for a solo golf week:\n\n```json\n([\s\S]*?)\n```/)[1]);
+    const example = JSON.parse(
+      skill.match(
+        /Example of the structure, one option for a solo golf week\. Every amount and link in it is a placeholder, never a price:\n\n```json\n([\s\S]*?)\n```/,
+      )[1],
+    );
     const flights = await run(["flights", "--from", "CPH", "--to", "AGP", "--depart", "2027-01-12", "--return", "2027-01-19"], {
       fetchImpl: fakeGoogle().impl,
     });
