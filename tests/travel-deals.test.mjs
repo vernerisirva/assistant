@@ -261,6 +261,19 @@ describe("price labels", () => {
     assert.match(result.telegramText, /golf bag fees price checked 3 days ago/);
   });
 
+  it("never reads 'taxes not included' as taxes included", () => {
+    for (const includes of [["breakfast", "taxes not included"], ["excluding taxes"], ["room, city tax extra"], ["moms och skatter tillkommer"]]) {
+      assert.deepEqual(
+        optionA(okResult(withCosts([flights(), golfBag(), hotel({ includes }), greenFees(), car()]))).missing,
+        ["hotel taxes and fees"],
+        includes.join(", "),
+      );
+    }
+    const excluded = withCosts([flights(), golfBag(), hotel({ includes: ["taxes and fees"], excludes: ["city tax"] }), greenFees(), car()]);
+    assert.deepEqual(optionA(okResult(excluded)).missing, ["hotel taxes and fees"]);
+    assert.equal(optionA(okResult(withCosts([flights(), golfBag(), hotel({ includes: ["inklusive skatter"] }), greenFees(), car()]))).complete, true);
+  });
+
   it("leaves a stay incomplete until hotel taxes are included, priced or marked unknown", () => {
     const untaxed = okResult(withCosts([flights(), golfBag(), hotel({ includes: ["breakfast"] }), greenFees(), car()]));
     assert.equal(optionA(untaxed).complete, false);
@@ -281,6 +294,51 @@ describe("price labels", () => {
       withCosts([flights(), golfBag(), hotel({ includes: ["breakfast"] }), { item: "taxes_fees", status: "unavailable" }, greenFees(), car()]),
     );
     assert.deepEqual(optionA(unknown).unknown, ["hotel taxes and fees"]);
+  });
+});
+
+describe("exact dates", () => {
+  it("refuses a verified quote for nearby dates", () => {
+    assert.match(
+      problemsOf(withCosts([flights({ forDates: ["2027-01-13", "2027-01-19"] }), golfBag(), hotel(), greenFees(), car()])),
+      /must be this trip's dates/,
+    );
+    const verifiedHotel = hotel({ status: "verified", forDates: ["2027-01-13", "2027-01-19"], includes: ["room only", "taxes"] });
+    assert.match(
+      problemsOf(withCosts([flights(), golfBag(), verifiedHotel, greenFees(), car()])),
+      /hotel dates must cover every night from 2027-01-12 to 2027-01-19/,
+    );
+    assert.match(
+      problemsOf(withCosts([flights(), golfBag(), hotel({ status: "verified", forDates: ["2027-01-12"], includes: ["taxes"] }), greenFees(), car()])),
+      /check-in and check-out dates for a verified hotel/,
+    );
+    assert.match(problemsOf(withCosts([flights({ forDates: ["2027-01-19", "2027-01-12"] }), golfBag(), hotel(), greenFees(), car()])), /must be in order/);
+  });
+
+  it("accepts a verified one-way leg on either trip date", () => {
+    const outbound = flights({ label: "CPH–AGP one way", forDates: ["2027-01-12"], amount: 900 });
+    const inbound = flights({ label: "AGP–CPH one way", forDates: ["2027-01-19"], amount: 800 });
+    assert.equal(
+      optionA(okResult(withCosts([outbound, inbound, golfBag(), hotel(), greenFees(), car()]))).lines.filter((line) => line.item === "flights").length,
+      2,
+    );
+  });
+
+  it("charges each hotel of a multi-stop trip for its own nights only", () => {
+    const first = hotel({ label: "Lisbon hotel", amount: 100, forDates: ["2027-01-12", "2027-01-15"] });
+    const second = hotel({ label: "Porto hotel", amount: 80, forDates: ["2027-01-15", "2027-01-19"], source: "https://porto-hotel.example.com/rooms" });
+    const result = okResult(withCosts([flights(), golfBag(), first, second, greenFees(), car()]));
+    const stays = optionA(result)
+      .lines.filter((line) => line.item === "hotel")
+      .map((line) => line.amount);
+    assert.deepEqual(stays, [sek(100 * 3), sek(80 * 4)]);
+
+    assert.match(
+      problemsOf(withCosts([flights(), golfBag(), hotel(), hotel({ amount: 80 }), greenFees(), car()])),
+      /hotels need their check-in and check-out dates/,
+    );
+    const gap = hotel({ amount: 80, forDates: ["2027-01-16", "2027-01-19"] });
+    assert.match(problemsOf(withCosts([flights(), golfBag(), first, gap, greenFees(), car()])), /must cover every night/);
   });
 });
 
@@ -344,6 +402,34 @@ describe("room sharing and party size", () => {
       { request: { title: "Golf for two", kind: "golf", travellers: 2, rooms: 1, rounds: 5 } },
     );
     assert.match(problemsOf(input), /whole-trip price for 1 person, but 2 people are going/);
+  });
+
+  it("checks every whole-trip price against the party", () => {
+    const party = { request: { title: "Golf for two", kind: "golf", travellers: 2, rooms: 1, rounds: 5 } };
+    const forTwo = [flights({ forParty: { adults: 2 } }), golfBag(), hotel({ forParty: { adults: 2, rooms: 1 } }), greenFees()];
+    const bus = indicative("local_transport", { amount: 30, currency: "EUR", per: "trip", forParty: { adults: 1 } });
+    assert.match(problemsOf(withCosts([...forTwo, bus, car()], {}, party)), /local_transport\) is a whole-trip price for 1 person, but 2 people are going/);
+    const verifiedTaxi = {
+      item: "airport_transfer",
+      amount: 60,
+      currency: "EUR",
+      per: "trip",
+      status: "verified",
+      source: "https://taxi.example.com/fares",
+      checkedAt: CHECKED,
+      forDates: ["2027-01-12"],
+      forParty: { adults: 1 },
+      includes: ["both ways"],
+    };
+    assert.match(
+      problemsOf(withCosts([...forTwo, verifiedTaxi, indicative("course_transport", { amount: 100, currency: "EUR", per: "trip" })], {}, party)),
+      /airport_transfer\) is a whole-trip price for 1 person/,
+    );
+    const tax = indicative("taxes_fees", { amount: 20, currency: "EUR", per: "trip" });
+    assert.match(
+      problemsOf(withCosts([flights(), golfBag(), hotel({ includes: ["breakfast"] }), tax, greenFees(), car()])),
+      /taxes_fees\)\.forParty is required for a whole-trip price/,
+    );
   });
 
   it("requires who a room or whole-trip price was quoted for, whatever its label", () => {
@@ -490,7 +576,11 @@ describe("package vs booking separately", () => {
       board: "breakfast",
       ...overrides,
     });
-  const separate = () => golfOption({ id: "B", title: "Same trip, booked separately", costs: [flights(), golfBag(), hotel(), greenFees(), car()] });
+  const transfers = () => [
+    indicative("airport_transfer", { amount: 50, currency: "EUR", per: "trip" }),
+    indicative("course_transport", { amount: 120, currency: "EUR", per: "trip" }),
+  ];
+  const separate = () => golfOption({ id: "B", title: "Same trip, booked separately", costs: [flights(), golfBag(), hotel(), greenFees(), ...transfers()] });
   const pkgOption = (overrides = {}) => golfOption({ title: "Golf package", costs: [packageLine()], ...overrides });
   const pairInput = (pair, optionsOverride) =>
     golfInput({
@@ -534,7 +624,14 @@ describe("package vs booking separately", () => {
       [
         pairInput({ package: "A", separate: "B", sameHotel: true }, [
           pkgOption(),
-          golfOption({ id: "B", title: "Separately", costs: [flights(), hotel(), greenFees(), car()] }),
+          golfOption({ id: "B", title: "Separately", costs: [flights(), golfBag(), hotel(), greenFees(), car()] }),
+        ]),
+        /only A includes airport transfer, transport to the courses; only B includes rental car/,
+      ],
+      [
+        pairInput({ package: "A", separate: "B", sameHotel: true }, [
+          pkgOption(),
+          golfOption({ id: "B", title: "Separately", costs: [flights(), hotel(), greenFees(), ...transfers()] }),
         ]),
         /B's total is incomplete \(golf bag fees\)/,
       ],
@@ -752,7 +849,7 @@ describe("other trips", () => {
       trip("trip", [
         indicative("train", { amount: 900, currency: "SEK", per: "person" }),
         hotel({ amount: 120 }),
-        indicative("local_transport", { amount: 0, currency: "EUR", per: "trip" }),
+        indicative("local_transport", { amount: 0, currency: "EUR", per: "trip", forParty: { adults: 1 } }),
       ]),
     );
     assert.equal(optionA(byTrain).complete, true);

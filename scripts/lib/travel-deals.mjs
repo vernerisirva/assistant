@@ -57,7 +57,7 @@ const ROW_LABEL = Object.fromEntries(ITEMS.map(([id, row]) => [id, row]));
 const ITEM_NAME = Object.fromEntries(ITEMS.map(([id, , name]) => [id, name]));
 
 // Items whose whole-trip price depends on how many travel (or play).
-const PARTY_ITEMS = new Set(["flights", "train", "baggage", "package"]);
+const PARTY_ITEMS = new Set(["flights", "train", "baggage", "package", "taxes_fees", "local_transport"]);
 const GOLFER_ITEMS = new Set(["golf_bag", "green_fees", "cart", "club_rental"]);
 const PERSON_BASES = new Set(["person", "person_night", "person_direction"]);
 const ROOM_BASES = new Set(["room", "room_night"]);
@@ -621,6 +621,8 @@ function validateOption(option, index, { request, today, now, fail, warnings }) 
     .slice(0, 16)
     .map((line, lineIndex) => validateCost(line, lineIndex, { at, option: shell, request, now, hasSupplement, fail, warnings }));
 
+  validateStayDates(costs, shell, at, fail);
+
   let golf = null;
   if (request?.kind === "golf") golf = validateGolf(option.golf, `${at} golf`, { request, costs, fail });
   else if (option.golf !== undefined) fail(`${at} golf`, "only applies to golf trips.");
@@ -743,7 +745,21 @@ function validateCost(line, index, { at, option, request, now, hasSupplement, fa
       fail(`${named}.forDates`, "must be one or two YYYY-MM-DD dates.");
     } else if (isIsoDate(option.depart) && isIsoDate(option.return) && line.forDates.some((date) => date < option.depart || date > option.return)) {
       fail(`${named}.forDates`, `are outside this option's dates (${option.depart} to ${option.return}); that price is for another trip.`);
-    } else forDates = [...line.forDates];
+    } else if (line.forDates.length === 2 && line.forDates[1] <= line.forDates[0]) {
+      fail(`${named}.forDates`, "must be in order, the second date after the first.");
+    } else {
+      forDates = [...line.forDates];
+      // A verified quote is for this exact trip, not one nearby.
+      const whole = forDates.length === 2 && forDates[0] === option.depart && forDates[1] === option.return;
+      const oneLeg = forDates.length === 1 && (forDates[0] === option.depart || forDates[0] === option.return);
+      if (status === "verified" && (item === "flights" || item === "train") && !whole && !oneLeg) {
+        fail(`${named}.forDates`, `must be this trip's dates (${option.depart}, ${option.return}), or one of them for a one-way leg, for a verified fare.`);
+      }
+      if (status === "verified" && item === "package" && !whole)
+        fail(`${named}.forDates`, `must be ${option.depart} to ${option.return} for a verified package.`);
+      if (status === "verified" && item === "hotel" && forDates.length !== 2)
+        fail(`${named}.forDates`, "must be the check-in and check-out dates for a verified hotel price.");
+    }
   } else if (status === "verified") fail(`${named}.forDates`, "is required for a verified price: the dates it was quoted for.");
 
   // Who a price was quoted for decides what it costs this party: always for a
@@ -794,7 +810,7 @@ function validateCost(line, index, { at, option, request, now, hasSupplement, fa
     excludes,
     basis,
     // A room price quoted with taxes included covers the hotel taxes too.
-    covers: [...new Set([item, ...(covers ?? []), ...(roomPriced && includes.some((text) => /\btax(?:es)?\b|skatt/i.test(text)) ? ["taxes_fees"] : [])])],
+    covers: [...new Set([item, ...(covers ?? []), ...(roomPriced && taxesIncluded(includes, excludes) ? ["taxes_fees"] : [])])],
     board: line.board ?? null,
     optional: line.optional === true,
     staleDays: checkedAt ? Math.floor((now.getTime() - Date.parse(checkedAt)) / 86_400_000) : null,
@@ -805,6 +821,33 @@ function validateCost(line, index, { at, option, request, now, hasSupplement, fa
     normalized.check = check;
   }
   return normalized;
+}
+
+/**
+ * Hotel nights must add up to the trip: one hotel for the whole stay, or
+ * several back to back, each with its check-in and check-out dates, so no
+ * night is missing or charged twice.
+ */
+function validateStayDates(costs, option, at, fail) {
+  const stays = costs.filter((line) => line.item === "hotel" && !line.optional);
+  if (stays.length === 0 || !isIsoDate(option.depart) || !isIsoDate(option.return)) return;
+  if (stays.some((line) => line.forDates?.length !== 2)) {
+    if (stays.length > 1) fail(`${at} hotels`, "need their check-in and check-out dates in forDates when there is more than one.");
+    return;
+  }
+  let night = option.depart;
+  for (const [checkIn, checkOut] of stays.map((line) => line.forDates).sort((left, right) => left[0].localeCompare(right[0]))) {
+    if (checkIn !== night) break;
+    night = checkOut;
+  }
+  if (night !== option.return) fail(`${at} hotel dates`, `must cover every night from ${option.depart} to ${option.return}, one stay after another.`);
+}
+
+/** Whether a room price's own inclusions say taxes are included, and nothing says they are not. */
+function taxesIncluded(includes, excludes) {
+  const tax = /\btax(?:es)?\b|skatt/i;
+  const negated = /\b(?:not|no|excl(?:uding|udes|uded)?|without|extra|plus|additional|exkl(?:usive)?|utan|inte|tillkommer)\b/i;
+  return includes.some((text) => tax.test(text) && !negated.test(text)) && !excludes.some((text) => tax.test(text));
 }
 
 /**
@@ -819,14 +862,15 @@ function occupancyCheck(line, request, hasSupplement) {
   const name = ITEM_NAME[line.item];
   const people = (count) => `${count} ${count === 1 ? "person" : "people"}`;
 
-  if (line.per === "trip" && (PARTY_ITEMS.has(line.item) || GOLFER_ITEMS.has(line.item))) {
+  const roomPriced = line.item === "single_supplement" || line.covers.includes("hotel");
+  // Every whole-trip price is checked against the party; a room's is checked against its rooms below.
+  if (line.per === "trip" && (!roomPriced || PARTY_ITEMS.has(line.item))) {
     const party = GOLFER_ITEMS.has(line.item) ? request.golfers : request.travellers;
     if (forParty.adults < party)
       return { problem: `is a whole-trip price for ${people(forParty.adults)}, but ${people(party)} are going; price the whole party.` };
     if (forParty.adults > party) return mismatch(`${name} price was for ${people(forParty.adults)}, not ${party}`);
   }
 
-  const roomPriced = line.item === "single_supplement" || line.covers.includes("hotel");
   if (!roomPriced || !request.rooms || forParty.rooms === undefined) return {};
   const tripPerRoom = request.travellers / request.rooms;
   const quotedPerRoom = forParty.adults / forParty.rooms;
@@ -988,9 +1032,9 @@ function multiplier(line, request, nights) {
     case "room":
       return request.rooms;
     case "room_night":
-      return request.rooms * nights;
+      return request.rooms * lineNights(line, nights);
     case "person_night":
-      return request.travellers * nights;
+      return request.travellers * lineNights(line, nights);
     case "round":
       // Green fees name their rounds; a cart or club rental per round is for every round.
       return request.golfers * (line.rounds ?? request.rounds);
@@ -1003,6 +1047,11 @@ function multiplier(line, request, nights) {
     default:
       return 0;
   }
+}
+
+/** Nights a per-night price covers: its own check-in to check-out, or the whole trip. */
+function lineNights(line, tripNights) {
+  return line.forDates?.length === 2 ? dayDiff(line.forDates[0], line.forDates[1]) : tripNights;
 }
 
 /** Display-currency units per one unit of `currency`, through SEK. */
@@ -1083,17 +1132,18 @@ function comparePackage(pair, options) {
   const [pkgBoard, separateBoard] = [boardOf(pkg), boardOf(separate)];
   if (!pkgBoard || !separateBoard) reasons.push("board basis not stated for both");
   else if (pkgBoard !== separateBoard) reasons.push(`${pkg.id} is ${pkgBoard}, ${separate.id} is ${separateBoard}`);
-  const extras = (option) =>
+  // Every service must match, transport included: transfers are not a rental car.
+  const services = (option) =>
     new Set(
       option.lines
         .filter((line) => !line.optional)
         .flatMap((line) => line.covers)
-        .filter((item) => ["cart", "baggage", "club_rental", "golf_bag"].includes(item)),
+        .filter((item) => !["package", "single_supplement", "booking_fee", "other"].includes(item)),
     );
-  const [pkgExtras, separateExtras] = [extras(pkg), extras(separate)];
+  const [pkgServices, separateServices] = [services(pkg), services(separate)];
   const onlyIn = (left, right) => [...left].filter((item) => !right.has(item)).map((item) => ITEM_NAME[item]);
-  if (onlyIn(pkgExtras, separateExtras).length > 0) reasons.push(`only ${pkg.id} includes ${onlyIn(pkgExtras, separateExtras).join(", ")}`);
-  if (onlyIn(separateExtras, pkgExtras).length > 0) reasons.push(`only ${separate.id} includes ${onlyIn(separateExtras, pkgExtras).join(", ")}`);
+  if (onlyIn(pkgServices, separateServices).length > 0) reasons.push(`only ${pkg.id} includes ${onlyIn(pkgServices, separateServices).join(", ")}`);
+  if (onlyIn(separateServices, pkgServices).length > 0) reasons.push(`only ${separate.id} includes ${onlyIn(separateServices, pkgServices).join(", ")}`);
 
   const likeForLike = reasons.length === 0;
   const difference = likeForLike ? separate.total - pkg.total : null;
