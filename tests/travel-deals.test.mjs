@@ -422,6 +422,8 @@ describe("room sharing and party size", () => {
     const supplement = indicative("single_supplement", { amount: 42, currency: "EUR", per: "person_night", forParty: { adults: 1, rooms: 1 } });
     const costs = (packageLine) => [flights(), packageLine, supplement, golfBag(), car(), { item: "taxes_fees", status: "unavailable" }];
     assert.match(problemsOf(withCosts(costs(pkg))), /single_supplement only applies on top of a room price quoted for people sharing/);
+    const optionalSupplement = [flights(), pkg, { ...supplement, optional: true }, golfBag(), car(), { item: "taxes_fees", status: "unavailable" }];
+    assert.match(problemsOf(withCosts(optionalSupplement)), /single_supplement only applies/, "an optional supplement counts in an all-in budget");
     const sharing = okResult(withCosts(costs({ ...pkg, forParty: { adults: 2, rooms: 1 } })));
     assert.equal(optionA(sharing).lines.find((line) => line.item === "single_supplement").amount, sek(42 * 7));
   });
@@ -710,7 +712,14 @@ describe("free text and links", () => {
   });
 
   it("lets limits through: saved pages, negated availability", () => {
-    for (const text of ["Saved offer from the golf club", "Solo room cost is not confirmed", "No rooms left at this price", "Not guaranteed until booked"]) {
+    for (const text of [
+      "Saved offer from the golf club",
+      "Solo room cost is not confirmed",
+      "No rooms left at this price",
+      "Not guaranteed until booked",
+      "No available tee times shown online",
+      "Rooms with free breakfast",
+    ]) {
       assert.equal(checkText(text, { max: 100 }).problem, undefined, text);
     }
     for (const text of [
@@ -721,6 +730,9 @@ describe("free text and links", () => {
       "No issue: tee times available",
       "Not cheap, but price guaranteed",
       "Tee times at the lovely old club are available",
+      "Available tee times",
+      "tee times: available",
+      "Rooms - confirmed",
     ]) {
       assert.ok(checkText(text, { max: 100 }).problem, text);
     }

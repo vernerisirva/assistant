@@ -126,7 +126,9 @@ const SAVINGS =
 // word saying it is available, or a standalone promise.
 const CLAIM_NOUNS = "tee[- ]?times?|rooms?|seats?|flights?|tickets?|starttider?";
 const CLAIM_WORDS = "available|left|confirmed|guaranteed|bookable|lediga?";
-const AVAILABILITY_CLAIM = new RegExp(`\\b(?:${CLAIM_NOUNS})\\b((?:\\s+[\\p{L}\\p{N}'’-]+){0,6}?)\\s+(?:${CLAIM_WORDS})\\b`, "giu");
+const AVAILABILITY_CLAIM = new RegExp(`\\b(?:${CLAIM_NOUNS})\\b([^.!?]{0,40}?)\\b(?:${CLAIM_WORDS})\\b`, "giu");
+// The same claim word first: "available tee times".
+const AVAILABILITY_CLAIM_FIRST = new RegExp(`\\b(?:available|bookable|confirmed|guaranteed|lediga?)\\b([^.!?]{0,20}?)\\b(?:${CLAIM_NOUNS})\\b`, "giu");
 const AVAILABILITY_PROMISE = /\b(?:guaranteed|bookable|in stock|sold out|live (?:prices?|deals?|offers?))\b/giu;
 const INSTRUCTIONS =
   /\b(?:ignore|disregard|override|forget)\b[^.]{0,40}\b(?:instructions?|rules|prompts?|guidelines|orders)\b|\bsystem prompt\b|\bdeveloper (?:message|mode)\b|\byou are now\b|\bas an ai\b|\b(?:run|execute|exec)\b[^.]{0,30}\b(?:commands?|scripts?|shell|terminal|code)\b|\bapi[ _-]?keys?\b|\bpasswords?\b|\btokens?\b|\bsudo\b|\brm -rf\b|\bcurl\b|\bwget\b|<\s*script|\bnpm run\b|\bopenclaw\b/i;
@@ -136,8 +138,8 @@ const INSTRUCTIONS =
 const NEGATOR = /^(?:not|no|never|isn't|aren't|wasn't|weren't|cannot|can't|without|inte|ej|un[\p{L}]+)$/iu;
 const lastWord = (text) => text.trim().split(/\s+/).at(-1) ?? "";
 function claimsAvailability(text) {
-  for (const match of text.matchAll(AVAILABILITY_CLAIM)) {
-    const between = match[1].trim().split(/\s+/).filter(Boolean);
+  for (const match of [...text.matchAll(AVAILABILITY_CLAIM), ...text.matchAll(AVAILABILITY_CLAIM_FIRST)]) {
+    const between = match[1].split(/[^\p{L}'’]+/u).filter(Boolean);
     if (!between.some((word) => NEGATOR.test(word)) && !NEGATOR.test(lastWord(text.slice(0, match.index)))) return true;
   }
   for (const match of text.matchAll(AVAILABILITY_PROMISE)) {
@@ -873,7 +875,8 @@ function validateStayDates(costs, option, at, fail) {
  * and it usually means the quote's party was entered wrongly.
  */
 function validateSupplement(costs, request, at, fail) {
-  if (!request?.rooms || !costs.some((line) => line.item === "single_supplement" && !line.optional)) return;
+  // Every supplement, optional ones too: an all-in budget counts optional lines.
+  if (!request?.rooms || !costs.some((line) => line.item === "single_supplement")) return;
   const tripPerRoom = request.travellers / request.rooms;
   const sharing = costs.some(
     (line) =>
