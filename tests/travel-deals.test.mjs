@@ -713,7 +713,15 @@ describe("free text and links", () => {
     for (const text of ["Saved offer from the golf club", "Solo room cost is not confirmed", "No rooms left at this price", "Not guaranteed until booked"]) {
       assert.equal(checkText(text, { max: 100 }).problem, undefined, text);
     }
-    for (const text of ["Tee times available every morning", "Save money with this package", "Price guaranteed"]) {
+    for (const text of [
+      "Tee times available every morning",
+      "Save money with this package",
+      "Price guaranteed",
+      "Tee times not available, but rooms left",
+      "No issue: tee times available",
+      "Not cheap, but price guaranteed",
+      "Tee times at the lovely old club are available",
+    ]) {
       assert.ok(checkText(text, { max: 100 }).problem, text);
     }
   });

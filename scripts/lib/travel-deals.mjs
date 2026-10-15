@@ -122,16 +122,28 @@ const GOLF_KEYS = ["rounds", "courses", "teeTimes", "handicap", "daylight", "pra
 const MONEY = /\d[\d\s.,]*\s?(?:kr|kronor|sek|eur|euros?|usd|dkk|nok|gbp|chf|lira)\b|\d[\d\s.,]*\s?[€$£₺]|[€$£₺]\s?\d/i;
 const SAVINGS =
   /\b(?:saves?|saving|savings|cheaper|cheapest|lowest|discount(?:ed)?|bargain|deals?|half[- ]price|spara|sparar|billigare|billigast|lägsta|rabatt|fynd)\b|\d+\s?%\s?(?:off|rabatt)/i;
-const AVAILABILITY =
-  /\b(?:tee[- ]?times?|rooms?|seats?|flights?|tickets?|starttider?)\b[^.]{0,40}\b(?:available|left|confirmed|guaranteed|bookable|lediga?)\b|\b(?:guaranteed|bookable|in stock|sold out|live (?:prices?|deals?|offers?))\b/i;
+// An availability claim: a thing that can sell out, then within a few words a
+// word saying it is available, or a standalone promise.
+const CLAIM_NOUNS = "tee[- ]?times?|rooms?|seats?|flights?|tickets?|starttider?";
+const CLAIM_WORDS = "available|left|confirmed|guaranteed|bookable|lediga?";
+const AVAILABILITY_CLAIM = new RegExp(`\\b(?:${CLAIM_NOUNS})\\b((?:\\s+[\\p{L}\\p{N}'’-]+){0,6}?)\\s+(?:${CLAIM_WORDS})\\b`, "giu");
+const AVAILABILITY_PROMISE = /\b(?:guaranteed|bookable|in stock|sold out|live (?:prices?|deals?|offers?))\b/giu;
 const INSTRUCTIONS =
   /\b(?:ignore|disregard|override|forget)\b[^.]{0,40}\b(?:instructions?|rules|prompts?|guidelines|orders)\b|\bsystem prompt\b|\bdeveloper (?:message|mode)\b|\byou are now\b|\bas an ai\b|\b(?:run|execute|exec)\b[^.]{0,30}\b(?:commands?|scripts?|shell|terminal|code)\b|\bapi[ _-]?keys?\b|\bpasswords?\b|\btokens?\b|\bsudo\b|\brm -rf\b|\bcurl\b|\bwget\b|<\s*script|\bnpm run\b|\bopenclaw\b/i;
 
-// "Not confirmed" or "no rooms left" states a limit, which is welcome; only a positive claim is refused.
-const NEGATION = /\b(?:not|no|never|isn't|aren't|wasn't|weren't|cannot|can't|without)\b|\bun(?:confirmed|available|verified|checked)\b/i;
+// Each claim is judged on its own: "not confirmed" or "no rooms left" states a
+// limit, which is welcome, but a negation elsewhere never excuses another claim.
+const NEGATOR = /^(?:not|no|never|isn't|aren't|wasn't|weren't|cannot|can't|without|inte|ej|un[\p{L}]+)$/iu;
+const lastWord = (text) => text.trim().split(/\s+/).at(-1) ?? "";
 function claimsAvailability(text) {
-  const match = text.match(AVAILABILITY);
-  return Boolean(match) && !NEGATION.test(text.slice(Math.max(0, match.index - 12), match.index + match[0].length));
+  for (const match of text.matchAll(AVAILABILITY_CLAIM)) {
+    const between = match[1].trim().split(/\s+/).filter(Boolean);
+    if (!between.some((word) => NEGATOR.test(word)) && !NEGATOR.test(lastWord(text.slice(0, match.index)))) return true;
+  }
+  for (const match of text.matchAll(AVAILABILITY_PROMISE)) {
+    if (!NEGATOR.test(lastWord(text.slice(0, match.index)))) return true;
+  }
+  return false;
 }
 
 const TEXT_RULES = [
