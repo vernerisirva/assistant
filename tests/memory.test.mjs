@@ -1,7 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   buildMemoryApprovalPrompt,
@@ -124,6 +125,101 @@ describe("memory store", () => {
         "Reply no, stop, or cancel to avoid storing it.",
       ],
     });
+  });
+});
+
+describe("memory store durability", () => {
+  const memoryModuleUrl = new URL("../scripts/lib/memory.mjs", import.meta.url).href;
+  const unixOnly = { skip: process.platform === "win32" };
+
+  it("keeps the previous memories when a write fails part-way", unixOnly, () => {
+    const memory = withMemoryPath();
+    try {
+      rememberMemoryEntry(memory.path, { category: "food", key: "breakfast", value: "yogurt", source: "telegram" });
+      const before = readFileSync(memory.path, "utf8");
+      const writer = join(dirname(memory.path), "write-big.mjs");
+      writeFileSync(
+        writer,
+        [
+          `import { rememberMemoryEntry } from ${JSON.stringify(memoryModuleUrl)};`,
+          `rememberMemoryEntry(process.argv[2], { category: "general", key: "big", value: "x".repeat(20000), source: "test" });`,
+        ].join("\n"),
+      );
+      // A file-size limit makes the write fail part-way, as a full disk would.
+      const result = spawnSync("/bin/sh", ["-c", 'ulimit -f 4 && exec "$0" "$@"', process.execPath, writer, memory.path], {
+        encoding: "utf8",
+      });
+
+      assert.notEqual(result.status, 0, "the oversized write must fail");
+      assert.equal(readFileSync(memory.path, "utf8"), before);
+      assert.deepEqual(listMemoryEntries(memory.path).map((entry) => entry.key), ["breakfast"]);
+    } finally {
+      memory.cleanup();
+    }
+  });
+
+  it("keeps every change when several processes remember and forget at once", async () => {
+    const memory = withMemoryPath();
+    try {
+      const doomed = rememberMemoryEntry(memory.path, { category: "general", key: "to-forget", value: "x", source: "test" });
+      const dir = dirname(memory.path);
+      const writer = join(dir, "writer.mjs");
+      writeFileSync(
+        writer,
+        [
+          `import { existsSync, writeFileSync } from "node:fs";`,
+          `import { forgetMemoryEntry, rememberMemoryEntry } from ${JSON.stringify(memoryModuleUrl)};`,
+          `const [path, dir, name, forgetId] = process.argv.slice(2);`,
+          `writeFileSync(dir + "/ready-" + name, "");`,
+          `while (!existsSync(dir + "/go")) await new Promise((resolve) => setTimeout(resolve, 2));`,
+          `if (forgetId) forgetMemoryEntry(path, forgetId);`,
+          `else rememberMemoryEntry(path, { category: "general", key: name, value: name, source: "test" });`,
+        ].join("\n"),
+      );
+      const names = Array.from({ length: 10 }, (_, index) => `k${index}`);
+      const jobs = [...names.map((name) => [name, ""]), ["forget", doomed.id]];
+      const children = jobs.map(([name, forgetId]) => spawn(process.execPath, [writer, memory.path, dir, name, forgetId], { stdio: "ignore" }));
+      const exits = children.map((child) => new Promise((resolve) => child.on("exit", resolve)));
+      // Release every writer at the same moment, once all of them are running.
+      const deadline = Date.now() + 20_000;
+      while (readdirSync(dir).filter((file) => file.startsWith("ready-")).length < children.length) {
+        assert.ok(Date.now() < deadline, "the writers did not start");
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      writeFileSync(join(dir, "go"), "");
+
+      assert.deepEqual(await Promise.all(exits), children.map(() => 0));
+      assert.deepEqual(listMemoryEntries(memory.path).map((entry) => entry.key).sort(), [...names].sort());
+    } finally {
+      memory.cleanup();
+    }
+  });
+
+  it("keeps the memory file readable only by its owner", unixOnly, () => {
+    const memory = withMemoryPath();
+    try {
+      rememberMemoryEntry(memory.path, { category: "food", key: "breakfast", value: "yogurt", source: "telegram" });
+      assert.equal(statSync(memory.path).mode & 0o777, 0o600);
+    } finally {
+      memory.cleanup();
+    }
+  });
+
+  it("takes over a lock left behind by a writer that died", () => {
+    const memory = withMemoryPath();
+    try {
+      const lock = `${memory.path}.lock`;
+      writeFileSync(lock, JSON.stringify({ pid: 999999, token: "dead" }));
+      const old = new Date(Date.now() - 60_000);
+      utimesSync(lock, old, old);
+
+      rememberMemoryEntry(memory.path, { category: "food", key: "breakfast", value: "yogurt", source: "telegram" });
+
+      assert.equal(existsSync(lock), false);
+      assert.deepEqual(listMemoryEntries(memory.path).map((entry) => entry.key), ["breakfast"]);
+    } finally {
+      memory.cleanup();
+    }
   });
 });
 

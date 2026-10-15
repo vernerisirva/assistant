@@ -352,10 +352,21 @@ describe("weekly plan workflow", () => {
 
     it("a reply that is not explicit acceptance creates nothing", async () => {
       await proposeAndAnswer();
-      const result = await run(["accept", "--version", "1", "--reply-text", "ok but no salmon"]);
-      assert.equal(result.status, "not_accepted");
+      // Normalizing alone would read the hedged ones as "ok" and apply at once.
+      for (const reply of ["ok but no salmon", "ok 👎", "ok？", "ok…", "ok 🤔", "okay ❌", "create it?", "ok men utan lax"]) {
+        const result = await run(["accept", "--version", "1", "--reply-text", reply]);
+        assert.equal(result.status, "not_accepted", reply);
+      }
       assert.equal(plan().status, "pending");
       assert.equal(todoist.calls.addTask.length, 0);
+    });
+
+    it('a plain Swedish acceptance such as "Ser bra ut" applies the displayed version', async () => {
+      await proposeAndAnswer();
+      at("2026-09-26T08:00:00.000Z");
+      const accepted = await run(["accept", "--version", "1", "--reply-text", "Ser bra ut"]);
+      assert.equal(accepted.applied, true);
+      assert.equal(plan().apply.trigger, "accepted");
     });
 
     it('"Skip this week" cancels: nothing is created, now or after the deadline', async () => {

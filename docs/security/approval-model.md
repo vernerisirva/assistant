@@ -4,7 +4,7 @@ Hilla uses risk-tiered approval. The goal is to be useful without becoming reckl
 
 Every approval prompt must say which agent is acting, what action is proposed, which target will change, what effect is expected, and what risk exists. The user can approve or deny. Both approved and denied attempts are logged with the approval prompt context so the decision can be reconstructed later. Denied actions are not retried unless the user asks again.
 
-Approval wording is flexible but must be explicit and tied to a pending approval prompt. Short natural replies such as `approve`, `ok`, `that's ok`, `yes do it`, `go ahead`, `proceed`, `sounds good`, and `looks good` are allowed. Questions, hedges, and denials such as `maybe ok`, `probably`, `is that ok?`, `can you approve this?`, `no`, `stop`, and `cancel` are not approvals.
+Approval wording is flexible but must be explicit and tied to a pending approval prompt. Short natural replies such as `approve`, `ok`, `that's ok`, `yes do it`, `go ahead`, `proceed`, `sounds good`, and `looks good` are allowed, and so are their plain Swedish and Finnish equivalents such as `ja`, `okej`, `kör`, `ser bra ut`, `joo`, and `kyllä`. Questions, hedges, and denials such as `maybe ok`, `probably`, `is that ok?`, `can you approve this?`, `no`, `stop`, and `cancel` are not approvals. Neither is a reply with a question mark in any script (`ok？`, `ok ❓`), an ellipsis (`ok…`), or an emoji other than 👍, 👌 or ✅ (`ok 👎`, `ok 🤔`).
 
 ## Action Classes
 

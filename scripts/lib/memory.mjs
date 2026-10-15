@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { withFileLockSync, writeFileAtomicSync } from "./state-file.mjs";
 
 export const memoryCategories = [
   "food",
@@ -22,33 +22,36 @@ export function rememberMemoryEntry(
   { now = new Date().toISOString(), idGenerator = randomUUID } = {},
 ) {
   const entryInput = normalizeMemoryInput(input);
-  const document = readMemoryDocument(memoryPath);
-  const existingIndex = document.entries.findIndex(
-    (entry) => entry.category === entryInput.category && entry.key === entryInput.key,
-  );
+  // Read, change and write under one lock, so a parallel write is never lost.
+  return withFileLockSync(memoryPath, () => {
+    const document = readMemoryDocument(memoryPath);
+    const existingIndex = document.entries.findIndex(
+      (entry) => entry.category === entryInput.category && entry.key === entryInput.key,
+    );
 
-  const entry = {
-    id: existingIndex >= 0 ? document.entries[existingIndex].id : idGenerator(),
-    category: entryInput.category,
-    key: entryInput.key,
-    value: entryInput.value,
-    sensitivity: entryInput.sensitivity,
-    source: entryInput.source,
-    createdAt: existingIndex >= 0 ? document.entries[existingIndex].createdAt : now,
-    updatedAt: now,
-    // A personal playbook keeps its structured form next to the readable value;
-    // scripts/lib/playbooks.mjs validates it. Plain entries have no such field.
-    ...(entryInput.playbook ? { playbook: entryInput.playbook } : {}),
-  };
+    const entry = {
+      id: existingIndex >= 0 ? document.entries[existingIndex].id : idGenerator(),
+      category: entryInput.category,
+      key: entryInput.key,
+      value: entryInput.value,
+      sensitivity: entryInput.sensitivity,
+      source: entryInput.source,
+      createdAt: existingIndex >= 0 ? document.entries[existingIndex].createdAt : now,
+      updatedAt: now,
+      // A personal playbook keeps its structured form next to the readable value;
+      // scripts/lib/playbooks.mjs validates it. Plain entries have no such field.
+      ...(entryInput.playbook ? { playbook: entryInput.playbook } : {}),
+    };
 
-  if (existingIndex >= 0) {
-    document.entries[existingIndex] = entry;
-  } else {
-    document.entries.push(entry);
-  }
+    if (existingIndex >= 0) {
+      document.entries[existingIndex] = entry;
+    } else {
+      document.entries.push(entry);
+    }
 
-  writeMemoryDocument(memoryPath, document);
-  return entry;
+    writeMemoryDocument(memoryPath, document);
+    return entry;
+  });
 }
 
 export function listMemoryEntries(memoryPath, { category } = {}) {
@@ -65,15 +68,17 @@ export function forgetMemoryEntry(memoryPath, id) {
     throw new Error("Memory id is required.");
   }
 
-  const document = readMemoryDocument(memoryPath);
-  const index = document.entries.findIndex((entry) => entry.id === id);
-  if (index < 0) {
-    throw new Error(`Memory not found: ${id}`);
-  }
+  return withFileLockSync(memoryPath, () => {
+    const document = readMemoryDocument(memoryPath);
+    const index = document.entries.findIndex((entry) => entry.id === id);
+    if (index < 0) {
+      throw new Error(`Memory not found: ${id}`);
+    }
 
-  const [entry] = document.entries.splice(index, 1);
-  writeMemoryDocument(memoryPath, document);
-  return { forgotten: true, entry };
+    const [entry] = document.entries.splice(index, 1);
+    writeMemoryDocument(memoryPath, document);
+    return { forgotten: true, entry };
+  });
 }
 
 export function memoryRequiresApproval(input = {}) {
@@ -107,9 +112,13 @@ export function readMemoryDocument(memoryPath) {
   return document;
 }
 
+/**
+ * Replaces the memory file atomically, readable only by its owner: a write that
+ * fails part-way leaves the previous memories intact. Callers that read, change
+ * and write hold the store's lock (withFileLockSync).
+ */
 export function writeMemoryDocument(memoryPath, document) {
-  mkdirSync(dirname(memoryPath), { recursive: true });
-  writeFileSync(memoryPath, `${JSON.stringify(document, null, 2)}\n`);
+  writeFileAtomicSync(memoryPath, `${JSON.stringify(document, null, 2)}\n`);
 }
 
 function normalizeMemoryInput(input = {}) {

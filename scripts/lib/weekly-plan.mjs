@@ -14,7 +14,7 @@
  * explicitly added. Nothing is bought "just in case".
  */
 import { createHash } from "node:crypto";
-import { isApprovalMessage, normalizeApprovalText } from "./approval-language.mjs";
+import { approvalReplyText, isApprovalMessage } from "./approval-language.mjs";
 import { buildTodoistCreatePlan } from "./todoist-create.mjs";
 import { localDateInTimeZone } from "./routine-skips.mjs";
 import {
@@ -1182,18 +1182,30 @@ const EXTRA_ACCEPTANCE = new Set([
   "ok create them",
   "ok create it",
   "go ahead and create them",
+  "skapa dem",
+  "skapa dom",
+  "skapa uppgifterna",
+  "ja skapa dem",
+  "ok skapa dem",
+  "okej skapa dem",
+  "lägg in dem",
+  "lägg in uppgifterna",
+  "luo ne",
+  "luo tehtävät",
+  "kyllä luo ne",
+  "joo luo ne",
 ]);
 
 /**
  * Explicit acceptance of the displayed plan. Reuses the repo's approval
- * language, plus a few "create it" phrasings. Questions, hedges, denials and
- * acceptance mixed with a change ("ok but no salmon") are not acceptance.
+ * language, plus a few "create it" phrasings. Questions, hedges, denials,
+ * acceptance mixed with a change ("ok but no salmon"), and replies with any
+ * question mark, ellipsis or emoji other than 👍, 👌 or ✅ are not acceptance.
  */
 export function isWeeklyPlanAcceptance(message) {
   if (isApprovalMessage(message, { hasPendingApproval: true })) return true;
-  const raw = String(message ?? "").trim();
-  if (!raw || raw.length > 240 || raw.includes("?")) return false;
-  return EXTRA_ACCEPTANCE.has(normalizeApprovalText(raw));
+  const reply = approvalReplyText(message);
+  return Boolean(reply) && EXTRA_ACCEPTANCE.has(reply);
 }
 
 // ---------------------------------------------------------------------------
