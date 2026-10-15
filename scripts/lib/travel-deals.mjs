@@ -533,7 +533,13 @@ function validateRequest(request, fail) {
   let budget = null;
   if (request.budget !== undefined) {
     const amount = request.budget?.amount;
-    if (!isPlainObject(request.budget) || typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0 || !["trip", "person"].includes(request.budget.per ?? "trip")) {
+    if (
+      !isPlainObject(request.budget) ||
+      typeof amount !== "number" ||
+      !Number.isFinite(amount) ||
+      amount <= 0 ||
+      !["trip", "person"].includes(request.budget.per ?? "trip")
+    ) {
       fail("request.budget", 'must be {"amount": N, "per": "trip" | "person"} in the request currency.');
     } else {
       unknownKeys(request.budget, ["amount", "per"], "request.budget", fail);
@@ -787,7 +793,8 @@ function validateCost(line, index, { at, option, request, now, hasSupplement, fa
     includes,
     excludes,
     basis,
-    covers: [...new Set([item, ...(covers ?? [])])],
+    // A room price quoted with taxes included covers the hotel taxes too.
+    covers: [...new Set([item, ...(covers ?? []), ...(roomPriced && includes.some((text) => /\btax(?:es)?\b|skatt/i.test(text)) ? ["taxes_fees"] : [])])],
     board: line.board ?? null,
     optional: line.optional === true,
     staleDays: checkedAt ? Math.floor((now.getTime() - Date.parse(checkedAt)) / 86_400_000) : null,
@@ -957,11 +964,12 @@ export function requiredGroups(request) {
   const travel = ["flights", "train"];
   const groups = {
     flights: [["flights"]],
-    hotel: [["hotel"]],
-    trip: [travel, ["hotel"], ["airport_transfer", "local_transport", "car_rental"]],
+    hotel: [["hotel"], ["taxes_fees"]],
+    trip: [travel, ["hotel"], ["taxes_fees"], ["airport_transfer", "local_transport", "car_rental"]],
     golf: [
       travel,
       ["hotel"],
+      ["taxes_fees"],
       ["green_fees"],
       request.bringClubs === false ? ["club_rental"] : ["golf_bag"],
       ["airport_transfer", "car_rental"],
@@ -1053,8 +1061,6 @@ function optionNotes(option, counted) {
     if (line.check?.warning) notes.push(line.check.warning);
     if (line.staleDays >= 2) notes.push(`${ITEM_NAME[line.item]} price checked ${line.staleDays} days ago`);
   }
-  const hotel = counted.find((line) => line.item === "hotel");
-  if (hotel && !priced.has("taxes_fees") && !hotel.includes.some((text) => /tax|skatt/i.test(text))) notes.push("local hotel tax not stated");
   return [...new Set(notes)];
 }
 
@@ -1220,7 +1226,9 @@ function costTable(options, request) {
 
   const present = COST_ITEMS.filter((item) => options.some((option) => option.lines.some((line) => !line.optional && line.item === item)));
   const missingRows = COST_ITEMS.filter((item) => !present.includes(item) && options.some((option) => option.missing.includes(ITEM_NAME[item])));
-  for (const item of COST_ITEMS.filter((candidate) => present.includes(candidate) || missingRows.includes(candidate))) {
+  // A stay always shows its taxes, even when the room price includes them.
+  const taxRow = requiredGroups(request).some((group) => group.includes("taxes_fees")) ? ["taxes_fees"] : [];
+  for (const item of COST_ITEMS.filter((candidate) => present.includes(candidate) || missingRows.includes(candidate) || taxRow.includes(candidate))) {
     rows.push(`${ROW_LABEL[item].padEnd(width)}${options.map((option) => cell(itemCell(option, item))).join("")}`);
   }
   const total = (option) => (option.complete ? formatInt(option.total) : option.total > 0 ? `≥${formatInt(option.total)}` : "?");

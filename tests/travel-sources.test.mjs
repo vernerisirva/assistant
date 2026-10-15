@@ -45,10 +45,13 @@ function fareLabel({
   ].join("");
 }
 
-function flightsPage({ adults = 1, labels = [], title = "Copenhagen to Helsinki", taxes = true, button = true } = {}) {
+function flightsPage({ adults = 1, labels = [], title = "Copenhagen to Helsinki", taxes = true, button = true, dates = ["Fri, Nov 13", "Sun, Nov 15"] } = {}) {
   const escape = (text) => text.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  const [departLabel, returnLabel] = dates;
   return [
     `<!doctype html><html><head><title>${title} | Google Flights</title></head><body>`,
+    departLabel ? `<input type="text" class="TP4Lpb" value="${departLabel}" placeholder="Departure" aria-label="Departure" />` : "",
+    returnLabel ? `<input type="text" class="TP4Lpb" value="${returnLabel}" placeholder="Return" aria-label="Return" />` : "",
     button ? `<button aria-label="${adults} passenger${adults === 1 ? "" : "s"}, change number of passengers."></button>` : "",
     ...labels.map((label) => `<li><div aria-label="${escape(label)}"></div></li>`),
     taxes ? `<span>Prices include required taxes + fees for ${adults} adult${adults === 1 ? "" : "s"}.</span>` : "",
@@ -152,9 +155,30 @@ describe("parseGoogleFlightsPage", () => {
     assert.deepEqual(result.offers, []);
     assert.match(result.reason, /priced 1 passenger\(s\), not 2/);
 
-    const unknown = parseGoogleFlightsPage(flightsPage({ labels: [fareLabel({ price: "1626" })], taxes: false, button: false }), search);
-    assert.equal(unknown.status, "mismatch");
-    assert.match(unknown.reason, /does not say how many passengers/);
+    const unknown = parseGoogleFlightsPage(
+      flightsPage({ labels: [fareLabel({ price: "1626" })], button: false }).replace(/for 1 adult\./, "for 1 adults."),
+      search,
+    );
+    assert.equal(unknown.status, "ok", "the taxes note names the party when the button is missing");
+  });
+
+  it("refuses fares unless the page confirms taxes and fees are included", () => {
+    const result = parseGoogleFlightsPage(flightsPage({ labels: [fareLabel({ price: "1626" })], taxes: false }), search);
+    assert.equal(result.status, "unreadable");
+    assert.match(result.reason, /does not confirm that its prices include taxes and fees/);
+  });
+
+  it("refuses fares unless the page priced the departure and return dates asked for", () => {
+    const shifted = parseGoogleFlightsPage(flightsPage({ labels: [fareLabel({ price: "1626" })], dates: ["Fri, Nov 13", "Mon, Nov 16"] }), search);
+    assert.equal(shifted.status, "mismatch");
+    assert.match(shifted.reason, /priced Fri, Nov 13 – Mon, Nov 16, not the dates asked for/);
+    const otherYear = parseGoogleFlightsPage(flightsPage({ labels: [fareLabel({ price: "1626" })], dates: ["Thu, Nov 13", "Sat, Nov 15"] }), search);
+    assert.equal(otherYear.status, "mismatch");
+    const missing = parseGoogleFlightsPage(flightsPage({ labels: [fareLabel({ price: "1626" })], dates: [] }), search);
+    assert.equal(missing.status, "unreadable");
+    assert.match(missing.reason, /does not show which dates it priced/);
+    const roundTripPage = flightsPage({ labels: [fareLabel({ price: "929", roundTrip: false })] });
+    assert.equal(parseGoogleFlightsPage(roundTripPage, { ...search, returnDate: null }).status, "mismatch", "a one-way search must not get a round-trip page");
   });
 
   it("refuses fares for another date, year or trip type", () => {
@@ -163,7 +187,7 @@ describe("parseGoogleFlightsPage", () => {
     assert.equal(parseGoogleFlightsPage(otherYear, search).status, "mismatch");
     const otherDay = flightsPage({ labels: [fareLabel({ price: "999", date: "November 14", weekday: "Saturday" })] });
     assert.equal(parseGoogleFlightsPage(otherDay, search).status, "mismatch");
-    const oneWay = flightsPage({ labels: [fareLabel({ price: "929", roundTrip: false })] });
+    const oneWay = flightsPage({ labels: [fareLabel({ price: "929", roundTrip: false })], dates: ["Fri, Nov 13"] });
     assert.equal(parseGoogleFlightsPage(oneWay, search).status, "mismatch");
     assert.equal(parseGoogleFlightsPage(oneWay, { ...search, returnDate: null }).status, "ok");
   });

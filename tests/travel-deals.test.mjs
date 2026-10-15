@@ -52,6 +52,7 @@ const hotel = (overrides = {}) =>
     per: "room_night",
     forParty: { adults: 1, rooms: 1 },
     board: "breakfast",
+    includes: ["breakfast", "taxes"],
     ...overrides,
   });
 const greenFees = (overrides = {}) => indicative("green_fees", { amount: 85, currency: "EUR", per: "round", rounds: 5, ...overrides });
@@ -245,7 +246,7 @@ describe("price labels", () => {
       status: "verified",
       forDates: ["2027-01-12", "2027-01-19"],
       forParty: line.forParty ?? { adults: 1 },
-      includes: ["as quoted"],
+      includes: line.includes ?? ["as quoted"],
       basis: undefined,
       source: line.source ?? "https://cars.example.com/quote",
       checkedAt: CHECKED,
@@ -255,12 +256,31 @@ describe("price labels", () => {
     assert.match(result.telegramText, /Price: verified \(every cost is a concrete price/);
   });
 
-  it("notes prices checked days ago and hotel taxes nobody stated", () => {
+  it("notes prices checked days ago", () => {
     const result = okResult(withCosts([flights(), golfBag({ checkedAt: "2026-10-12T10:00:00Z" }), hotel(), greenFees(), car()]));
     assert.match(result.telegramText, /golf bag fees price checked 3 days ago/);
-    assert.match(result.telegramText, /local hotel tax not stated/);
-    const taxed = okResult(withCosts([flights(), golfBag(), hotel({ includes: ["breakfast", "city tax"] }), greenFees(), car()]));
-    assert.doesNotMatch(taxed.telegramText, /hotel tax not stated/);
+  });
+
+  it("leaves a stay incomplete until hotel taxes are included, priced or marked unknown", () => {
+    const untaxed = okResult(withCosts([flights(), golfBag(), hotel({ includes: ["breakfast"] }), greenFees(), car()]));
+    assert.equal(optionA(untaxed).complete, false);
+    assert.deepEqual(optionA(untaxed).missing, ["hotel taxes and fees"]);
+    assert.match(untaxed.telegramText, /Taxes\s+\?/);
+    assert.match(untaxed.telegramText, /Price: incomplete: .*hotel taxes and fees unknown/);
+
+    const included = okResult(golfInput());
+    assert.equal(optionA(included).complete, true);
+    assert.match(included.telegramText, /Taxes\s+incl\./);
+
+    const tourist = indicative("taxes_fees", { label: "Tourist tax", amount: 2, currency: "EUR", per: "person_night" });
+    const priced = okResult(withCosts([flights(), golfBag(), hotel({ includes: ["breakfast"] }), tourist, greenFees(), car()]));
+    assert.equal(optionA(priced).complete, true);
+    assert.equal(optionA(priced).lines.find((line) => line.item === "taxes_fees").amount, sek(2 * 7));
+
+    const unknown = okResult(
+      withCosts([flights(), golfBag(), hotel({ includes: ["breakfast"] }), { item: "taxes_fees", status: "unavailable" }, greenFees(), car()]),
+    );
+    assert.deepEqual(optionA(unknown).unknown, ["hotel taxes and fees"]);
   });
 });
 
@@ -296,7 +316,7 @@ describe("room sharing and party size", () => {
       currency: "SEK",
       per: "person",
       forParty: { adults: 2, rooms: 1 },
-      covers: ["flights", "hotel", "green_fees", "airport_transfer", "course_transport", "golf_bag"],
+      covers: ["flights", "hotel", "taxes_fees", "green_fees", "airport_transfer", "course_transport", "golf_bag"],
       rounds: 5,
       board: "half board",
     });
@@ -465,7 +485,7 @@ describe("package vs booking separately", () => {
       currency: "SEK",
       per: "person",
       forParty: { adults: 1, rooms: 1 },
-      covers: ["flights", "hotel", "green_fees", "airport_transfer", "course_transport", "golf_bag"],
+      covers: ["flights", "hotel", "taxes_fees", "green_fees", "airport_transfer", "course_transport", "golf_bag"],
       rounds: 5,
       board: "breakfast",
       ...overrides,
@@ -656,7 +676,7 @@ describe("recommendation and reply", () => {
     assert.match(text, /\nA · Costa del Sol · 12–19 Jan 2027 · 7 nights\n/);
     assert.match(text, /\[Flights\]\(https:\/\/www\.google\.com\/travel\/flights\?q=Flights\+to\+AGP\+from\+CPH\)/);
     assert.match(text, /\[Booking\.com search\]\(https:\/\/www\.booking\.com\/searchresults\.html\?ss=Marbella&checkin=2027-01-12&checkout=2027-01-19/);
-    assert.match(text, /Tee times not checked; flights excludes checked bags; local hotel tax not stated \(all options\)\./);
+    assert.match(text, /Tee times not checked; flights excludes checked bags \(all options\)\./);
     assert.match(text, /Prices checked 15 Oct 2026, 12:00\./);
     assert.match(text, /Nothing is booked or held, and prices can change\. I can't book or pay; use the links to book yourself\.$/);
     // Telegram's 4096-character limit applies to the rendered text, where a

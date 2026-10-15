@@ -31,7 +31,7 @@ OPENCLAW_CONFIG_PATH="$PWD/.openclaw/openclaw.json" OPENCLAW_STATE_DIR="$PWD/.op
 
 ## Price labels
 
-`verified` means a concrete price for these dates, this party and stated inclusions, with source and time. `indicative` covers "from" prices, snippets and season rates. `estimate` is a stated calculation. `unavailable` means no trustworthy price. `travel -- compare` refuses input that would make a number untrue: a verified label without evidence, an unknown cost counted as zero, a room price charged per person, a per-person "two sharing" price for a solo traveller without a supplement, a forecast for a trip more than ten days ahead, a saving between two different trips, or prices, savings, availability claims, links or instruction-like page text in free text.
+`verified` means a concrete price for these dates, this party and stated inclusions, with source and time. `indicative` covers "from" prices, snippets and season rates. `estimate` is a stated calculation. `unavailable` means no trustworthy price. `travel -- compare` refuses input that would make a number untrue: a verified label without evidence (for flights: a page that does not confirm the dates, party and that taxes are included), an unknown cost counted as zero, a stay with no word on hotel taxes, a room price charged per person, a per-person "two sharing" price for a solo traveller without a supplement, a forecast for a trip more than ten days ahead, a saving between two different trips, or prices, savings, availability claims, links or instruction-like page text in free text.
 
 ## Limits
 

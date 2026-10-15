@@ -56,6 +56,7 @@ Never upgrade a label, and never invent a price, discount, availability, provide
 
 - Price everything unavoidable: flights, checked bags when needed, golf-bag fees each way, hotel, hotel taxes and resort fees, airport transfers, getting to the courses or a rental car, green fees for every round, carts where required, single supplements, booking fees.
 - Optional costs (dinners, sightseeing) go in with `"optional": true` and stay out of the total, unless the user wants an all-in budget (`"allInclusive": true`).
+- Hotel taxes and resort fees: when a hotel or package price includes them, say so in its `includes` (such as "taxes"); otherwise add a `taxes_fees` line, priced or `unavailable`. A stay without either is an incomplete total.
 - Get the basis right. A double room is per room (`room_night`), not per person. A package "per person, two sharing" is `per: "person"` with `forParty` 2 adults and 1 room, so a solo traveller needs the single-room price or a `single_supplement` line.
 - Never add up, convert or compare totals yourself: run compare and send its reply.
 
@@ -112,7 +113,7 @@ Example, one option for a solo golf week:
     "costs": [
       {"item": "flights", "note": "replace with the flights command's costLines entry, unchanged"},
       {"item": "golf_bag", "label": "Airline sports equipment", "amount": 60, "currency": "EUR", "per": "golfer_direction", "status": "indicative", "source": "https://airline.example/baggage", "checkedAt": "2026-10-15T09:10:00Z"},
-      {"item": "hotel", "label": "Hotel name", "amount": 95, "currency": "EUR", "per": "room_night", "status": "indicative", "source": "https://hotel.example/rooms", "checkedAt": "2026-10-15T09:20:00Z", "forParty": {"adults": 1, "rooms": 1}, "board": "breakfast"},
+      {"item": "hotel", "label": "Hotel name", "amount": 95, "currency": "EUR", "per": "room_night", "status": "indicative", "source": "https://hotel.example/rooms", "checkedAt": "2026-10-15T09:20:00Z", "forParty": {"adults": 1, "rooms": 1}, "board": "breakfast", "includes": ["breakfast", "taxes"]},
       {"item": "green_fees", "label": "Five rounds, three courses", "amount": 85, "currency": "EUR", "per": "round", "rounds": 5, "status": "indicative", "source": "https://club.example/green-fees", "checkedAt": "2026-10-15T09:30:00Z"},
       {"item": "car_rental", "label": "Compact car, 7 days", "amount": 180, "currency": "EUR", "per": "trip", "status": "estimate", "basis": "Typical January price for a compact car at Málaga airport"}
     ],

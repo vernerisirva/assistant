@@ -41,10 +41,15 @@ function fakeGoogle(prices = ["1626"]) {
     calls.push({ url, init });
     const query = new URL(url).searchParams.get("q") ?? "";
     const adults = Number(query.match(/for (\d) adults/)?.[1] ?? 1);
+    const [depart, returnDate] = [...query.matchAll(/\d{4}-\d{2}-\d{2}/g)].map((match) => match[0]);
+    const label = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
     const body = [
       "<title>Copenhagen to Helsinki | Google Flights</title>",
+      `<input type="text" value="${label(depart)}" placeholder="Departure" />`,
+      returnDate ? `<input type="text" value="${label(returnDate)}" placeholder="Return" />` : "",
       `<button aria-label="${adults} passenger${adults === 1 ? "" : "s"}, change number of passengers."></button>`,
       ...prices.map((price) => `<div aria-label="${fareLabel(String(Number(price) * adults))}"></div>`),
+      `<span>Prices include required taxes + fees for ${adults} adult${adults === 1 ? "" : "s"}.</span>`,
     ].join("\n");
     return { status: 200, ok: true, url, text: async () => body };
   };
@@ -294,7 +299,17 @@ describe("travel CLI", () => {
           why: "Short nonstop flight.",
           advantages: ["Nonstop"],
           tradeOffs: ["Early start"],
-          costs: [{ item: "flights", amount: 150, currency: "EUR", per: "person", status: "indicative", source: "https://www.finnair.com/se-en", checkedAt: "2026-10-15T10:00:00Z" }],
+          costs: [
+            {
+              item: "flights",
+              amount: 150,
+              currency: "EUR",
+              per: "person",
+              status: "indicative",
+              source: "https://www.finnair.com/se-en",
+              checkedAt: "2026-10-15T10:00:00Z",
+            },
+          ],
         },
       ],
     };

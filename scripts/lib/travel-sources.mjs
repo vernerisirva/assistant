@@ -12,9 +12,10 @@
  * Nothing here submits a form, sends a cookie, signs in, or retries. A
  * consent, captcha, "unusual traffic" or other redirect ends the run as
  * `blocked`, and the remaining lookups are skipped rather than worked around.
- * A fare is kept only when its departure date, trip type and the page's
- * passenger count match the request, so a page Google interpreted differently
- * never yields a price.
+ * A fare is kept only when the page confirms that its prices include taxes
+ * and fees, and when the page's own passenger count, departure and return
+ * dates, and the fare's trip type match the request, so a page Google
+ * interpreted differently never yields a price.
  */
 
 export const GOOGLE_FLIGHTS_URL = "https://www.google.com/travel/flights";
@@ -66,6 +67,10 @@ export function parseGoogleFlightsPage(html, { depart, returnDate = null, adults
   const labels = [...new Set([...page.matchAll(/aria-label="(From [^"]*)"/g)].map((match) => decodeEntities(match[1])))];
   if (labels.length === 0) return { status: "no_listings", title, offers: [], reason: "The page listed no fares for this search." };
 
+  // Verified means taxes, party and both dates are confirmed by the page itself.
+  if (!/Prices include required taxes \+ fees for \d+ adults?\./.test(page)) {
+    return { status: "unreadable", title, offers: [], reason: "The page does not confirm that its prices include taxes and fees." };
+  }
   const pageAdults = pagePassengers(page);
   if (pageAdults !== adults) {
     return {
@@ -74,6 +79,16 @@ export function parseGoogleFlightsPage(html, { depart, returnDate = null, adults
       offers: [],
       reason:
         pageAdults === null ? "The page does not say how many passengers its prices are for." : `The page priced ${pageAdults} passenger(s), not ${adults}.`,
+    };
+  }
+  const priced = pageDates(page);
+  if (priced.depart === null) return { status: "unreadable", title, offers: [], reason: "The page does not show which dates it priced." };
+  if (!dateLabelMatches(priced.depart, depart) || (returnDate ? !dateLabelMatches(priced.return, returnDate) : priced.return !== null)) {
+    return {
+      status: "mismatch",
+      title,
+      offers: [],
+      reason: `The page priced ${[priced.depart, priced.return].filter(Boolean).join(" – ")}, not the dates asked for.`,
     };
   }
 
@@ -91,7 +106,7 @@ export function parseGoogleFlightsPage(html, { depart, returnDate = null, adults
       reason: parsed.length === 0 ? "The fares on the page could not be read." : "The listed fares are for another date or trip type.",
     };
   }
-  return { status: "ok", title, offers, taxesIncluded: /Prices include required taxes \+ fees/.test(page) };
+  return { status: "ok", title, offers, taxesIncluded: true };
 }
 
 /**
@@ -229,6 +244,26 @@ function pagePassengers(page) {
   if (fromTaxes) return Number(fromTaxes[1]);
   const fromButton = page.match(/aria-label="(\d+) passengers?, change number of passengers\."/);
   return fromButton ? Number(fromButton[1]) : null;
+}
+
+/** The dates in the page's own search form, such as "Fri, Nov 13"; a one-way page has no return. */
+function pageDates(page) {
+  const value = (label) => {
+    const input = page.match(new RegExp(`<input[^>]*placeholder="${label}"[^>]*>`))?.[0];
+    const text = input?.match(/\svalue="([^"]*)"/)?.[1];
+    return text ? decodeEntities(text).trim() || null : null;
+  };
+  return { depart: value("Departure"), return: value("Return") };
+}
+
+/** "Fri, Nov 13" names the same weekday, month and day as the ISO date. */
+function dateLabelMatches(label, isoDate) {
+  const match = String(label ?? "").match(/^([A-Z][a-z]{2}), ([A-Z][a-z]{2,3}) (\d{1,2})$/);
+  if (!match) return false;
+  const date = new Date(`${isoDate}T12:00:00Z`);
+  return (
+    WEEKDAYS[date.getUTCDay()].startsWith(match[1]) && MONTHS[date.getUTCMonth()].startsWith(match[2].slice(0, 3)) && Number(match[3]) === date.getUTCDate()
+  );
 }
 
 /** "November", "13", "Friday" → { month: 11, day: 13, weekday: 5 }. */

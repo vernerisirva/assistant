@@ -102,7 +102,10 @@ export async function runTravelCli(
       };
     case "fx": {
       const fx = await fetchEcbRates({ fetchImpl });
-      return { fx, note: 'compare fetches these itself when its input says "fx": "ecb". Converted prices are approximate: banks and card issuers use their own rates.' };
+      return {
+        fx,
+        note: 'compare fetches these itself when its input says "fx": "ecb". Converted prices are approximate: banks and card issuers use their own rates.',
+      };
     }
     case "links":
       return { links: linksFor(options, today), note: "Search pages with live prices on each provider's own site. Nothing is booked." };
