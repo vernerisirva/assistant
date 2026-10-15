@@ -1200,7 +1200,7 @@ const EXTRA_ACCEPTANCE = new Set([
  * Explicit acceptance of the displayed plan. Reuses the repo's approval
  * language, plus a few "create it" phrasings. Questions, hedges, denials,
  * acceptance mixed with a change ("ok but no salmon"), and replies with any
- * question mark, ellipsis or emoji other than 👍, 👌 or ✅ are not acceptance.
+ * question mark, ellipsis or emoji other than 👍, 👌, ✅, ✔ or ☑ are not acceptance.
  */
 export function isWeeklyPlanAcceptance(message) {
   if (isApprovalMessage(message, { hasPendingApproval: true })) return true;
