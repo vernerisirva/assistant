@@ -82,6 +82,7 @@ behavior. See `docs/setup/review.md` for setup and cost controls.
 
 - `agents/<agent>/AGENTS.md`: source standing orders for each OpenClaw agent.
 - `agents/personal/SOUL.md`: personal agent tone/personality material.
+- `agents/personal/skills/<skill>/SKILL.md`: on-demand OpenClaw skills, copied into the personal workspace by `render:config`.
 - `config/agents.json`: agent registry, prompt directories, workspaces, and model env names.
 - `config/approval-policy.json`: safety and approval policy source.
 - `config/schedules.json`: routine schedule defaults.

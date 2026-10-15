@@ -24,6 +24,7 @@
     "playbook": "node scripts/playbook.mjs",
     "routine": "node scripts/routine.mjs",
     "weekly-plan": "node scripts/weekly-plan.mjs",
+    "travel": "node scripts/travel.mjs",
     "routines:plan": "node scripts/routines-cron.mjs plan",
     "routines:install": "node scripts/routines-cron.mjs install",
     "routines:status": "node scripts/routines-cron.mjs status",

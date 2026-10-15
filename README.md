@@ -31,6 +31,7 @@ npm run inbox:debug -- "Can you book golf tomorrow morning?"
 - Min Golf: `docs/setup/mingolf.md`
 - Memory: `docs/setup/memory.md`
 - Routines and the weekly plan: `docs/setup/routines.md`
+- Travel & Deals skill: `docs/setup/travel-deals.md`
 
 ## Safety
 
