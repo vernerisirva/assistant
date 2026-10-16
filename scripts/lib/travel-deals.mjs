@@ -961,7 +961,10 @@ function checkGoogleSearch(search, { forDates, forParty, option, named, fail }) 
   if (!leg) return;
   const [origins, destinations] = leg === "outbound" ? [option.from, option.to] : [option.to, option.from];
   if ((origins.length > 0 && !origins.includes(search.from)) || (destinations.length > 0 && !destinations.includes(search.to))) {
-    fail(`${named}.source`, `is a Google Flights search from ${search.from} to ${search.to}, the wrong way for this trip's ${leg} flight.`);
+    fail(
+      `${named}.source`,
+      `is a Google Flights search from ${search.from} to ${search.to}, not this trip's ${leg} route (${origins.join("/") || "any"} → ${destinations.join("/") || "any"}).`,
+    );
   }
 }
 
@@ -1356,16 +1359,20 @@ function describeRecommendation(recommendation, options, request) {
   const option = options.find((candidate) => candidate.id === recommendation.option);
   const complete = options.filter((candidate) => candidate.complete);
   const cheapest = complete.length > 0 ? complete.reduce((low, candidate) => (candidate.total < low.total ? candidate : low)) : null;
-  // A total built on a listed airfare can move once the return flight is chosen,
-  // so a ranking that depends on one is never stated as final.
+  // A listed airfare is a starting price whose return flight isn't seen, so a
+  // ranking that rests on one says so and never calls that total complete.
+  const lowest = (candidate) => (candidate.listedAirfare ? "the lowest listed total" : "the lowest complete total");
   let note;
   if (!option.complete) note = `Its total isn't complete yet: ${[...option.missing, ...option.unknown].join(", ")} still unpriced.`;
   else if (cheapest && cheapest.id !== option.id && cheapest.total < option.total) {
-    note = `It costs ${formatInt(option.total - cheapest.total)} ${request.currency} more than ${cheapest.id}, the lowest complete total.`;
-    if (option.listedAirfare || cheapest.listedAirfare) note += " That gap uses listed airfares whose return flights I can't see, so it can change.";
+    note = `It costs ${formatInt(option.total - cheapest.total)} ${request.currency} more than ${cheapest.id}, ${lowest(cheapest)}.`;
+    const pending = [option.listedAirfare ? "Its" : null, cheapest.listedAirfare ? `${cheapest.id}'s` : null].filter(Boolean);
+    if (pending.length === 2) note += " Both final airfares still need confirming: their return flights aren't seen yet.";
+    else if (pending.length === 1) note += ` ${pending[0]} final airfare still needs confirming: the return flight isn't seen yet.`;
   } else if (complete.length > 1) {
-    note = "It is also the lowest complete total.";
-    if (complete.some((candidate) => candidate.listedAirfare)) note += " That order uses listed airfares whose return flights I can't see, so it can change.";
+    note = option.listedAirfare
+      ? "It also has the lowest listed total, but its final airfare still needs confirming: the return flight isn't seen yet."
+      : `It is also the lowest complete total${complete.some((candidate) => candidate.listedAirfare) ? "; the other options' listed airfares can still change" : ""}.`;
   } else note = null;
   return { option, why: recommendation.why, note, cheapestComplete: cheapest?.id ?? null };
 }

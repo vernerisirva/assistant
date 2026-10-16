@@ -309,7 +309,7 @@ describe("travel CLI", () => {
     const wrongWay = await run(["flights", "--from", "CPH", "--to", "HEL", "--depart", "2026-11-15", "--one-way"], { fetchImpl: google.impl });
     const backwards = await compare([out.costLines[0], wrongWay.costLines[0]]);
     assert.equal(backwards.ok, false);
-    assert.match(backwards.problems.join("\n"), /is a Google Flights search from CPH to HEL, the wrong way for this trip's return flight/);
+    assert.match(backwards.problems.join("\n"), /is a Google Flights search from CPH to HEL, not this trip's return route \(HEL → CPH\)/);
   });
 
   it("samples a flexible window and enforces the lookup cap before fetching", async () => {

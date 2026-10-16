@@ -450,18 +450,20 @@ describe("airfare covers each direction once", () => {
     assert.match(problemsOf(withCosts([flights(), extra, ...rest()], {}, { request: { ...golfInput().request, allInclusive: true } })), twice);
   });
 
-  it("checks a one-way Google fare flies the trip's way", () => {
+  it("checks a Google fare flies this trip's route", () => {
     const backwards = oneWay("2027-01-19", {
       source: "https://www.google.com/travel/flights?q=One+way+flights+to+AGP+from+CPH+on+2027-01-19&curr=SEK&hl=en&gl=se",
     });
     assert.match(
       problemsOf(withCosts([oneWay("2027-01-12"), backwards, ...rest()])),
-      /is a Google Flights search from CPH to AGP, the wrong way for this trip's return flight/,
+      /is a Google Flights search from CPH to AGP, not this trip's return route \(AGP → CPH\)/,
     );
     const elsewhere = oneWay("2027-01-12", { source: "https://www.google.com/travel/flights?q=One+way+flights+to+FAO+from+CPH+on+2027-01-12" });
-    assert.match(problemsOf(withCosts([elsewhere, oneWay("2027-01-19"), ...rest()])), /search from CPH to FAO, the wrong way for this trip's outbound flight/);
+    assert.match(problemsOf(withCosts([elsewhere, oneWay("2027-01-19"), ...rest()])), /search from CPH to FAO, not this trip's outbound route \(CPH → AGP\)/);
     const openJaw = okResult(withCosts([elsewhere, oneWay("2027-01-19"), ...rest()], { to: ["AGP", "FAO"] }));
     assert.equal(optionA(openJaw).complete, true, "an open jaw lists both airports");
+    const fromFaro = flights({ source: "https://www.google.com/travel/flights?q=Flights+to+AGP+from+FAO+on+2027-01-12+through+2027-01-19&curr=SEK&hl=en&gl=se" });
+    assert.match(problemsOf(withCosts([fromFaro, ...rest()])), /search from FAO to AGP, not this trip's outbound route \(CPH → AGP\)/, "a round trip too");
   });
 
   it("ranks on evidence: an incomplete total is never cheapest, and listed airfares are never final", () => {
@@ -480,17 +482,29 @@ describe("airfare covers each direction once", () => {
     assert.equal(pickB.recommendation.cheapestComplete, "A", "C's lower known total is incomplete, so it never ranks cheapest");
     assert.match(
       pickB.telegramText,
-      /It costs 100 SEK more than A, the lowest complete total\. That gap uses listed airfares whose return flights I can't see, so it can change\./,
+      /It costs 100 SEK more than A, the lowest listed total\. A's final airfare still needs confirming: the return flight isn't seen yet\./,
     );
+    assert.doesNotMatch(pickB.telegramText, /lowest complete total/, "a listing's total is never called complete");
     const pickA = okResult(three("A"));
-    assert.match(pickA.telegramText, /It is also the lowest complete total\. That order uses listed airfares whose return flights I can't see, so it can change\./);
+    assert.match(pickA.telegramText, /It also has the lowest listed total, but its final airfare still needs confirming: the return flight isn't seen yet\./);
     assert.doesNotMatch(pickA.telegramText, /\b(?:is|are) (?:the )?cheapest\b|definitely/i);
     // With every flight known, the order is stated plainly.
     const known = three("B");
     known.options[0].costs = [oneWay("2027-01-12"), oneWay("2027-01-19", { amount: 500 }), ...rest()];
     const plain = okResult(known);
     assert.match(plain.telegramText, /It costs 200 SEK more than A, the lowest complete total\.\n/);
-    assert.doesNotMatch(plain.telegramText, /listed airfares|Listed flights:/);
+    assert.doesNotMatch(plain.telegramText, /listed|Listed flights:/);
+    // A pick whose flights are known, beside a pricier listing.
+    const firm = three("B");
+    firm.options[0].costs = [flights({ amount: 1800 }), ...rest()];
+    assert.match(okResult(firm).telegramText, /It is also the lowest complete total; the other options' listed airfares can still change\./);
+    // Both totals on listings.
+    const listings = three("B");
+    listings.options[1].costs = [flights({ amount: 1600 }), ...rest()];
+    assert.match(
+      okResult(listings).telegramText,
+      /It costs 100 SEK more than A, the lowest listed total\. Both final airfares still need confirming: their return flights aren't seen yet\./,
+    );
   });
 });
 
@@ -969,17 +983,17 @@ describe("recommendation and reply", () => {
     assert.match(
       result.telegramText,
       new RegExp(
-        `Best overall value: A, Costa del Sol\\. Best courses for a modest extra cost\\. It costs [\\d ]+ SEK more than C, the lowest complete total\\.`,
+        `Best overall value: A, Costa del Sol\\. Best courses for a modest extra cost\\. It costs [\\d ]+ SEK more than C, the lowest listed total\\. Both final airfares still need confirming: their return flights aren't seen yet\\.`,
       ),
     );
   });
 
-  it("says when the pick is also the lowest complete total, or not complete yet", () => {
+  it("says when the pick is also the lowest total, or not complete yet", () => {
     const input = threeOptions();
     input.recommendation = { option: "C", why: "Lowest-hassle week" };
     assert.match(problemsOf(input), /leave savings/, "'Lowest' is the helper's word");
     input.recommendation = { option: "C", why: "Good courses close together" };
-    assert.match(okResult(input).telegramText, /It is also the lowest complete total\./);
+    assert.match(okResult(input).telegramText, /It also has the lowest listed total, but its final airfare still needs confirming/);
     input.options[2].costs = [flights({ amount: 2184 }), hotel({ amount: 60 }), greenFees({ amount: 60 }), car()];
     assert.match(okResult(input).telegramText, /Its total isn't complete yet: golf bag fees still unpriced\./);
   });
@@ -1277,7 +1291,7 @@ describe("flight lookups summary", () => {
       [lookup({ depart: "2026-11-15", returnDate: null, url: helperUrl("CPH", "HEL", "2026-11-15"), offers: [offer({ roundTrip: false })] })],
       { adults: 1 },
     ).costLines[0];
-    assert.match(problemsOf(flightOption([out, wrongWay])), /is a Google Flights search from CPH to HEL, the wrong way for this trip's return flight/);
+    assert.match(problemsOf(flightOption([out, wrongWay])), /is a Google Flights search from CPH to HEL, not this trip's return route \(HEL → CPH\)/);
   });
 
   it("says plainly when no fare could be read", () => {
