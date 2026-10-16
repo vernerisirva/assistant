@@ -276,7 +276,7 @@ function googleFlightsSearch(link) {
   if (!isGoogleFlightsLink(link)) return null;
   const query = new URL(link).searchParams.get("q") ?? "";
   const match = query.match(
-    /^(One way flights|Flights) to ([A-Z]{3}) from ([A-Z]{3}) on (\d{4}-\d{2}-\d{2})(?: through (\d{4}-\d{2}-\d{2}))?(?: for ([2-9]) adults)?$/,
+    /^(One way flights|Flights) to ([A-Z]{3}) from ([A-Z]{3}) on (\d{4}-\d{2}-\d{2})(?: through (\d{4}-\d{2}-\d{2}))?(?: for ([1-9]\d*) adults)?$/,
   );
   if (!match || (match[1] === "Flights") !== Boolean(match[5])) return null;
   return { to: match[2], from: match[3], depart: match[4], returnDate: match[5] ?? null, adults: Number(match[6] ?? 1) };
@@ -882,6 +882,12 @@ function validateCost(line, index, { at, option, request, now, hasSupplement, fa
   }
   if (item === "flights" && amount !== null && typeof source === "string" && isGoogleFlightsLink(source)) {
     const search = googleFlightsSearch(source);
+    if (!search && status === "verified") {
+      fail(
+        `${named}.source`,
+        "must be the flights command's Google Flights link, so its dates, party and route can be checked; copy the flights costLines entry unchanged.",
+      );
+    }
     if ((search ? search.returnDate !== null : forDates?.length === 2) && returnFlight === null) {
       fail(
         `${named}.returnFlight`,
@@ -1025,6 +1031,16 @@ function validateFlightLegs(costs, request, at, fail) {
     fail(
       `${at} flights`,
       `pay for the ${twice.join(" and ")} flight${twice.length > 1 ? "s" : ""} twice: a round-trip fare, or a package with flights, already includes both directions. Keep one round-trip fare, or one one-way fare each way.`,
+    );
+    return;
+  }
+  // Two verified one-way tickets make one known itinerary only in one currency.
+  const oneWay = (leg) => paid.find((line) => line.item === "flights" && line.status === "verified" && line.legs?.length === 1 && line.legs[0] === leg);
+  const [out, home] = [oneWay("outbound"), oneWay("return")];
+  if (out && home && out.currency !== home.currency) {
+    fail(
+      `${at} flights`,
+      `are two verified one-way fares in different currencies (${out.currency}, ${home.currency}); look up both directions with the flights command, which prices both in SEK.`,
     );
   }
 }

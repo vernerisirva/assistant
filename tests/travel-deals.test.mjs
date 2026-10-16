@@ -21,30 +21,38 @@ const fx = {
   sekPerUnit: { EUR, DKK: 1.492629, TRY: 0.201801 },
 };
 
+// The results link the flights helper builds for a search.
+const googleLink = ({ from, to, dates: [depart, returnDate], adults }) =>
+  `https://www.google.com/travel/flights?q=${returnDate ? "" : "One+way+"}${returnDate ? "Flights" : "flights"}+to+${to}+from+${from}+on+${depart}${
+    returnDate ? `+through+${returnDate}` : ""
+  }${adults > 1 ? `+for+${adults}+adults` : ""}&curr=SEK&hl=en&gl=se`;
 // The flights helper's round-trip cost line: a Google Flights listing whose
-// return flight Hilla never sees.
-const flights = (overrides = {}) => ({
-  item: "flights",
-  label: "CPH–AGP round trip, outbound Norwegian nonstop",
-  amount: 1626,
-  currency: "SEK",
-  per: "trip",
-  status: "verified",
-  source: "https://www.google.com/travel/flights?q=Flights+to+AGP+from+CPH",
-  checkedAt: CHECKED,
-  forDates: ["2027-01-12", "2027-01-19"],
-  forParty: { adults: 1 },
-  includes: ["economy seats", "taxes and required fees"],
-  excludes: ["checked bags"],
-  returnFlight: "not_seen",
-  ...overrides,
-});
+// return flight Hilla never sees, with the link for its own dates and party.
+const flights = ({ route = ["CPH", "AGP"], ...overrides } = {}) => {
+  const line = {
+    item: "flights",
+    label: "CPH–AGP round trip, outbound Norwegian nonstop",
+    amount: 1626,
+    currency: "SEK",
+    per: "trip",
+    status: "verified",
+    checkedAt: CHECKED,
+    forDates: ["2027-01-12", "2027-01-19"],
+    forParty: { adults: 1 },
+    includes: ["economy seats", "taxes and required fees"],
+    excludes: ["checked bags"],
+    returnFlight: "not_seen",
+    ...overrides,
+  };
+  const dates = line.forDates ?? ["2027-01-12", "2027-01-19"];
+  const [from, to] = dates.length === 1 && dates[0] === "2027-01-19" ? [route[1], route[0]] : route;
+  return { source: googleLink({ from, to, dates, adults: line.forParty?.adults ?? 1 }), ...line };
+};
 // A one-way fare: one direction, with that flight known.
 const oneWay = (date, overrides = {}) =>
   flights({
     label: date === "2027-01-12" ? "Norwegian CPH–AGP one way, nonstop" : "Norwegian AGP–CPH one way, nonstop",
     amount: date === "2027-01-12" ? 900 : 800,
-    source: `https://www.google.com/travel/flights?q=One+way+flights+to+${date === "2027-01-12" ? "AGP+from+CPH" : "CPH+from+AGP"}+on+${date}&curr=SEK&hl=en&gl=se`,
     forDates: [date],
     returnFlight: undefined,
     ...overrides,
@@ -315,6 +323,23 @@ describe("price labels", () => {
     assert.match(problemsOf(withCosts([hotel({ returnFlight: "not_seen" }), flights(), golfBag(), greenFees(), car()])), /hotel\)\.returnFlight can only be/);
   });
 
+  it("verifies a Google fare only through a search link it can check", () => {
+    const undated = "https://www.google.com/travel/flights?q=Flights+to+AGP+from+CPH";
+    assert.match(
+      problemsOf(withCosts([flights({ source: undated }), ...verifiedRest()])),
+      /flights\)\.source must be the flights command's Google Flights link, so its dates, party and route can be checked/,
+    );
+    const tfs = "https://www.google.com/travel/flights/booking?tfs=CBwQAhoeEgoyMDI3LTAxLTEy";
+    assert.match(problemsOf(withCosts([flights({ source: tfs }), ...verifiedRest()])), /must be the flights command's Google Flights link/);
+    // Any party size is read, so a larger search never slips past the party check.
+    const forTen = "https://www.google.com/travel/flights?q=One+way+flights+to+FAO+from+CPH+on+2027-01-12+for+10+adults";
+    const checked = problemsOf(withCosts([oneWay("2027-01-12", { source: forTen }), oneWay("2027-01-19"), ...verifiedRest()]));
+    assert.match(checked, /forParty must match its Google Flights search, which is for 10 adults/);
+    assert.match(checked, /search from CPH to FAO, not this trip's outbound route/);
+    // An indicative price may cite any Google Flights page; it claims no exact search.
+    assert.equal(optionA(okResult(withCosts([flights({ source: undated, status: "indicative" }), ...verifiedRest()]))).complete, true);
+  });
+
   it("notes prices checked days ago", () => {
     const result = okResult(withCosts([flights(), golfBag({ checkedAt: "2026-10-12T10:00:00Z" }), hotel(), greenFees(), car()]));
     assert.match(result.telegramText, /golf bag fees price checked 3 days ago/);
@@ -408,6 +433,18 @@ describe("airfare covers each direction once", () => {
     assert.equal(option.total, 900 + 800 + restSek);
     assert.match(result.telegramText, /Flights\s+1 700\n/);
     assert.match(result.telegramText, /flights are two one-way tickets, bought separately, each with its own bag fees and change rules/);
+  });
+
+  it("combines two verified one-way fares only in one currency", () => {
+    const inEuro = (date, overrides = {}) =>
+      oneWay(date, { amount: 80, currency: "EUR", source: `https://www.norwegian.com/se/fare/${date === "2027-01-12" ? "cph-agp" : "agp-cph"}`, ...overrides });
+    assert.match(
+      problemsOf(withCosts([oneWay("2027-01-12"), inEuro("2027-01-19"), ...rest()])),
+      /flights are two verified one-way fares in different currencies \(SEK, EUR\); look up both directions with the flights command/,
+    );
+    assert.equal(optionA(okResult(withCosts([inEuro("2027-01-12"), inEuro("2027-01-19"), ...rest()]))).total, sek(80) * 2 + restSek);
+    const indicativeHome = inEuro("2027-01-19", { status: "indicative" });
+    assert.equal(optionA(okResult(withCosts([oneWay("2027-01-12"), indicativeHome, ...rest()]))).complete, true, "an indicative fare is summed as indicative");
   });
 
   it("never treats a missing return fare as zero", () => {
@@ -962,13 +999,13 @@ describe("recommendation and reply", () => {
           id: "B",
           title: "Algarve",
           to: ["FAO"],
-          costs: [flights({ amount: 1882 }), golfBag(), hotel({ amount: 70 }), greenFees({ amount: 70 }), car()],
+          costs: [flights({ amount: 1882, route: ["CPH", "FAO"] }), golfBag(), hotel({ amount: 70 }), greenFees({ amount: 70 }), car()],
         }),
         golfOption({
           id: "C",
           title: "Belek",
           to: ["AYT"],
-          costs: [flights({ amount: 2184 }), golfBag(), hotel({ amount: 60 }), greenFees({ amount: 60 }), car()],
+          costs: [flights({ amount: 2184, route: ["CPH", "AYT"] }), golfBag(), hotel({ amount: 60 }), greenFees({ amount: 60 }), car()],
         }),
       ],
       recommendation: { option: "A", why: "Best courses for a modest extra cost" },
@@ -994,7 +1031,7 @@ describe("recommendation and reply", () => {
     assert.match(problemsOf(input), /leave savings/, "'Lowest' is the helper's word");
     input.recommendation = { option: "C", why: "Good courses close together" };
     assert.match(okResult(input).telegramText, /It also has the lowest listed total, but its final airfare still needs confirming/);
-    input.options[2].costs = [flights({ amount: 2184 }), hotel({ amount: 60 }), greenFees({ amount: 60 }), car()];
+    input.options[2].costs = [flights({ amount: 2184, route: ["CPH", "AYT"] }), hotel({ amount: 60 }), greenFees({ amount: 60 }), car()];
     assert.match(okResult(input).telegramText, /Its total isn't complete yet: golf bag fees still unpriced\./);
   });
 
@@ -1006,7 +1043,7 @@ describe("recommendation and reply", () => {
     assert.equal(table[0].trim(), "A        B        C");
     assert.match(text, /^Golf week in January\n1 traveller · 1 room · 5 rounds · SEK, whole trip\n/);
     assert.match(text, /\nA · Costa del Sol · 12–19 Jan 2027 · 7 nights\n/);
-    assert.match(text, /\[Flights\]\(https:\/\/www\.google\.com\/travel\/flights\?q=Flights\+to\+AGP\+from\+CPH\)/);
+    assert.match(text, /\[Flights\]\(https:\/\/www\.google\.com\/travel\/flights\?q=Flights\+to\+AGP\+from\+CPH\+on\+2027-01-12\+through\+2027-01-19&curr=SEK&hl=en&gl=se\)/);
     assert.match(text, /\[Booking\.com search\]\(https:\/\/www\.booking\.com\/searchresults\.html\?ss=Marbella&checkin=2027-01-12&checkout=2027-01-19/);
     assert.match(text, /Tee times not checked; flights excludes checked bags \(all options\)\./);
     assert.match(text, /Prices checked 15 Oct 2026, 12:00\./);
@@ -1062,7 +1099,8 @@ describe("other trips", () => {
       },
     ],
   });
-  const helsinkiFlight = (overrides = {}) => flights({ label: "Finnair CPH–HEL return, nonstop", forDates: ["2026-11-13", "2026-11-15"], ...overrides });
+  const helsinkiFlight = (overrides = {}) =>
+    flights({ label: "CPH–HEL round trip, outbound Finnair nonstop", forDates: ["2026-11-13", "2026-11-15"], route: ["CPH", "HEL"], ...overrides });
 
   it("prices a flight-only request, adding bags only when asked", () => {
     const result = okResult(trip("flights", [helsinkiFlight()]));
