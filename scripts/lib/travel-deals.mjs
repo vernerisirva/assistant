@@ -497,9 +497,10 @@ function formatMinutes(total) {
  * A verified price for what the page shows: a one-way flight, or Google's
  * round-trip listing, where only the outbound flight is known. `flight` is
  * that one flight as the page gives it, in local time at each airport; a
- * round trip's return stays unknown.
+ * round trip's return stays unknown. Every listed offer gets one, so a
+ * later or nonstop flight is copied, never written by hand.
  */
-function flightCostLine(result, offer, adults) {
+export function flightCostLine(result, offer, adults) {
   const route = `${result.from}–${result.to}`;
   const stops = offer.stops === 0 ? "nonstop" : `${offer.stops} stop${offer.stops === 1 ? "" : "s"}`;
   const excludes = ["checked bags"];
@@ -1572,8 +1573,15 @@ function describeRecommendation(recommendation, options, request) {
   // ranking that rests on one says so and never calls that total complete.
   const lowest = (candidate) => (candidate.listedAirfare ? "the lowest listed total" : "the lowest complete total");
   let note;
-  if (!option.complete) note = `Its total isn't complete yet: ${[...option.missing, ...option.unknown].join(", ")} still unpriced.`;
-  else if (cheapest && cheapest.id !== option.id && cheapest.total < option.total) {
+  if (!option.complete) {
+    note = `Its total isn't complete yet: ${[...option.missing, ...option.unknown].join(", ")} still unpriced.`;
+    // Without complete totals no price gap is stated, but what its schedule gives over the lowest known costs still is.
+    const lowestKnown = options
+      .filter((candidate) => candidate.id !== option.id && candidate.total < option.total)
+      .sort((left, right) => left.total - right.total)[0];
+    const gains = lowestKnown ? scheduleGains(option, lowestKnown) : [];
+    if (gains.length > 0) note += ` Compared with ${lowestKnown.id}, whose known costs are lowest: ${gains.join("; ")}.`;
+  } else if (cheapest && cheapest.id !== option.id && cheapest.total < option.total) {
     note = `It costs ${formatInt(option.total - cheapest.total)} ${request.currency} more than ${cheapest.id}, ${lowest(cheapest)}.`;
     const gains = scheduleGains(option, cheapest);
     if (gains.length > 0) note += ` For that: ${gains.join("; ")}.`;

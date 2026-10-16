@@ -24,6 +24,7 @@ import {
   buildComparison,
   cleanFlightResults,
   dayDiff,
+  flightCostLine,
   isIsoDate,
   localDate,
   sampleDepartureDates,
@@ -64,6 +65,8 @@ export const TRAVEL_USAGE = [
 ].join("\n");
 
 export function parseTravelArgs(argv) {
+  // "--help" anywhere shows the usage, rather than failing as an unknown option.
+  if (argv.some((arg) => arg === "--help" || arg === "-h")) return { command: "help" };
   const [command = "help", ...rest] = argv;
   if (!COMMANDS.includes(command)) throw new Error(`Unknown travel command: ${command}\n${TRAVEL_USAGE}`);
   const options = { command };
@@ -170,13 +173,14 @@ async function flights(options, { today, now, timezone, fetchImpl, pause, pauseM
       ...(result.reason ? { reason: result.reason } : {}),
       // Round-trip offers describe the outbound flight only; their price includes a return never seen.
       ...(result.returnDate && result.offers.length > 0 ? { returnFlight: "not_seen" } : {}),
-      offers: result.offers.slice(0, 3),
+      // Each listed offer with its own ready cost line, for a flight other than the cheapest.
+      offers: result.offers.slice(0, 3).map((offer) => ({ ...offer, costLine: flightCostLine(result, offer, adults) })),
     })),
     lowest: summary.lowest,
     costLines: summary.costLines,
     telegramText: summary.telegramText,
     guidance:
-      'For a flight-only question, send telegramText word for word. For a whole trip, copy a costLines entry into compare unchanged. These are verified listings for these dates and this party; bags and golf bags are extra unless stated. A round-trip entry ("returnFlight": "not_seen") is the outbound flight shown plus a return you have not seen: never describe the return flight or call it a confirmed itinerary. To see both flights, look up each direction with --one-way. Each entry\'s "flight" holds that flight\'s local times, stops and layovers: compare shows them, so never write flight times yourself.',
+      'For a flight-only question, send telegramText word for word. For a whole trip, copy a costLines entry into compare unchanged. These are verified listings for these dates and this party; bags and golf bags are extra unless stated. A round-trip entry ("returnFlight": "not_seen") is the outbound flight shown plus a return you have not seen: never describe the return flight or call it a confirmed itinerary. To see both flights, look up each direction with --one-way. Each entry\'s "flight" holds that flight\'s local times, stops and layovers: compare shows them, so never write flight times yourself. For a flight other than the cheapest (a later flight home, a nonstop one), copy that offer\'s costLine from lookups[].offers.',
   };
 }
 
