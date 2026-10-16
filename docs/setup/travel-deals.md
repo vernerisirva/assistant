@@ -30,6 +30,28 @@ OPENCLAW_CONFIG_PATH="$PWD/.openclaw/openclaw.json" OPENCLAW_STATE_DIR="$PWD/.op
 - Hotels, packages, green fees, bag fees, transfers and climate: the agent's own web search and page reading. Most of these are `indicative`. Hotel metasearch pages (Google Hotels, Kayak, Momondo) disallow automated access or need JavaScript, so hotel prices are rarely `verified`.
 - No paid travel APIs, no accounts, no browser automation.
 
+## Schedules and convenience
+
+- **Flight data:** each flights cost line carries `flight`, the one flight Google listed: local times at each airport, Google's own duration, stops, layover minutes, and Google's "overnight" and "Separate tickets" marks. Hilla never works a duration out from two clocks, because airports differ in time zone. A round-trip listing's `flight` is its outbound flight. Its return is shown as "Return flight details not verified." and is never filled in.
+- **Who may supply it:** `compare` accepts `flight` only on a fare whose Google Flights link it can read. The route and departure date must match that link.
+- **Per option, the reply shows:**
+  - a **Flights** line: each known flight, and separate tickets "yes" (two bookings, or a marked connection) or "unknown" (a listing);
+  - a **Travel** line with the facts worth weighing:
+    - early starts (before 07:00, or the user's `preferences.departAfter`);
+    - late arrivals (from 22:00 at the destination, or the user's `arriveBefore`), and next-day arrivals;
+    - layovers of 3 h or more, or overnight ones;
+    - separate-ticket connections;
+    - when to be at the airport for a morning flight home;
+    - car-hire desk or drop-off hours to check;
+    - full days at the destination, and the airport transfer time (with its source, or "not checked");
+  - for golf trips, a **Golf days** line. It says whether a round may fit on the arrival day and the last day:
+    - "may fit" only when the flight, both `travelTimes` and sourced `golf.daylight` are known;
+    - "no round" when even the best case leaves no room (an early flight home always does);
+    - otherwise "not checked".
+  - Golf days assume about 4 h 30 min per round, 2 h at the airport before a flight and 30 min to leave it after landing; the reply says so. Tee times stay unchecked.
+- **Recommendations:** when the recommended option costs more, the note lists what its schedule gives, and only from facts both options have: fewer stops, a later flight home, an earlier landing, more full days, a round where the other has none. No score is computed.
+- **Compatibility:** inputs without `flight`, `travelTimes`, `preferences` or structured daylight work as before, and their replies are unchanged.
+
 ## Price labels
 
 `verified` means a concrete price for these dates, this party and stated inclusions, with source and time. A Google round trip is a verified listing with an unseen return, so an option built on one is at best "partly indicative". `indicative` covers "from" prices, snippets and season rates. `estimate` is a stated calculation. `unavailable` means no trustworthy price. `travel -- compare` refuses input that would make a number untrue: a verified label without evidence (for flights: a page that does not confirm the dates, party and that taxes are included), a Google round trip without its `returnFlight` caveat, a Google fare used for another search or flown the wrong way, a flight paid for twice, an unknown cost counted as zero, a stay with no word on hotel taxes, a room price charged per person, a per-person "two sharing" price for a solo traveller without a supplement, a forecast for a trip more than ten days ahead, a saving between two different trips, or prices, savings, availability claims, links or instruction-like page text in free text.
