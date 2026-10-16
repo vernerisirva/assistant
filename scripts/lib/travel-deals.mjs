@@ -83,6 +83,7 @@ const REQUEST_KEYS = [
   "budget",
   "allInclusive",
   "assumptions",
+  "preferences",
 ];
 const TOP_KEYS = ["request", "fx", "options", "recommendation", "packageVsSeparate", "limitations"];
 const OPTION_KEYS = [
@@ -101,6 +102,7 @@ const OPTION_KEYS = [
   "climate",
   "links",
   "itinerary",
+  "travelTimes",
 ];
 const COST_KEYS = [
   "item",
@@ -122,8 +124,11 @@ const COST_KEYS = [
   "board",
   "optional",
   "returnFlight",
+  "flight",
 ];
 const GOLF_KEYS = ["rounds", "courses", "teeTimes", "handicap", "daylight", "practice"];
+const FLIGHT_KEYS = ["from", "to", "departDate", "departTime", "arriveDate", "arriveTime", "durationMinutes", "stops", "layovers", "airline", "separateTickets"];
+const PREFERENCE_KEYS = ["departAfter", "arriveBefore", "nonstop", "maxLayoverMinutes"];
 
 // --- Free text ---------------------------------------------------------------
 
@@ -387,8 +392,8 @@ export function summarizeFlightLookups(results, { adults = 1, timezone = DEFAULT
     );
     lines.push(
       listings
-        ? "These are Google Flights' listed round-trip prices: the outbound flight shown plus the cheapest return Google pairs with it. I can't see that return flight: it may be another airline, a long layover or a separate ticket, and another return can cost more. Taxes and required fees are included. Checked bags and golf bags are extra unless stated. Check the whole itinerary before you buy. Prices can change; nothing is held or booked."
-        : "One-way prices with taxes and required fees. Checked bags and golf bags are extra unless stated. Prices can change; nothing is held or booked.",
+        ? "These are Google Flights' listed round-trip prices: the outbound flight shown plus the cheapest return Google pairs with it. Return flight details not verified: I can't see that flight, which may be another airline, a long layover or a separate ticket, and another return can cost more. Times are local at each airport. Taxes and required fees are included. Checked bags and golf bags are extra unless stated. Check the whole itinerary before you buy. Prices can change; nothing is held or booked."
+        : "One-way prices with taxes and required fees. Times are local at each airport. Checked bags and golf bags are extra unless stated. Prices can change; nothing is held or booked.",
     );
   } else {
     lines.push("No fare could be read, so there is no verified flight price. The links show live prices.");
@@ -453,19 +458,46 @@ function lookupProblem(result) {
 }
 
 function describeOffer(offer) {
-  const stops =
-    offer.stops === 0
-      ? "nonstop"
-      : `${offer.stops} ${offer.stops === 1 ? "stop" : "stops"}${offer.layovers[0] ? ` via ${offer.layovers.map((stop) => stop.city).join(", ")}` : ""}`;
-  const parts = [`${offer.airlines}, ${stops}, ${offer.departTime}–${offer.arriveTime}${offer.arriveDate !== offer.departDate ? " (+1)" : ""}`];
+  const parts = [`${offer.airlines}, ${stopsText(offer)}, ${offer.departTime}–${offer.arriveTime}${dayShift(offer.departDate, offer.arriveDate)}`];
   if (offer.duration) parts.push(offer.duration.replace(/\bhr\b/g, "h"));
   if (offer.fareNote && /overhead bin/i.test(offer.fareNote)) parts.push("cabin bag not included");
+  if (offer.separateTickets) parts.push("separate tickets");
   return parts.join(" · ");
 }
 
 /**
+ * "nonstop", or "1 stop via Riga (9 h, overnight)" with each layover as
+ * Google gives it; a stop Google's label didn't describe says so.
+ */
+function stopsText(flight) {
+  if (flight.stops === 0) return "nonstop";
+  const listed = flight.layovers ?? [];
+  const length = (stop) =>
+    Number.isInteger(stop.minutes) ? formatMinutes(stop.minutes) : stop.duration ? String(stop.duration).replace(/\bhr\b/g, "h") : "length not listed";
+  const via = listed.map((stop) => `${stop.city} (${length(stop)}${stop.overnight ? ", overnight" : ""})`);
+  const unlisted = flight.stops - listed.length;
+  const gap = unlisted <= 0 ? "" : listed.length === 0 ? ", layover not listed" : `, ${unlisted} more ${unlisted === 1 ? "layover" : "layovers"} not listed`;
+  return `${flight.stops} ${flight.stops === 1 ? "stop" : "stops"}${via.length > 0 ? ` via ${via.join(", ")}` : ""}${gap}`;
+}
+
+/** " (+1)" when a flight lands on a later local date than it leaves. */
+function dayShift(departDate, arriveDate) {
+  const days = isIsoDate(departDate) && isIsoDate(arriveDate) ? dayDiff(departDate, arriveDate) : 0;
+  return days > 0 ? ` (+${days})` : "";
+}
+
+/** 545 → "9 h 5 min", 45 → "45 min". */
+function formatMinutes(total) {
+  const hours = Math.floor(total / 60);
+  const minutes = total % 60;
+  return [hours > 0 ? `${hours} h` : null, minutes > 0 || hours === 0 ? `${minutes} min` : null].filter(Boolean).join(" ");
+}
+
+/**
  * A verified price for what the page shows: a one-way flight, or Google's
- * round-trip listing, where only the outbound flight is known.
+ * round-trip listing, where only the outbound flight is known. `flight` is
+ * that one flight as the page gives it, in local time at each airport; a
+ * round trip's return stays unknown.
  */
 function flightCostLine(result, offer, adults) {
   const route = `${result.from}–${result.to}`;
@@ -486,6 +518,19 @@ function flightCostLine(result, offer, adults) {
     includes: ["economy seats", "taxes and required fees"],
     excludes,
     ...(result.returnDate ? { returnFlight: "not_seen" } : {}),
+    flight: {
+      from: result.from,
+      to: result.to,
+      departDate: offer.departDate,
+      departTime: offer.departTime,
+      arriveDate: offer.arriveDate,
+      arriveTime: offer.arriveTime,
+      durationMinutes: offer.durationMinutes ?? null,
+      stops: offer.stops,
+      layovers: offer.layovers.map((stop) => ({ city: stop.city, minutes: stop.minutes ?? null, overnight: stop.overnight })),
+      airline: offer.airlines,
+      separateTickets: offer.separateTickets === true,
+    },
   };
 }
 
@@ -561,6 +606,16 @@ export function buildComparison(input, { now = new Date(), timezone = DEFAULT_TI
       perPerson: option.perPerson,
       perRound: option.perRound,
       confidence: option.confidence,
+      travel: option.travel
+        ? {
+            outbound: option.travel.out,
+            return: option.travel.home ?? (option.travel.homeUnknown ? "not_verified" : null),
+            separateTickets: option.travel.separate,
+            fullDays: option.travel.fullDays,
+            notes: option.travel.notes,
+            ...(option.travel.golf ? { golfDays: { arrival: option.travel.golf.arrival, lastDay: option.travel.golf.lastDay } } : {}),
+          }
+        : null,
       lines: option.lines.map((line) => ({
         item: line.item,
         status: line.status,
@@ -629,6 +684,30 @@ function validateRequest(request, fail) {
   }
   const assumptions = textList(request.assumptions, "request.assumptions", { max: 3, length: 120 }, fail);
 
+  // Flight times the user said suit them; without them, flags use plain defaults.
+  const preferences = {};
+  if (request.preferences !== undefined) {
+    const stated = request.preferences;
+    if (!isPlainObject(stated)) {
+      fail("request.preferences", 'must be what the user asked for, such as {"departAfter": "08:00", "arriveBefore": "22:00", "nonstop": true, "maxLayoverMinutes": 120}.');
+    } else {
+      unknownKeys(stated, PREFERENCE_KEYS, "request.preferences", fail);
+      for (const key of ["departAfter", "arriveBefore"]) {
+        if (stated[key] === undefined) continue;
+        if (isClock(stated[key])) preferences[key] = stated[key];
+        else fail(`request.preferences.${key}`, "must be a local time such as 08:00.");
+      }
+      if (stated.nonstop !== undefined) {
+        if (typeof stated.nonstop === "boolean") preferences.nonstop = stated.nonstop;
+        else fail("request.preferences.nonstop", "must be true or false.");
+      }
+      if (stated.maxLayoverMinutes !== undefined) {
+        if (isInt(stated.maxLayoverMinutes, 0, 1440)) preferences.maxLayoverMinutes = stated.maxLayoverMinutes;
+        else fail("request.preferences.maxLayoverMinutes", "must be whole minutes, 0 to 1440.");
+      }
+    }
+  }
+
   return {
     title,
     kind,
@@ -642,6 +721,7 @@ function validateRequest(request, fail) {
     budget,
     allInclusive: request.allInclusive === true,
     assumptions,
+    preferences,
   };
 }
 
@@ -712,6 +792,7 @@ function validateOption(option, index, { request, today, now, fail, warnings }) 
   const climate = option.climate === undefined ? null : validateClimate(option.climate, `${at} climate`, { depart: option.depart, today, fail });
   const itinerary =
     option.itinerary === undefined ? [] : validateItinerary(option.itinerary, `${at} itinerary`, { depart: option.depart, returnDate: option.return, fail });
+  const travelTimes = option.travelTimes === undefined ? {} : validateTravelTimes(option.travelTimes, `${at} travelTimes`, fail);
 
   return {
     id,
@@ -730,7 +811,40 @@ function validateOption(option, index, { request, today, now, fail, warnings }) 
     golf,
     climate,
     itinerary,
+    travelTimes,
   };
+}
+
+/**
+ * How long the journeys between the airport and the accommodation, and
+ * between the accommodation and the course, take (either way), each only with
+ * the page that says so. A time no page gives is left out, and the reply says
+ * it wasn't checked.
+ */
+function validateTravelTimes(times, at, fail) {
+  if (!isPlainObject(times)) {
+    fail(at, 'must be {"airport": {"minutes": 60, "source": "..."}, "course": {"minutes": 10, "source": "..."}}, each from a page that gives it.');
+    return {};
+  }
+  unknownKeys(times, ["airport", "course"], at, fail);
+  const result = {};
+  for (const key of ["airport", "course"]) {
+    const entry = times[key];
+    if (entry === undefined) continue;
+    const path = `${at}.${key}`;
+    if (!isPlainObject(entry)) {
+      fail(path, 'must be {"minutes": N, "source": "...", "basis": "..."}.');
+      continue;
+    }
+    unknownKeys(entry, ["minutes", "source", "basis"], path, fail);
+    if (!isInt(entry.minutes, 0, 600)) fail(`${path}.minutes`, "must be whole minutes, 0 to 600.");
+    const source = checkLink(entry.source ?? "");
+    if (entry.source === undefined) fail(`${path}.source`, "is required: the page that gives this travel time. Leave the time out when no page gives it.");
+    else if (source.problem) fail(`${path}.source`, source.problem);
+    const basis = entry.basis === undefined ? null : textField(entry.basis, `${path}.basis`, { max: 120 }, fail);
+    if (isInt(entry.minutes, 0, 600) && source.value) result[key] = { minutes: entry.minutes, source: source.value, basis };
+  }
+  return result;
 }
 
 /** A day-by-day plan: one short line per day of the trip, in order, with no prices or claims. */
@@ -880,8 +994,9 @@ function validateCost(line, index, { at, option, request, now, hasSupplement, fa
       fail(`${named}.returnFlight`, 'can only be "not_seen", on a round-trip flights price whose return flight wasn\'t seen.');
     } else returnFlight = "not_seen";
   }
-  if (item === "flights" && amount !== null && typeof source === "string" && isGoogleFlightsLink(source)) {
-    const search = googleFlightsSearch(source);
+  const google = item === "flights" && amount !== null && typeof source === "string" && isGoogleFlightsLink(source);
+  const search = google ? googleFlightsSearch(source) : null;
+  if (google) {
     if (!search && status === "verified") {
       fail(
         `${named}.source`,
@@ -895,6 +1010,12 @@ function validateCost(line, index, { at, option, request, now, hasSupplement, fa
       );
     }
     if (search) checkGoogleSearch(search, { forDates, forParty, option, named, fail });
+  }
+  // Flight times come only from the flights command, for the search in the line's own link.
+  let flight = null;
+  if (line.flight !== undefined) {
+    if (!search) fail(`${named}.flight`, "comes only with a flights command cost line and its Google Flights link; copy that entry unchanged.");
+    else flight = validateFlight(line.flight, search, `${named}.flight`, fail);
   }
 
   // Which of the trip's two journeys a travel price pays for: a round trip
@@ -940,6 +1061,7 @@ function validateCost(line, index, { at, option, request, now, hasSupplement, fa
     optional: line.optional === true,
     returnFlight,
     legs,
+    flight,
     staleDays: checkedAt ? Math.floor((now.getTime() - Date.parse(checkedAt)) / 86_400_000) : null,
   };
   if (request && forParty && !normalized.optional) {
@@ -948,6 +1070,58 @@ function validateCost(line, index, { at, option, request, now, hasSupplement, fa
     normalized.check = check;
   }
   return normalized;
+}
+
+/**
+ * The one flight a flights command cost line describes, as Google listed it:
+ * local times at each airport, Google's own duration (never worked out from
+ * clocks in two time zones), and its stops. It must be the flight of the
+ * line's own search, leaving on that search's date.
+ */
+function validateFlight(flight, search, at, fail) {
+  if (!isPlainObject(flight)) {
+    fail(at, "must be the flights command's flight object, unchanged.");
+    return null;
+  }
+  unknownKeys(flight, FLIGHT_KEYS, at, fail);
+  const wrong = [];
+  if (flight.from !== search.from || flight.to !== search.to) wrong.push(`is ${flight.from}–${flight.to}, not its search's ${search.from}–${search.to}`);
+  if (flight.departDate !== search.depart) wrong.push(`leaves ${flight.departDate}, not ${search.depart}`);
+  if (!isClock(flight.departTime) || !isClock(flight.arriveTime)) wrong.push("needs local times as HH:MM");
+  const days = isIsoDate(flight.departDate) && isIsoDate(flight.arriveDate) ? dayDiff(flight.departDate, flight.arriveDate) : null;
+  if (days === null || days < 0 || days > 2) wrong.push("must land 0 to 2 days after it leaves");
+  if (flight.durationMinutes !== null && !isInt(flight.durationMinutes, 1, 4320)) wrong.push("durationMinutes must be minutes, or null");
+  if (!isInt(flight.stops, 0, 4)) wrong.push("stops must be 0 to 4");
+  const layovers = Array.isArray(flight.layovers) && flight.layovers.length <= (isInt(flight.stops, 0, 4) ? flight.stops : 0) ? flight.layovers : null;
+  if (!layovers) wrong.push("layovers must list at most one stop each");
+  const stops = (layovers ?? []).map((stop, index) => {
+    if (!isPlainObject(stop) || typeof stop.overnight !== "boolean" || !(stop.minutes === null || isInt(stop.minutes, 0, 2880))) {
+      wrong.push(`layovers[${index}] must be {"city", "minutes", "overnight"}`);
+      return null;
+    }
+    unknownKeys(stop, ["city", "minutes", "overnight"], `${at}.layovers[${index}]`, fail);
+    const city = textField(stop.city, `${at}.layovers[${index}].city`, { max: 60 }, fail);
+    return { city, minutes: stop.minutes, overnight: stop.overnight };
+  });
+  const airline = textField(flight.airline, `${at}.airline`, { max: 80 }, fail);
+  if (typeof flight.separateTickets !== "boolean") wrong.push("separateTickets must be true or false");
+  if (wrong.length > 0) {
+    fail(at, `${wrong.join("; ")}: copy the flights command's cost line unchanged.`);
+    return null;
+  }
+  return {
+    from: flight.from,
+    to: flight.to,
+    departDate: flight.departDate,
+    departTime: flight.departTime,
+    arriveDate: flight.arriveDate,
+    arriveTime: flight.arriveTime,
+    durationMinutes: flight.durationMinutes,
+    stops: flight.stops,
+    layovers: stops.filter(Boolean),
+    airline,
+    separateTickets: flight.separateTickets,
+  };
 }
 
 /**
@@ -1145,10 +1319,28 @@ function validateGolf(golf, at, { request, costs, fail }) {
   }
 
   const extra = {};
+  let sun = null;
   for (const key of ["handicap", "daylight", "practice"]) {
-    if (golf[key] !== undefined) extra[key] = textField(golf[key], `${at}.${key}`, { max: 100 }, fail);
+    if (golf[key] === undefined) continue;
+    // Daylight as sunrise and sunset times, from a page that gives them, lets the reply judge travel-day golf.
+    if (key === "daylight" && isPlainObject(golf.daylight)) {
+      sun = validateDaylight(golf.daylight, `${at}.daylight`, fail);
+      if (sun) extra.daylight = `daylight about ${sun.sunrise}–${sun.sunset} ([source](${sun.source}))`;
+    } else extra[key] = textField(golf[key], `${at}.${key}`, { max: 100 }, fail);
   }
-  return { rounds: golf.rounds, courses: checkedCourses.filter(Boolean), teeTimes, ...extra };
+  return { rounds: golf.rounds, courses: checkedCourses.filter(Boolean), teeTimes, ...extra, sun };
+}
+
+function validateDaylight(daylight, at, fail) {
+  unknownKeys(daylight, ["sunrise", "sunset", "source"], at, fail);
+  const source = checkLink(daylight.source ?? "");
+  if (!isClock(daylight.sunrise) || !isClock(daylight.sunset) || clockMinutes(daylight.sunrise) >= clockMinutes(daylight.sunset)) {
+    fail(at, 'must be {"sunrise": "08:28", "sunset": "18:24", "source": "..."}: local times for the trip dates, sunrise first.');
+    return null;
+  }
+  if (daylight.source === undefined) fail(`${at}.source`, "is required: the page that gives sunrise and sunset for these dates.");
+  else if (source.problem) fail(`${at}.source`, source.problem);
+  return source.value ? { sunrise: daylight.sunrise, sunset: daylight.sunset, source: source.value } : null;
 }
 
 function validateClimate(climate, at, { depart, today, fail }) {
@@ -1300,6 +1492,7 @@ function priceOption(option, request, fx) {
     approximate,
     confidence: confidenceOf(counted, complete),
     listedAirfare: counted.some((line) => line.returnFlight === "not_seen"),
+    travel: travelFacts(option, counted, request),
     optionalLines: request.allInclusive ? [] : lines.filter((line) => line.optional),
     notes: optionNotes(option, counted),
   };
@@ -1382,6 +1575,8 @@ function describeRecommendation(recommendation, options, request) {
   if (!option.complete) note = `Its total isn't complete yet: ${[...option.missing, ...option.unknown].join(", ")} still unpriced.`;
   else if (cheapest && cheapest.id !== option.id && cheapest.total < option.total) {
     note = `It costs ${formatInt(option.total - cheapest.total)} ${request.currency} more than ${cheapest.id}, ${lowest(cheapest)}.`;
+    const gains = scheduleGains(option, cheapest);
+    if (gains.length > 0) note += ` For that: ${gains.join("; ")}.`;
     const pending = [option.listedAirfare ? "Its" : null, cheapest.listedAirfare ? `${cheapest.id}'s` : null].filter(Boolean);
     if (pending.length === 2) note += " Both final airfares still need confirming: their return flights aren't seen yet.";
     else if (pending.length === 1) note += ` ${pending[0]} final airfare still needs confirming: the return flight isn't seen yet.`;
@@ -1389,8 +1584,204 @@ function describeRecommendation(recommendation, options, request) {
     note = option.listedAirfare
       ? "It also has the lowest listed total, but its final airfare still needs confirming: the return flight isn't seen yet."
       : `It is also the lowest complete total${complete.some((candidate) => candidate.listedAirfare) ? "; the other options' listed airfares can still change" : ""}.`;
+    // What paying more would buy instead: the cheapest alternative whose schedule is better.
+    const better = complete
+      .filter((candidate) => candidate.id !== option.id && candidate.total > option.total)
+      .sort((left, right) => left.total - right.total)
+      .find((candidate) => scheduleGains(candidate, option).length > 0);
+    if (better) {
+      note += ` ${better.id} costs ${formatInt(better.total - option.total)} ${request.currency} more for: ${scheduleGains(better, option).join("; ")}.`;
+    }
   } else note = null;
   return { option, why: recommendation.why, note, cheapestComplete: cheapest?.id ?? null };
+}
+
+// --- Schedules and convenience ------------------------------------------------------
+
+// The planning assumptions behind every golf-day window; the reply states them.
+const ROUND_MINUTES = 270; // an 18-hole round with a short warm-up
+const AIRPORT_BEFORE_MINUTES = 120; // at the airport before a flight
+const AIRPORT_AFTER_MINUTES = 30; // out of the airport after landing
+// What counts as early, late or long when the user stated no preference.
+const EARLY_DEPARTURE = "07:00";
+const LATE_ARRIVAL = "22:00";
+const LONG_LAYOVER_MINUTES = 180;
+// No round starts before 04:00 or ends after midnight, so a window outside
+// these is ruled out even before daylight times are known.
+const EARLIEST_TEE_MINUTES = 4 * 60;
+const LATEST_FINISH_MINUTES = 24 * 60;
+
+/**
+ * What the known flights mean for the trip: each leg as the flights command
+ * listed it (a round-trip listing's return stays unknown), the practical
+ * points worth flagging, the full days there, and for golf whether a round
+ * can fit around the arrival and the flight home. Every fact comes from the
+ * flight data, sourced travel times or sourced daylight; a missing one is
+ * named, never guessed.
+ */
+function travelFacts(option, counted, request) {
+  const fares = counted.filter((line) => line.item === "flights" && line.amount !== null);
+  const outLine = fares.find((line) => line.legs.includes("outbound"));
+  const homeLine = fares.find((line) => line.legs.includes("return"));
+  const out = outLine?.flight ?? null;
+  // Only a one-way fare shows its own return flight; a round trip's flight is its outbound one.
+  const home = homeLine && homeLine.legs.length === 1 ? (homeLine.flight ?? null) : null;
+  const times = option.travelTimes ?? {};
+  if (!out && !home && !times.airport && !times.course) return null;
+
+  const separate =
+    fares.some((line) => line.flight?.separateTickets) || (outLine && homeLine && outLine !== homeLine) ? "yes" : "unknown";
+  const preferences = request.preferences ?? {};
+  const early = clockMinutes(preferences.departAfter ?? EARLY_DEPARTURE);
+  const late = clockMinutes(preferences.arriveBefore ?? LATE_ARRIVAL);
+  const longStop = preferences.maxLayoverMinutes ?? LONG_LAYOVER_MINUTES;
+  const airport = times.airport?.minutes ?? null;
+  const notes = [];
+  const flag = (flight, name) => {
+    if (!flight) return;
+    const leaves = clockMinutes(flight.departTime);
+    const before = leaves < early ? (preferences.departAfter ? `, before your ${preferences.departAfter}` : ", an early start") : "";
+    if (name === "flight home" && leaves < 10 * 60) {
+      // An early flight home sets the last morning: when to be at the airport, or leave for it.
+      const atAirport = leaves - AIRPORT_BEFORE_MINUTES;
+      notes.push(
+        `flight home leaves ${flight.departTime}${before}: ${airport === null ? `be at the airport by ${clockText(atAirport)}, so an early check-out` : `leave for the airport by about ${clockText(atAirport - airport)}`}`,
+      );
+    } else if (before) notes.push(`${name} leaves ${flight.departTime}${before}`);
+    const nextDay = dayDiff(flight.departDate, flight.arriveDate) > 0;
+    // A late landing matters on arrival; on the way home only against the user's own limit.
+    if (nextDay) notes.push(`${name} lands ${flight.arriveTime} the next day`);
+    else if (clockMinutes(flight.arriveTime) >= late && (name === "outbound" || preferences.arriveBefore)) {
+      notes.push(`${name} lands ${flight.arriveTime}${preferences.arriveBefore ? `, after your ${preferences.arriveBefore}` : ", late in the evening"}`);
+    }
+    for (const stop of flight.layovers) {
+      if (stop.overnight) notes.push(`${name} stops overnight in ${stop.city}`);
+      else if (stop.minutes !== null && stop.minutes >= longStop) notes.push(`${name} has ${formatMinutes(stop.minutes)} in ${stop.city}`);
+    }
+    if (preferences.nonstop && flight.stops > 0) notes.push(`${name} has ${flight.stops} ${flight.stops === 1 ? "stop" : "stops"}, not nonstop`);
+    if (flight.separateTickets && flight.stops > 0) notes.push(`${name} connects on separate tickets, so a delay can cost the connection`);
+  };
+  flag(out, "outbound");
+  flag(home, "flight home");
+  if (counted.some((line) => line.item === "car_rental")) {
+    // Night-time pickups and drop-offs depend on desk hours nobody has checked.
+    const night = (time) => clockMinutes(time) >= late || clockMinutes(time) < early;
+    if (out && night(out.arriveTime)) notes.push(`check the car-hire desk is open at ${out.arriveTime}`);
+    if (home && clockMinutes(home.departTime) < early) notes.push(`check you can return the car before a ${home.departTime} flight`);
+  }
+
+  const fullDays = out && isIsoDate(option.return) ? Math.max(0, dayDiff(out.arriveDate, option.return) - 1) : null;
+  const golf = request.kind === "golf" ? golfWindows(out, home, times, option.golf?.sun ?? null) : null;
+  return { out, home, homeUnknown: Boolean(homeLine) && !home, separate, notes, fullDays, airport: times.airport ?? null, course: times.course ?? null, golf };
+}
+
+/**
+ * Whether a full round fits on the arrival day and on the last day. It fits
+ * only when the flight, both travel times and daylight are all known; it is
+ * ruled out when even the best case (no travel time, the widest possible day)
+ * leaves no room; anything else is "not checked". Tee times are never known.
+ * A drive takes as long either way, and airport to course is counted via the
+ * accommodation, which is never shorter than driving straight there.
+ */
+function golfWindows(out, home, times, sun) {
+  const airport = times.airport?.minutes ?? null;
+  const course = times.course?.minutes ?? null;
+  const transfer = airport !== null && course !== null ? airport + course : null;
+  const missing = [airport === null ? "transfer time" : null, course === null ? "drive to the course" : null, sun ? null : "daylight"].filter(Boolean);
+  const notChecked = (day) => ({ fits: null, text: `${day} golf not checked (${joinWords(missing)} unknown)` });
+
+  let arrival;
+  if (!out) arrival = { fits: null, text: "arrival-day golf unknown: outbound flight not checked" };
+  else {
+    const start = clockMinutes(out.arriveTime) + AIRPORT_AFTER_MINUTES + (transfer ?? 0);
+    const end = sun ? clockMinutes(sun.sunset) : LATEST_FINISH_MINUTES;
+    if (start + ROUND_MINUTES > end) arrival = { fits: false, text: `no round on arrival day (lands ${out.arriveTime}${sun ? `, dark by ${sun.sunset}` : ""})` };
+    else if (transfer !== null && sun) arrival = { fits: true, text: `a round may fit on arrival day, starting about ${clockText(start)}` };
+    else arrival = notChecked("arrival-day");
+  }
+
+  let lastDay;
+  if (!home) lastDay = { fits: null, text: "last-day golf unknown: return flight details not verified" };
+  else {
+    const finish = clockMinutes(home.departTime) - AIRPORT_BEFORE_MINUTES - (transfer ?? 0);
+    const first = sun ? clockMinutes(sun.sunrise) : EARLIEST_TEE_MINUTES;
+    if (finish - ROUND_MINUTES < first) {
+      lastDay = {
+        fits: false,
+        text: `no round on the last day (at the airport by ${clockText(clockMinutes(home.departTime) - AIRPORT_BEFORE_MINUTES)}${sun ? `, light from ${sun.sunrise}` : ""})`,
+      };
+    } else if (transfer !== null && sun) lastDay = { fits: true, text: `a round may fit on the last day, finishing by ${clockText(finish)}` };
+    else lastDay = notChecked("last-day");
+  }
+  return { arrival, lastDay };
+}
+
+/** One known flight: "Sun 24 Jan, CPH 18:40 → AGP 22:30, Ryanair, nonstop, 3 h 50 min". */
+function flightText(flight) {
+  const parts = [
+    `${formatDay(flight.departDate)}, ${flight.from} ${flight.departTime} → ${flight.to} ${flight.arriveTime}${dayShift(flight.departDate, flight.arriveDate)}`,
+    flight.airline,
+    stopsText(flight),
+  ];
+  if (flight.durationMinutes !== null) parts.push(formatMinutes(flight.durationMinutes));
+  if (flight.separateTickets) parts.push("separate tickets");
+  return parts.join(", ");
+}
+
+/** The option's travel lines: its flights, the practical points, and golf days. */
+function travelLines(option, request) {
+  const travel = option.travel;
+  if (!travel) return [];
+  const lines = [];
+  if (travel.out || travel.home || travel.homeUnknown) {
+    const parts = [
+      travel.out ? `Out ${flightText(travel.out)}.` : "Outbound flight details not checked.",
+      travel.home ? `Home ${flightText(travel.home)}.` : "Return flight details not verified.",
+      `Separate tickets: ${travel.separate === "yes" ? "yes, two bookings" : "unknown"}.`,
+    ];
+    lines.push(`Flights (local times): ${parts.join(" ")}`);
+  }
+  const points = [...travel.notes];
+  if (travel.fullDays !== null) points.push(`${travel.fullDays} full ${travel.fullDays === 1 ? "day" : "days"} there`);
+  const timed = (label, entry) => `${label} ${entry.minutes === 0 ? "none" : `about ${formatMinutes(entry.minutes)}`} ([source](${entry.source}))`;
+  if (travel.airport) points.push(timed("airport transfer", travel.airport));
+  else if (request.rooms) points.push("airport transfer time not checked");
+  if (travel.course) points.push(timed("drive to the course", travel.course));
+  if (points.length > 0) lines.push(`Travel: ${capitalize(points.join("; "))}.`);
+  if (travel.golf) {
+    const days = [travel.golf.arrival.text, travel.golf.lastDay.text];
+    const roundDays =
+      travel.fullDays === null ? null : travel.fullDays + [travel.golf.arrival, travel.golf.lastDay].filter((day) => day.fits === true).length;
+    if (roundDays !== null && request.rounds > roundDays) days.push(`${request.rounds} rounds but ${roundDays} golf ${roundDays === 1 ? "day" : "days"}`);
+    lines.push(`Golf days: ${capitalize(days.join("; "))}.`);
+  }
+  return lines;
+}
+
+/**
+ * What a pricier option's schedule gives over a cheaper one, from known
+ * facts only: fewer stops, a later flight home, an earlier landing, more
+ * full days there, a round that fits where the other has none.
+ */
+function scheduleGains(better, other) {
+  const [a, b] = [better.travel, other.travel];
+  if (!a || !b) return [];
+  const gains = [];
+  const stops = (travel) => (travel.out && travel.home ? travel.out.stops + travel.home.stops : null);
+  if (stops(a) !== null && stops(b) !== null && stops(a) < stops(b)) {
+    gains.push(`${stops(a) === 0 ? "nonstop both ways" : `${stops(a)} ${stops(a) === 1 ? "stop" : "stops"} in all`} (${other.id}: ${stops(b)} ${stops(b) === 1 ? "stop" : "stops"})`);
+  }
+  if (a.home && b.home && clockMinutes(a.home.departTime) - clockMinutes(b.home.departTime) >= 120) {
+    gains.push(`flight home at ${a.home.departTime} (${other.id}: ${b.home.departTime})`);
+  }
+  const landing = (option, flight) => dayDiff(option.depart, flight.arriveDate) * 1440 + clockMinutes(flight.arriveTime);
+  if (a.out && b.out && landing(other, b.out) - landing(better, a.out) >= 120) {
+    gains.push(`lands ${a.out.arriveTime} (${other.id}: ${b.out.arriveTime}${dayShift(b.out.departDate, b.out.arriveDate)})`);
+  }
+  if (a.fullDays !== null && b.fullDays !== null && a.fullDays > b.fullDays) gains.push(`${a.fullDays} full days there (${other.id}: ${b.fullDays})`);
+  if (a.golf?.lastDay.fits === true && b.golf?.lastDay.fits === false) gains.push(`a round may fit on the last day (${other.id}: none)`);
+  if (a.golf?.arrival.fits === true && b.golf?.arrival.fits === false) gains.push(`a round may fit on arrival day (${other.id}: none)`);
+  return gains.slice(0, 3);
 }
 
 // --- Reply ------------------------------------------------------------------------------
@@ -1417,6 +1808,7 @@ function formatComparison({ request, options, fx, comparisons, recommended, limi
     const priced = option.lines.filter((line) => line.label && !line.optional).map((line) => line.label);
     if (priced.length > 0) lines.push(`Priced: ${priced.slice(0, 3).join(" · ")}`);
     if (option.golf) lines.push(golfLine(option.golf, request, timezone));
+    lines.push(...travelLines(option, request));
     if (option.climate) {
       lines.push(
         option.climate.kind === "climate_average"
@@ -1471,6 +1863,11 @@ function formatComparison({ request, options, fx, comparisons, recommended, limi
   lines.push(`Prices checked ${formatDateTime(checked ?? now.toISOString(), timezone)}.${fxSentence(options, request, fx)}`);
   if (request.kind === "golf") {
     lines.push(`Per round = the ${request.travellers > 1 ? "trip cost per person" : "whole trip cost"} divided by the rounds played, not the green fee.`);
+  }
+  if (options.some((option) => option.travel?.golf)) {
+    lines.push(
+      "Golf days assume about 4 h 30 min per round, 2 h at the airport before a flight, 30 min to leave it after landing, and each drive taking as long either way, via the accommodation.",
+    );
   }
   if (options.some((option) => option.listedAirfare)) {
     lines.push(
@@ -1670,6 +2067,24 @@ function isPlainObject(value) {
 
 function isInt(value, min, max) {
   return Number.isInteger(value) && value >= min && value <= max;
+}
+
+/** A 24-hour local time such as "06:55". */
+function isClock(value) {
+  return typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
+/** "06:55" → 415 minutes after midnight. */
+function clockMinutes(time) {
+  return Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
+}
+
+/** Minutes from midnight back to "HH:MM", naming the day when it is not the same one. */
+function clockText(minutes) {
+  const day = Math.floor(minutes / 1440);
+  const time = ((minutes % 1440) + 1440) % 1440;
+  const clock = `${String(Math.floor(time / 60)).padStart(2, "0")}:${String(time % 60).padStart(2, "0")}`;
+  return day < 0 ? `${clock} the day before` : day > 0 ? `${clock} the next day` : clock;
 }
 
 export function isIsoDate(value) {

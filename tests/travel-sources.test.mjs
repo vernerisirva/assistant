@@ -4,6 +4,7 @@ import {
   ECB_RATES_URL,
   FETCH_USER_AGENT,
   MAX_FLIGHT_LOOKUPS,
+  durationMinutes,
   fetchEcbRates,
   googleFlightsQuery,
   googleFlightsUrl,
@@ -32,6 +33,7 @@ function fareLabel({
   arriveDate = date,
   duration = "1 hr 35 min",
   layovers = [],
+  trailer = "",
 }) {
   const stopText = stops === 0 ? "Nonstop" : `${stops} stop${stops === 1 ? "" : "s"}`;
   return [
@@ -41,6 +43,7 @@ function fareLabel({
     ` Leaves ${from} at ${depart} on ${weekday}, ${date} and arrives at ${to} at ${arrive} on ${arriveWeekday}, ${arriveDate}.`,
     ` Total duration ${duration}. `,
     ...layovers.map((layover, index) => ` Layover (${index + 1} of ${layovers.length}) is a ${layover} layover at Riga Airport in Riga.`),
+    trailer,
     " Select flight",
   ].join("");
 }
@@ -122,7 +125,48 @@ describe("parseFareLabel", () => {
     assert.equal(fare.departTime, "20:10");
     assert.equal(fare.arriveTime, "00:40");
     assert.deepEqual(fare.arriveDate, { month: 11, day: 14, weekday: 6 });
-    assert.deepEqual(fare.layovers, [{ duration: "10 hr 5 min", overnight: true, airport: "Riga Airport", city: "Riga" }]);
+    assert.deepEqual(fare.layovers, [{ duration: "10 hr 5 min", minutes: 605, overnight: true, airport: "Riga Airport", city: "Riga" }]);
+  });
+
+  it("reads the schedule in minutes: total duration, each layover, and the day it lands", () => {
+    const fare = parseFareLabel(
+      fareLabel({
+        price: "1493",
+        stops: 1,
+        airlines: "Air Baltic",
+        depart: "8:10 PM",
+        arrive: "8:20 AM",
+        arriveWeekday: "Saturday",
+        arriveDate: "November 14",
+        duration: "11 hr 10 min",
+        layovers: ["9 hr"],
+      }),
+    );
+    assert.equal(fare.durationMinutes, 670);
+    assert.deepEqual(fare.layovers, [{ duration: "9 hr", minutes: 540, overnight: false, airport: "Riga Airport", city: "Riga" }], "overnight only when Google says so");
+    assert.deepEqual(fare.arriveDate, { month: 11, day: 14, weekday: 6 });
+    assert.equal(fare.separateTickets, false, "an unmarked fare is one booking");
+    // Times stay as each airport's local clock: Helsinki is an hour ahead, so 06:05 → 08:40 is 1 hr 35 min.
+    const helsinki = parseFareLabel(fareLabel({ price: "907", roundTrip: false }));
+    assert.deepEqual([helsinki.departTime, helsinki.arriveTime, helsinki.durationMinutes], ["06:05", "08:40", 95]);
+  });
+
+  it("marks fares Google sells as separate tickets", () => {
+    const separate = fareLabel({
+      price: "970",
+      stops: 1,
+      layovers: ["2 hr 20 min"],
+      trailer: " Separate tickets. You’ll buy each ticket in this itinerary separately.",
+    });
+    assert.equal(parseFareLabel(separate).separateTickets, true);
+    assert.equal(parseFareLabel(fareLabel({ price: "970", trailer: " Self transfer at Riga." })).separateTickets, true);
+  });
+
+  it("reads Google's duration wording, and nothing else", () => {
+    assert.deepEqual(
+      ["3 hr 50 min", "9 hr", "45 min", "1 day 2 hr", "", "about 3 hours", null].map(durationMinutes),
+      [230, 540, 45, 1560, null, null, null],
+    );
   });
 
   it("reads one-way fares and refuses anything that is not a fare", () => {
@@ -218,11 +262,13 @@ describe("parseGoogleFlightsPage", () => {
       "departDate",
       "departTime",
       "duration",
+      "durationMinutes",
       "fareNote",
       "layovers",
       "operatedBy",
       "priceSek",
       "roundTrip",
+      "separateTickets",
       "stops",
     ]);
     // A label for the way home on the return date is not this search's outbound flight.

@@ -143,12 +143,12 @@ export function parseFareLabel(label) {
 
   const fareNote = rest.slice(0, flight.index + (flight[0].startsWith(".") ? 1 : 0)).trim();
   const operatedBy = rest.match(/Operated by (.+?)\.(?=\s+Leaves)/)?.[1] ?? null;
-  const layovers = [...rest.matchAll(/Layover \(\d+ of \d+\) is an? (.+?) layover at (.+?) in ([^.]+)\./g)].map((match) => ({
-    duration: match[1].replace(/\s*overnight$/, ""),
-    overnight: /overnight$/.test(match[1]),
-    airport: match[2],
-    city: match[3],
-  }));
+  // "overnight" only when Google says so: a long stop on a next-day arrival is not proof of one.
+  const layovers = [...rest.matchAll(/Layover \(\d+ of \d+\) is an? (.+?) layover at (.+?) in ([^.]+)\./g)].map((match) => {
+    const duration = match[1].replace(/\s*overnight$/, "");
+    return { duration, minutes: durationMinutes(duration), overnight: /overnight$/.test(match[1]), airport: match[2], city: match[3] };
+  });
+  const duration = rest.match(/Total duration ([^.]+)\./)?.[1] ?? null;
 
   return {
     priceSek: Number(price[1].replace(/,/g, "")),
@@ -163,9 +163,20 @@ export function parseFareLabel(label) {
     arriveAirport: leg[6],
     arriveTime: clock24(leg[7]),
     arriveDate,
-    duration: rest.match(/Total duration ([^.]+)\./)?.[1] ?? null,
+    duration,
+    durationMinutes: durationMinutes(duration),
     layovers,
+    // Google marks an itinerary sold as separate tickets; an unmarked fare is one booking.
+    separateTickets: /\bSeparate tickets\b|\bself[- ]transfer\b/i.test(rest),
   };
+}
+
+/** "3 hr 50 min", "9 hr", "45 min" or "1 day 2 hr" as minutes, or null. */
+export function durationMinutes(text) {
+  const value = String(text ?? "").trim();
+  if (!/^(?:\d+ days?)?\s*(?:\d+ hr)?\s*(?:\d+ min)?$/.test(value) || !/\d/.test(value)) return null;
+  const part = (unit) => Number(value.match(new RegExp(`(\\d+) ${unit}`))?.[1] ?? 0);
+  return part("days?") * 1440 + part("hr") * 60 + part("min");
 }
 
 /**

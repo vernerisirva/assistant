@@ -130,6 +130,20 @@ describe("travel-deals SKILL.md", () => {
     assert.doesNotMatch(skill, /"Nonstop flight"/, "the example claims nothing about the return flight");
   });
 
+  it("keeps flight times, travel times and daylight to the helper and the sources", () => {
+    for (const rule of [
+      /Each flights cost line carries `flight`: the one flight Google listed, in local time at each airport/,
+      /Copy it unchanged, and never write flight times, layovers or a return flight yourself/,
+      /each with the page that gives it, such as the hotel's, the package's or the transfer company's own page\. No page, no time: never estimate a drive/,
+      /give `golf\.daylight` as `\{"sunrise": "08:28", "sunset": "18:24", "source": "\.\.\."\}` for the trip dates/,
+      /It never promises a round, and without those facts it says "not checked"/,
+      /go in `request\.preferences`, only as they said them/,
+      /judge by what they said matters, not by your own taste in departure times/,
+    ]) {
+      assert.match(skill, rule);
+    }
+  });
+
   it("only documents helper commands and flags that exist", () => {
     const commands = [...skill.matchAll(/npm run --silent travel -- ([^`\n]+)/g)].map((match) => match[1].trim());
     assert.ok(commands.length >= 4);
@@ -254,7 +268,7 @@ describe("travel CLI", () => {
     assert.equal(result.costLines[0].status, "verified");
     assert.equal(result.costLines[0].returnFlight, "not_seen", "a round-trip page never shows the return flight");
     assert.match(result.telegramText, /^Flights · 2 adults · round trip\n/);
-    assert.match(result.telegramText, /I can't see that return flight/);
+    assert.match(result.telegramText, /Return flight details not verified: I can't see that flight/);
     assert.match(result.guidance, /send telegramText word for word/);
     assert.match(result.guidance, /never describe the return flight or call it a confirmed itinerary/);
   });
@@ -310,6 +324,58 @@ describe("travel CLI", () => {
     const backwards = await compare([out.costLines[0], wrongWay.costLines[0]]);
     assert.equal(backwards.ok, false);
     assert.match(backwards.problems.join("\n"), /is a Google Flights search from CPH to HEL, not this trip's return route \(HEL → CPH\)/);
+  });
+
+  it("carries each flight's schedule from the flights command into the comparison", async () => {
+    const google = fakeGoogle(["907"], { followDates: true });
+    const out = await run(["flights", "--from", "CPH", "--to", "HEL", "--depart", "2026-11-13", "--one-way"], { fetchImpl: google.impl });
+    const home = await run(["flights", "--from", "HEL", "--to", "CPH", "--depart", "2026-11-15", "--one-way"], { fetchImpl: google.impl });
+    assert.deepEqual(
+      [out.costLines[0].flight.departTime, out.costLines[0].flight.arriveTime, out.costLines[0].flight.durationMinutes],
+      ["06:05", "08:40", 95],
+    );
+    const input = {
+      request: { title: "Helsinki weekend", kind: "trip", travellers: 1, rooms: 1 },
+      options: [
+        {
+          id: "A",
+          title: "Helsinki",
+          depart: "2026-11-13",
+          return: "2026-11-15",
+          from: ["CPH"],
+          to: ["HEL"],
+          why: "Short flight.",
+          advantages: ["Short flight"],
+          tradeOffs: ["Early start"],
+          travelTimes: { airport: { minutes: 30, source: "https://www.finavia.fi/en/airports/helsinki-airport/to-and-from" } },
+          costs: [
+            out.costLines[0],
+            home.costLines[0],
+            {
+              item: "hotel",
+              amount: 1200,
+              currency: "SEK",
+              per: "room_night",
+              status: "indicative",
+              source: "https://hotel.example.com/rooms",
+              checkedAt: "2026-10-15T10:00:00Z",
+              forParty: { adults: 1, rooms: 1 },
+              includes: ["taxes"],
+            },
+            { item: "local_transport", amount: 0, currency: "SEK", per: "trip", status: "estimate", basis: "Walk from the station", forParty: { adults: 1 } },
+          ],
+        },
+      ],
+    };
+    const result = await run(["compare", "--json-stdin"], { stdin: Readable.from([JSON.stringify(input)]) });
+    assert.equal(result.ok, true, result.problems?.join("\n"));
+    // The fake page always describes a 06:05 flight; the route comes from each lookup's own search.
+    assert.match(
+      result.telegramText,
+      /Flights \(local times\): Out Fri 13 Nov, CPH 06:05 → HEL 08:40, Finnair, nonstop, 1 h 35 min\. Home Sun 15 Nov, HEL 06:05 → CPH 08:40, Finnair, nonstop, 1 h 35 min\. Separate tickets: yes, two bookings\./,
+    );
+    assert.match(result.telegramText, /Travel: Outbound leaves 06:05, an early start; flight home leaves 06:05, an early start: leave for the airport by about 03:35; 1 full day there; airport transfer about 30 min/);
+    assert.equal(result.options[0].travel.separateTickets, "yes");
   });
 
   it("samples a flexible window and enforces the lookup cap before fetching", async () => {

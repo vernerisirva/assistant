@@ -545,6 +545,290 @@ describe("airfare covers each direction once", () => {
   });
 });
 
+describe("flight schedules and convenience", () => {
+  // Flights as the flights command lists them: local times at each airport, Google's own duration.
+  const outFlight = (overrides = {}) => ({
+    from: "CPH",
+    to: "AGP",
+    departDate: "2027-01-12",
+    departTime: "11:20",
+    arriveDate: "2027-01-12",
+    arriveTime: "14:50",
+    durationMinutes: 210,
+    stops: 0,
+    layovers: [],
+    airline: "Norwegian",
+    separateTickets: false,
+    ...overrides,
+  });
+  const homeFlight = (overrides = {}) =>
+    outFlight({ from: "AGP", to: "CPH", departDate: "2027-01-19", departTime: "18:45", arriveDate: "2027-01-19", arriveTime: "22:15", ...overrides });
+  const outLeg = (flight = {}, line = {}) => oneWay("2027-01-12", { flight: outFlight(flight), ...line });
+  const homeLeg = (flight = {}, line = {}) => oneWay("2027-01-19", { flight: homeFlight(flight), ...line });
+  const sun = { sunrise: "08:28", sunset: "18:24", source: "https://www.timeanddate.com/sun/spain/malaga?month=1&year=2027" };
+  const times = {
+    airport: { minutes: 60, source: "https://hotel-sol.example.com/getting-here", basis: "Hotel page: about an hour from Málaga airport by car" },
+    course: { minutes: 10, source: "https://hotel-sol.example.com/golf" },
+  };
+  const rest = () => [golfBag(), hotel(), greenFees(), car()];
+  const golfWith = (legs, optionOverrides = {}, inputOverrides = {}) =>
+    withCosts([...legs, ...rest()], { golf: { ...golfOption().golf, daylight: sun }, travelTimes: times, ...optionOverrides }, inputOverrides);
+  const lineOf = (text, label) => text.split("\n").find((line) => line.startsWith(label)) ?? "";
+
+  it("shows each known flight in local times, nonstop or with its stops", () => {
+    const direct = okResult(withCosts([outLeg(), homeLeg(), ...rest()]));
+    assert.equal(
+      lineOf(direct.telegramText, "Flights (local times)"),
+      "Flights (local times): Out Tue 12 Jan, CPH 11:20 → AGP 14:50, Norwegian, nonstop, 3 h 30 min. Home Tue 19 Jan, AGP 18:45 → CPH 22:15, Norwegian, nonstop, 3 h 30 min. Separate tickets: yes, two bookings.",
+    );
+    const connecting = okResult(
+      withCosts([outLeg(), homeLeg({ stops: 1, layovers: [{ city: "Riga", minutes: 65, overnight: false }], durationMinutes: 330, airline: "Air Baltic" }), ...rest()]),
+    );
+    assert.match(lineOf(connecting.telegramText, "Flights (local times)"), /Home Tue 19 Jan, AGP 18:45 → CPH 22:15, Air Baltic, 1 stop via Riga \(1 h 5 min\), 5 h 30 min\./);
+    const travel = optionA(connecting).travel;
+    assert.equal(travel.outbound.departTime, "11:20");
+    assert.equal(travel.return.layovers[0].minutes, 65);
+    assert.equal(travel.separateTickets, "yes");
+  });
+
+  it("states plain facts for an ordinary schedule, with no inconvenience claimed", () => {
+    const result = okResult(withCosts([outLeg(), homeLeg(), ...rest()]));
+    assert.deepEqual(optionA(result).travel.notes, []);
+    assert.equal(lineOf(result.telegramText, "Travel:"), "Travel: 6 full days there; airport transfer time not checked.");
+  });
+
+  it("flags early starts, late and next-day arrivals, and long or overnight stops", () => {
+    const overnight = outFlight({
+      departTime: "20:10",
+      arriveDate: "2027-01-13",
+      arriveTime: "08:20",
+      durationMinutes: 790,
+      stops: 1,
+      layovers: [{ city: "Riga", minutes: 540, overnight: true }],
+    });
+    const result = okResult(withCosts([oneWay("2027-01-12", { flight: overnight }), homeLeg({ departTime: "06:05", arriveTime: "09:45" }), ...rest()]));
+    const notes = optionA(result).travel.notes;
+    assert.deepEqual(notes, [
+      "outbound lands 08:20 the next day",
+      "outbound stops overnight in Riga",
+      "flight home leaves 06:05, an early start: be at the airport by 04:05, so an early check-out",
+      "check you can return the car before a 06:05 flight",
+    ]);
+    assert.match(lineOf(result.telegramText, "Flights (local times)"), /Out Tue 12 Jan, CPH 20:10 → AGP 08:20 \(\+1\), Norwegian, 1 stop via Riga \(9 h, overnight\), 13 h 10 min\./);
+    assert.match(lineOf(result.telegramText, "Travel:"), /5 full days there/, "a next-day landing costs a day there");
+
+    const late = okResult(withCosts([outLeg({ departTime: "19:40", arriveTime: "23:10" }), homeLeg({ stops: 1, layovers: [{ city: "Zürich", minutes: 300, overnight: false }] }), ...rest()]));
+    assert.deepEqual(optionA(late).travel.notes, ["outbound lands 23:10, late in the evening", "flight home has 5 h in Zürich", "check the car-hire desk is open at 23:10"]);
+  });
+
+  it("measures the schedule against the user's own limits when they gave them", () => {
+    const preferences = { departAfter: "08:00", arriveBefore: "21:00", nonstop: true, maxLayoverMinutes: 120 };
+    const legs = [outLeg({ departTime: "07:30", arriveTime: "11:00" }), homeLeg({ departTime: "17:30", arriveTime: "21:45", stops: 1, layovers: [{ city: "Oslo", minutes: 150, overnight: false }] })];
+    const result = okResult(withCosts([...legs, ...rest()], {}, { request: { ...golfInput().request, preferences } }));
+    assert.deepEqual(optionA(result).travel.notes, [
+      "outbound leaves 07:30, before your 08:00",
+      "flight home lands 21:45, after your 21:00",
+      "flight home has 2 h 30 min in Oslo",
+      "flight home has 1 stop, not nonstop",
+    ]);
+    assert.match(problemsOf(withCosts([...legs, ...rest()], {}, { request: { ...golfInput().request, preferences: { departAfter: "8am" } } })), /preferences\.departAfter must be a local time/);
+    assert.match(problemsOf(withCosts([...legs, ...rest()], {}, { request: { ...golfInput().request, preferences: { cheapest: true } } })), /preferences\.cheapest isn't a known field/);
+  });
+
+  it("keeps each airport's local time and never works a duration out from the clocks", () => {
+    // Helsinki is an hour ahead of Copenhagen: 06:05 → 08:40 is a 1 h 35 min flight, and 06:15 → 06:00 back is 45 minutes.
+    const there = oneWay("2027-01-12", { route: ["CPH", "HEL"], flight: outFlight({ to: "HEL", departTime: "06:05", arriveTime: "08:40", durationMinutes: 95, airline: "Finnair" }) });
+    const back = oneWay("2027-01-19", {
+      route: ["CPH", "HEL"],
+      flight: homeFlight({ from: "HEL", departTime: "06:15", arriveTime: "06:00", durationMinutes: 45, airline: "Finnair" }),
+    });
+    const result = okResult(withCosts([there, back, hotel(), car()], { to: ["HEL"], golf: undefined }, { request: { title: "Helsinki week", kind: "trip", travellers: 1, rooms: 1 } }));
+    const flightsLine = lineOf(result.telegramText, "Flights (local times)");
+    assert.match(flightsLine, /CPH 06:05 → HEL 08:40, Finnair, nonstop, 1 h 35 min\./);
+    assert.match(flightsLine, /HEL 06:15 → CPH 06:00, Finnair, nonstop, 45 min\./);
+    assert.doesNotMatch(flightsLine, /\(\+1\)|2 h 35 min/);
+  });
+
+  it("says the return flight is unknown for a round-trip listing, and never invents it", () => {
+    const result = okResult(golfWith([flights({ flight: outFlight() })]));
+    const flightsLine = lineOf(result.telegramText, "Flights (local times)");
+    assert.equal(
+      flightsLine,
+      "Flights (local times): Out Tue 12 Jan, CPH 11:20 → AGP 14:50, Norwegian, nonstop, 3 h 30 min. Return flight details not verified. Separate tickets: unknown.",
+    );
+    assert.doesNotMatch(result.telegramText, /Home Tue 19 Jan|AGP \d\d:\d\d → CPH/);
+    const travel = optionA(result).travel;
+    assert.equal(travel.return, "not_verified");
+    assert.equal(travel.golfDays.lastDay.fits, null);
+    assert.match(lineOf(result.telegramText, "Golf days"), /last-day golf unknown: return flight details not verified/);
+    // The listing is still only a listing.
+    assert.equal(optionA(result).confidence, "partly estimated");
+    assert.match(result.telegramText, /flights listed \(return flight not seen\)/);
+  });
+
+  it("says when Google didn't describe a stop, rather than implying a short one", () => {
+    const unlisted = okResult(withCosts([outLeg({ stops: 1, layovers: [], durationMinutes: 400, arriveTime: "18:00" }), homeLeg(), ...rest()]));
+    assert.match(lineOf(unlisted.telegramText, "Flights (local times)"), /Norwegian, 1 stop, layover not listed, 6 h 40 min\./);
+    const partly = okResult(withCosts([outLeg({ stops: 2, layovers: [{ city: "Oslo", minutes: 60, overnight: false }], durationMinutes: 500, arriveTime: "19:40" }), homeLeg(), ...rest()]));
+    assert.match(lineOf(partly.telegramText, "Flights (local times)"), /2 stops via Oslo \(1 h\), 1 more layover not listed/);
+    const noLength = okResult(withCosts([outLeg({ stops: 1, layovers: [{ city: "Riga", minutes: null, overnight: false }], arriveTime: "18:00" }), homeLeg(), ...rest()]));
+    assert.match(lineOf(noLength.telegramText, "Flights (local times)"), /1 stop via Riga \(length not listed\)/);
+    assert.doesNotMatch(noLength.telegramText, /\(\?\)/);
+  });
+
+  it("flags a connection on separate tickets", () => {
+    const selfTransfer = outLeg({ stops: 1, layovers: [{ city: "Barcelona", minutes: 140, overnight: false }], separateTickets: true, durationMinutes: 420, arriveTime: "18:20" });
+    const result = okResult(withCosts([selfTransfer, homeLeg(), ...rest()]));
+    assert.deepEqual(optionA(result).travel.notes, ["outbound connects on separate tickets, so a delay can cost the connection"]);
+    assert.match(lineOf(result.telegramText, "Flights (local times)"), /1 stop via Barcelona \(2 h 20 min\), 7 h, separate tickets\./);
+  });
+
+  it("judges golf on travel days only from the flights, sourced travel times and daylight", () => {
+    const full = okResult(golfWith([outLeg({ departTime: "07:00", arriveTime: "10:30" }), homeLeg()]));
+    assert.equal(
+      lineOf(full.telegramText, "Golf days"),
+      "Golf days: A round may fit on arrival day, starting about 12:10; a round may fit on the last day, finishing by 15:35.",
+    );
+    assert.match(
+      full.telegramText,
+      /Golf days assume about 4 h 30 min per round, 2 h at the airport before a flight, 30 min to leave it after landing, and each drive taking as long either way, via the accommodation\./,
+    );
+    assert.match(lineOf(full.telegramText, "Travel:"), /airport transfer about 1 h \(\[source\]\(https:\/\/hotel-sol\.example\.com\/getting-here\)\); drive to the course about 10 min/);
+    assert.match(full.telegramText, /daylight about 08:28–18:24 \(\[source\]\(https:\/\/www\.timeanddate\.com\/sun\/spain\/malaga\?month=1&year=2027\)\)/);
+
+    // Landing 14:50 leaves no daylight for 18 holes, even with no transfer at all.
+    const afternoon = okResult(golfWith([outLeg(), homeLeg()], { travelTimes: undefined }));
+    assert.match(lineOf(afternoon.telegramText, "Golf days"), /No round on arrival day \(lands 14:50, dark by 18:24\)/);
+    assert.match(lineOf(afternoon.telegramText, "Golf days"), /last-day golf not checked \(transfer time and drive to the course unknown\)/);
+
+    // Without daylight times, an evening flight home is never promised a round.
+    const noSun = okResult(golfWith([outLeg(), homeLeg()], { golf: golfOption().golf }));
+    assert.match(lineOf(noSun.telegramText, "Golf days"), /last-day golf not checked \(daylight unknown\)/);
+    assert.equal(optionA(noSun).travel.golfDays.lastDay.fits, null);
+  });
+
+  it("rules out last-day golf before an early flight home, whatever else is unknown", () => {
+    const early = okResult(withCosts([outLeg(), homeLeg({ departTime: "06:55", arriveTime: "10:35" }), ...rest()]));
+    assert.match(lineOf(early.telegramText, "Golf days"), /no round on the last day \(at the airport by 04:55\)/);
+    assert.equal(optionA(early).travel.golfDays.lastDay.fits, false);
+    const known = okResult(golfWith([outLeg(), homeLeg({ departTime: "06:55", arriveTime: "10:35" })]));
+    assert.match(lineOf(known.telegramText, "Golf days"), /no round on the last day \(at the airport by 04:55, light from 08:28\)/);
+    assert.match(lineOf(known.telegramText, "Travel:"), /^Travel: Flight home leaves 06:55, an early start: leave for the airport by about 03:55;/);
+  });
+
+  it("checks the rounds fit the golf days there", () => {
+    const withRounds = (rounds, home) => {
+      const input = golfWith([outLeg(), home], { golf: { ...golfOption().golf, rounds, daylight: sun } }, { request: { ...golfInput().request, rounds } });
+      input.options[0].costs = [outLeg(), home, golfBag(), hotel(), greenFees({ rounds }), car()];
+      return okResult(input).telegramText;
+    };
+    // Six full days, plus a round that may fit before the 18:45 flight home.
+    assert.doesNotMatch(lineOf(withRounds(7, homeLeg()), "Golf days"), /rounds but/);
+    assert.match(lineOf(withRounds(7, homeLeg({ departTime: "06:55", arriveTime: "10:35" })), "Golf days"), /; 7 rounds but 6 golf days\.$/);
+  });
+
+  it("says when the airport transfer time wasn't checked, and refuses unsourced travel times", () => {
+    const unknown = okResult(withCosts([outLeg(), homeLeg(), ...rest()]));
+    assert.match(lineOf(unknown.telegramText, "Travel:"), /airport transfer time not checked/);
+    const onSite = okResult(golfWith([outLeg(), homeLeg()], { travelTimes: { ...times, course: { minutes: 0, source: "https://hotel-sol.example.com/golf" } } }));
+    assert.match(lineOf(onSite.telegramText, "Travel:"), /drive to the course none \(\[source\]/);
+    assert.match(
+      problemsOf(golfWith([outLeg(), homeLeg()], { travelTimes: { airport: { minutes: 45 } } })),
+      /travelTimes\.airport\.source is required: the page that gives this travel time/,
+    );
+    assert.match(problemsOf(golfWith([outLeg(), homeLeg()], { travelTimes: { airport: { minutes: 45, source: "https://x.example.com/", basis: "About 45 min, 30 €" } } })), /put prices in `costs`/);
+    assert.match(problemsOf(golfWith([outLeg(), homeLeg()], { golf: { ...golfOption().golf, daylight: { sunrise: "18:24", sunset: "08:28", source: sun.source } } })), /sunrise first/);
+    assert.match(problemsOf(golfWith([outLeg(), homeLeg()], { golf: { ...golfOption().golf, daylight: { sunrise: "08:28", sunset: "18:24" } } })), /daylight\.source is required/);
+  });
+
+  it("accepts flight details only from the flights command, for its own search", () => {
+    const airlinePage = flights({ source: "https://www.norwegian.com/se/fare/cph-agp", returnFlight: undefined, flight: outFlight() });
+    assert.match(problemsOf(withCosts([airlinePage, ...rest()])), /flight comes only with a flights command cost line and its Google Flights link/);
+    assert.match(problemsOf(withCosts([outLeg({ to: "FAO" }), homeLeg(), ...rest()])), /flight is CPH–FAO, not its search's CPH–AGP/);
+    assert.match(problemsOf(withCosts([outLeg({ departDate: "2027-01-13", arriveDate: "2027-01-13" }), homeLeg(), ...rest()])), /flight leaves 2027-01-13, not 2027-01-12/);
+    assert.match(problemsOf(withCosts([outLeg({ departTime: "11.20" }), homeLeg(), ...rest()])), /needs local times as HH:MM/);
+    assert.match(problemsOf(withCosts([outLeg({ arriveDate: "2027-01-16" }), homeLeg(), ...rest()])), /must land 0 to 2 days after it leaves/);
+    assert.match(problemsOf(withCosts([outLeg({ stops: 0, layovers: [{ city: "Riga", minutes: 60, overnight: false }] }), homeLeg(), ...rest()])), /layovers must list at most one stop each/);
+    assert.match(problemsOf(withCosts([outLeg({ gate: "B12" }), homeLeg(), ...rest()])), /flight\.gate isn't a known field/);
+  });
+
+  it("explains what paying more buys: a later flight home than a cheaper 06:55 one", () => {
+    // A is 500 SEK cheaper, but flies home at 06:55; B returns at 18:45, which can leave the last morning for golf.
+    const comparison = (pick) =>
+      golfInput({
+        options: [
+          golfOption({ costs: [outLeg(), homeLeg({ departTime: "06:55", arriveTime: "10:35" }), ...rest()], golf: { ...golfOption().golf, daylight: sun }, travelTimes: times }),
+          golfOption({
+            id: "B",
+            title: "Same hotel, evening flight home",
+            costs: [outLeg(), homeLeg({}, { amount: 1300 }), ...rest()],
+            golf: { ...golfOption().golf, daylight: sun },
+            travelTimes: times,
+          }),
+        ],
+        recommendation: { option: pick, why: pick === "B" ? "The evening flight keeps the last morning for golf" : "Same hotel and courses" },
+      });
+    const pickB = okResult(comparison("B"));
+    const [a, b] = pickB.options;
+    assert.equal(b.total - a.total, 500);
+    assert.match(
+      pickB.telegramText,
+      /Best overall value: B, Same hotel, evening flight home\. The evening flight keeps the last morning for golf\. It costs 500 SEK more than A, the lowest complete total\. For that: flight home at 18:45 \(A: 06:55\); a round may fit on the last day \(A: none\)\./,
+    );
+    const pickA = okResult(comparison("A"));
+    assert.match(
+      pickA.telegramText,
+      /It is also the lowest complete total\. B costs 500 SEK more for: flight home at 18:45 \(A: 06:55\); a round may fit on the last day \(A: none\)\./,
+    );
+    assert.equal(lineOf(pickA.telegramText, "Golf days"), "Golf days: No round on arrival day (lands 14:50, dark by 18:24); no round on the last day (at the airport by 04:55, light from 08:28).");
+  });
+
+  it("compares schedules only on facts both options have", () => {
+    // A listing's return is unknown, so no later-flight-home or last-day claim is made against it.
+    const input = golfInput({
+      options: [
+        golfOption({ costs: [flights({ amount: 1500, flight: outFlight() }), ...rest()], golf: { ...golfOption().golf, daylight: sun }, travelTimes: times }),
+        golfOption({ id: "B", title: "Both flights known", costs: [outLeg(), homeLeg({}, { amount: 1300 }), ...rest()], golf: { ...golfOption().golf, daylight: sun }, travelTimes: times }),
+      ],
+      recommendation: { option: "B", why: "Both flights known" },
+    });
+    const text = okResult(input).telegramText;
+    assert.match(text, /It costs 700 SEK more than A, the lowest listed total\. A's final airfare still needs confirming: the return flight isn't seen yet\./);
+    assert.doesNotMatch(text, /For that:/);
+  });
+
+  it("keeps every pricing guarantee with flight details attached", () => {
+    assert.match(problemsOf(withCosts([flights({ flight: outFlight() }), homeLeg(), ...rest()])), /pay for the return flight twice/);
+    const half = okResult(withCosts([outLeg(), ...rest()]));
+    assert.deepEqual(optionA(half).missing, ["return flight"]);
+    assert.match(half.telegramText, /Total\s+≥/);
+    assert.match(lineOf(half.telegramText, "Flights (local times)"), /Return flight details not verified\./);
+    assert.equal(optionA(okResult(withCosts([outLeg(), homeLeg(), ...verifiedRestFor()]))).confidence, "verified");
+    assert.match(problemsOf(withCosts([flights({ flight: outFlight(), returnFlight: undefined }), ...rest()])), /returnFlight must be "not_seen"/);
+  });
+
+  // Every non-flight cost verified, so the flights decide the option's confidence.
+  function verifiedRestFor() {
+    const verified = (line) => ({
+      ...line,
+      status: "verified",
+      forDates: ["2027-01-12", "2027-01-19"],
+      forParty: line.forParty ?? { adults: 1 },
+      includes: line.includes ?? ["as quoted"],
+      basis: undefined,
+      source: line.source ?? "https://cars.example.com/quote",
+      checkedAt: CHECKED,
+    });
+    return rest().map(verified);
+  }
+
+  it("leaves replies without flight details as they were", () => {
+    const plain = okResult(golfInput());
+    assert.doesNotMatch(plain.telegramText, /Flights \(local times\)|^Travel:|Golf days/m);
+    assert.equal(optionA(plain).travel, null);
+  });
+});
+
 describe("offers the user sent", () => {
   const userPackage = (overrides = {}) =>
     indicative("package", {
@@ -1253,10 +1537,10 @@ describe("flight lookups summary", () => {
     const text = summary.telegramText;
     assert.match(
       text,
-      /These are Google Flights' listed round-trip prices: the outbound flight shown plus the cheapest return Google pairs with it\. I can't see that return flight: it may be another airline, a long layover or a separate ticket, and another return can cost more\./,
+      /These are Google Flights' listed round-trip prices: the outbound flight shown plus the cheapest return Google pairs with it\. Return flight details not verified: I can't see that flight, which may be another airline, a long layover or a separate ticket, and another return can cost more\. Times are local at each airport\./,
     );
     assert.match(text, /Check the whole itinerary before you buy\. Prices can change; nothing is held or booked\./);
-    assert.doesNotMatch(text, /verified|confirmed|picked on the booking site/i);
+    assert.doesNotMatch(text, /(?<!not )verified|confirmed|picked on the booking site/i);
     // Only the outbound flight's airports and times appear: nothing about a return is made up.
     assert.doesNotMatch(text, /Return:|Helsinki Airport|HEL → CPH|Sun 15 Nov: \d/);
     const [line] = summary.costLines;
@@ -1264,6 +1548,48 @@ describe("flight lookups summary", () => {
     assert.equal(line.returnFlight, "not_seen");
     assert.equal(line.status, "verified", "the listing itself is verified: these dates, this party, taxes included");
     assert.deepEqual(line.forDates, ["2026-11-13", "2026-11-15"]);
+  });
+
+  it("gives each cost line the flight it describes, in local times, and shows stops and separate tickets", () => {
+    const connecting = offer({
+      priceSek: 652,
+      roundTrip: false,
+      stops: 1,
+      airlines: "Air Baltic",
+      departTime: "09:00",
+      arriveTime: "19:30",
+      departDate: "2026-11-15",
+      arriveDate: "2026-11-15",
+      duration: "11 hr 30 min",
+      durationMinutes: 690,
+      layovers: [{ city: "Riga", airport: "Riga Airport", duration: "9 hr", minutes: 540, overnight: false }],
+      separateTickets: true,
+    });
+    const summary = summarizeFlightLookups(
+      [lookup({ from: "HEL", to: "CPH", depart: "2026-11-15", returnDate: null, url: helperUrl("HEL", "CPH", "2026-11-15"), offers: [connecting] })],
+      { adults: 1 },
+    );
+    assert.match(summary.telegramText, /Air Baltic, 1 stop via Riga \(9 h\), 09:00–19:30 · 11 h 30 min · separate tickets/);
+    assert.match(summary.telegramText, /Times are local at each airport\./);
+    assert.deepEqual(summary.costLines[0].flight, {
+      from: "HEL",
+      to: "CPH",
+      departDate: "2026-11-15",
+      departTime: "09:00",
+      arriveDate: "2026-11-15",
+      arriveTime: "19:30",
+      durationMinutes: 690,
+      stops: 1,
+      layovers: [{ city: "Riga", minutes: 540, overnight: false }],
+      airline: "Air Baltic",
+      separateTickets: true,
+    });
+    // A round trip's cost line carries its outbound flight only; the return stays unknown.
+    const [listing] = summarizeFlightLookups([lookup()], { adults: 1 }).costLines;
+    assert.equal(listing.flight.from, "CPH");
+    assert.equal(listing.flight.departDate, "2026-11-13");
+    assert.equal(listing.returnFlight, "not_seen");
+    assert.equal(listing.flight.separateTickets, false);
   });
 
   it("keeps a one-way fare's own flight, with no return caveat", () => {
@@ -1315,7 +1641,16 @@ describe("flight lookups summary", () => {
       adults: 1,
     }).costLines;
     const [home] = summarizeFlightLookups(
-      [lookup({ from: "HEL", to: "CPH", depart: "2026-11-15", returnDate: null, url: helperUrl("HEL", "CPH", "2026-11-15"), offers: [offer({ roundTrip: false, priceSek: 718 })] })],
+      [
+        lookup({
+          from: "HEL",
+          to: "CPH",
+          depart: "2026-11-15",
+          returnDate: null,
+          url: helperUrl("HEL", "CPH", "2026-11-15"),
+          offers: [offer({ roundTrip: false, priceSek: 718, departDate: "2026-11-15", arriveDate: "2026-11-15" })],
+        }),
+      ],
       { adults: 1 },
     ).costLines;
     const both = okResult(flightOption([out, home]));
@@ -1326,7 +1661,14 @@ describe("flight lookups summary", () => {
     assert.doesNotMatch(both.telegramText, /Listed flights:/);
 
     const wrongWay = summarizeFlightLookups(
-      [lookup({ depart: "2026-11-15", returnDate: null, url: helperUrl("CPH", "HEL", "2026-11-15"), offers: [offer({ roundTrip: false })] })],
+      [
+        lookup({
+          depart: "2026-11-15",
+          returnDate: null,
+          url: helperUrl("CPH", "HEL", "2026-11-15"),
+          offers: [offer({ roundTrip: false, departDate: "2026-11-15", arriveDate: "2026-11-15" })],
+        }),
+      ],
       { adults: 1 },
     ).costLines[0];
     assert.match(problemsOf(flightOption([out, wrongWay])), /is a Google Flights search from CPH to HEL, not this trip's return route \(HEL → CPH\)/);
