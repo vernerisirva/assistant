@@ -168,13 +168,15 @@ async function flights(options, { today, now, timezone, fetchImpl, pause, pauseM
       status: result.status,
       ...(result.title ? { title: result.title } : {}),
       ...(result.reason ? { reason: result.reason } : {}),
+      // Round-trip offers describe the outbound flight only; their price includes a return never seen.
+      ...(result.returnDate && result.offers.length > 0 ? { returnFlight: "not_seen" } : {}),
       offers: result.offers.slice(0, 3),
     })),
     lowest: summary.lowest,
     costLines: summary.costLines,
     telegramText: summary.telegramText,
     guidance:
-      "For a flight-only question, send telegramText word for word. For a whole trip, copy a costLines entry into compare unchanged. These are verified listings for these dates and this party; bags and golf bags are extra unless stated.",
+      'For a flight-only question, send telegramText word for word. For a whole trip, copy a costLines entry into compare unchanged. These are verified listings for these dates and this party; bags and golf bags are extra unless stated. A round-trip entry ("returnFlight": "not_seen") is the outbound flight shown plus a return you have not seen: never describe the return flight or call it a confirmed itinerary. To see both flights, look up each direction with --one-way.',
   };
 }
 

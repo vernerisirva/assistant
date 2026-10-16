@@ -31,7 +31,8 @@ What changes the results: departure airport, destination or climate, dates or a 
 
 ## 2. Sources and budget
 
-- Flights: `npm run --silent travel -- flights --from CPH,MMX --to AGP --depart 2027-01-12 --return 2027-01-19 --adults 1`. It reads Google Flights' public results page and returns verified fares for those exact dates and that party, taxes and fees included, bags extra. Also `--dates D/R,D/R`, `--one-way`, or a flexible window (section 3). At most 8 lookups per run.
+- Flights: `npm run --silent travel -- flights --from CPH,MMX --to AGP --depart 2027-01-12 --return 2027-01-19 --adults 1`. It reads Google Flights' public results page and returns fares listed for those exact dates and that party, taxes and fees included, bags extra. Also `--dates D/R,D/R`, `--one-way`, or a flexible window (section 3). At most 8 lookups per run.
+- A round-trip fare is a listing, not an itinerary: the outbound flight shown plus the cheapest return Google pairs with it. You can't see that return (it may be another airline, a long layover or a separate ticket), another return can cost more, and its cost line says `"returnFlight": "not_seen"`. Only the outbound flight is known: never describe the return, never say "nonstop flights" or "direct both ways", and never call it a confirmed itinerary. To see both flights, look up each direction with `--one-way`, such as `npm run --silent travel -- flights --from AGP --to CPH --depart 2027-01-19 --one-way` for the way home, and give compare both cost lines: it shows them as two separate tickets.
 - Everything else (hotels, golf packages, green fees, golf-bag fees, transfers, rental cars, climate): web search, then open the page that shows the price. Prefer the provider's own page: the airline's baggage rules, the hotel or resort site, the golf club's price list, the tour operator's package page.
 - Exchange rates: put `"fx": "ecb"` in the compare input and the helper fetches the ECB reference rates itself. Never type a rate.
 - Search links: `npm run --silent travel -- links --from CPH --to HEL --depart 2026-11-13 --return 2026-11-15 --adults 2 --city Helsinki`.
@@ -46,7 +47,7 @@ What changes the results: departure airport, destination or climate, dates or a 
 
 ## 4. Price labels
 
-- `verified`: a concrete price on the provider's or booking site's own page for these exact dates, this party and room sharing, with what it includes and when you saw it. The flights helper's fares are verified.
+- `verified`: a concrete price on the provider's or booking site's own page for these exact dates, this party and room sharing, with what it includes and when you saw it. The flights helper's fares are verified listings. A one-way fare is that flight; a round-trip fare is its outbound flight plus a return nobody has seen, so compare shows it as listed and never calls the trip verified.
 - `indicative`: "from" prices, published examples, search-result snippets, season rate cards, and prices for other dates or another party.
 - `estimate`: your own calculation, with a basis that says where the number comes from, such as the same rental for other dates or a published fare table. Never reuse a number from this skill's example.
 - `unavailable`: no trustworthy price found. An unknown cost is never zero.
@@ -89,7 +90,7 @@ npm run --silent travel -- compare --json-stdin <<'JSON'
 JSON
 ```
 
-Write the input inside the heredoc as shown, without piping it through other commands. If `ok` is false, fix every listed problem and run it again; never write the reply or the totals yourself. Then send `telegramText` word for word. Recommend one option, not automatically the lowest price: if another is clearly better for a modest extra cost, pick it and say why; the helper adds the price difference.
+Write the input inside the heredoc as shown, without piping it through other commands. If `ok` is false, fix every listed problem and run it again; never write the reply or the totals yourself. Then send `telegramText` word for word. Recommend one option, not automatically the lowest price: if another is clearly better for a modest extra cost, pick it and say why; the helper adds the price difference. A trip whose two flights are both known can beat a slightly cheaper listing whose return nobody has seen.
 
 Input:
 
@@ -99,6 +100,7 @@ Input:
 - `costs`: `item` (flights, train, baggage, golf_bag, hotel, taxes_fees, single_supplement, package, green_fees, cart, club_rental, airport_transfer, course_transport, car_rental, local_transport, booking_fee, other), `label` (provider, hotel, fare), `amount`, `currency`, `per` (trip, person, room, room_night, person_night, round, person_direction, golfer_direction, or unit with `count`), `status`, `source`, `checkedAt`, `forDates`, `forParty` `{"adults": 2, "rooms": 1}`, `includes`, `excludes`, `basis` (estimates), `covers` (what a package or other line includes), `rounds` (green fees), `board`, `optional`. An `unavailable` line has no amount.
 - `checkedAt` is UTC with a `Z`, such as the output of `date -u +%Y-%m-%dT%H:%M:%SZ`; Stockholm time with a `Z` is two hours in the future and is refused.
 - A verified line needs source, checkedAt, forDates, forParty and includes; an indicative one needs source and checkedAt. Room prices and whole-trip prices also need forParty. A verified fare or package is for this trip's exact dates, and a hotel's `forDates` are its check-in and check-out; on a multi-stop trip give each hotel its own dates, back to back. Copy a flights `costLines` entry unchanged.
+- Airfare pays for each direction once: one round-trip fare, or one one-way fare each way. A one-way fare alone leaves the other direction unpriced, and a round trip plus a one-way fare is refused.
 - `golf`: `rounds`, `courses` `[{"name": "...", "source": "...", "note": "..."}]`, `teeTimes` `{"status": "not_checked"}` (or `"seen"` with source and checkedAt), and optional `handicap`, `daylight`, `practice`.
 - `recommendation` `{"option": "B", "why": "..."}`, optional `packageVsSeparate` `[{"package": "C", "separate": "A", "sameHotel": true}]`, and optional short `limitations`.
 - Free text (`why`, `advantages`, `tradeOffs`, labels, notes, itinerary plans) carries no prices, savings, words like "cheaper", availability claims or links; the helper writes those from the numbers.
@@ -111,8 +113,8 @@ Example of the structure, one option for a solo golf week. Every amount and link
   "fx": "ecb",
   "options": [{
     "id": "A", "title": "Costa del Sol", "depart": "2027-01-12", "return": "2027-01-19", "from": ["CPH"], "to": ["AGP"], "city": "Marbella",
-    "why": "Nonstop flight and five good courses within half an hour.",
-    "advantages": ["Nonstop flight"], "tradeOffs": ["Rental car needed"],
+    "why": "Nonstop outbound flight and five good courses within half an hour.",
+    "advantages": ["Nonstop outbound flight"], "tradeOffs": ["Rental car needed"],
     "costs": [
       {"item": "flights", "note": "replace with the flights command's costLines entry, unchanged"},
       {"item": "golf_bag", "label": "Airline sports equipment", "amount": 111, "currency": "EUR", "per": "golfer_direction", "status": "indicative", "source": "https://airline.example/baggage", "checkedAt": "2026-10-15T09:10:00Z"},

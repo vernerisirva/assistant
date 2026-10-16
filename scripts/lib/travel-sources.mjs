@@ -16,6 +16,13 @@
  * and fees, and when the page's own passenger count, departure and return
  * dates, and the fare's trip type match the request, so a page Google
  * interpreted differently never yields a price.
+ *
+ * A round-trip page lists departing flights only. Each fare is "From N ...
+ * round trip total": that outbound flight plus the cheapest return Google
+ * pairs with it, which can be another airline, a long layover or a separate
+ * ticket, and other returns cost more. Google shows the returns only after a
+ * flight is selected, on /travel/flights/search and /travel/flights/booking,
+ * which its robots.txt disallows, so the helper never sees a return flight.
  */
 
 export const GOOGLE_FLIGHTS_URL = "https://www.google.com/travel/flights";
@@ -113,7 +120,8 @@ export function parseGoogleFlightsPage(html, { depart, returnDate = null, adults
  * One fare label, such as "From 1626 Swedish kronor round trip total.
  * Nonstop flight with Finnair. Leaves Copenhagen Airport at 6:05 AM on
  * Friday, November 13 and arrives at Helsinki Airport at 8:40 AM on Friday,
- * November 13. Total duration 1 hr 35 min." Anything else returns null.
+ * November 13. Total duration 1 hr 35 min." Anything else returns null. The
+ * label describes one flight; on a round-trip page that is the outbound one.
  */
 export function parseFareLabel(label) {
   const text = String(label ?? "")

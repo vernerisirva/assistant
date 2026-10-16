@@ -21,9 +21,11 @@ const fx = {
   sekPerUnit: { EUR, DKK: 1.492629, TRY: 0.201801 },
 };
 
+// The flights helper's round-trip cost line: a Google Flights listing whose
+// return flight Hilla never sees.
 const flights = (overrides = {}) => ({
   item: "flights",
-  label: "Norwegian CPH–AGP return, nonstop",
+  label: "CPH–AGP round trip, outbound Norwegian nonstop",
   amount: 1626,
   currency: "SEK",
   per: "trip",
@@ -34,8 +36,19 @@ const flights = (overrides = {}) => ({
   forParty: { adults: 1 },
   includes: ["economy seats", "taxes and required fees"],
   excludes: ["checked bags"],
+  returnFlight: "not_seen",
   ...overrides,
 });
+// A one-way fare: one direction, with that flight known.
+const oneWay = (date, overrides = {}) =>
+  flights({
+    label: date === "2027-01-12" ? "Norwegian CPH–AGP one way, nonstop" : "Norwegian AGP–CPH one way, nonstop",
+    amount: date === "2027-01-12" ? 900 : 800,
+    source: `https://www.google.com/travel/flights?q=One+way+flights+to+${date === "2027-01-12" ? "AGP+from+CPH" : "CPH+from+AGP"}+on+${date}&curr=SEK&hl=en&gl=se`,
+    forDates: [date],
+    returnFlight: undefined,
+    ...overrides,
+  });
 const indicative = (item, overrides = {}) => ({
   item,
   status: "indicative",
@@ -236,24 +249,70 @@ describe("price labels", () => {
   it("labels each option by its weakest price, never upgrading indicative or estimates", () => {
     const result = okResult(golfInput());
     assert.equal(optionA(result).confidence, "partly estimated");
-    assert.match(result.telegramText, /Price: flights verified; golf bag fees, hotel and green fees indicative; rental car estimated/);
+    assert.match(
+      result.telegramText,
+      /Price: flights listed \(return flight not seen\); golf bag fees, hotel and green fees indicative; rental car estimated/,
+    );
     assert.doesNotMatch(result.telegramText, /Price: verified/);
   });
 
-  it("calls an option verified only when every cost is a verified quote", () => {
-    const verified = (line) => ({
-      ...line,
-      status: "verified",
-      forDates: ["2027-01-12", "2027-01-19"],
-      forParty: line.forParty ?? { adults: 1 },
-      includes: line.includes ?? ["as quoted"],
-      basis: undefined,
-      source: line.source ?? "https://cars.example.com/quote",
-      checkedAt: CHECKED,
-    });
-    const result = okResult(withCosts([flights(), verified(golfBag()), verified(hotel()), verified(greenFees()), verified(car())]));
+  const verified = (line) => ({
+    ...line,
+    status: "verified",
+    forDates: ["2027-01-12", "2027-01-19"],
+    forParty: line.forParty ?? { adults: 1 },
+    includes: line.includes ?? ["as quoted"],
+    basis: undefined,
+    source: line.source ?? "https://cars.example.com/quote",
+    checkedAt: CHECKED,
+  });
+  const verifiedRest = () => [verified(golfBag()), verified(hotel()), verified(greenFees()), verified(car())];
+
+  it("calls an option verified only when every cost is a verified quote and both flights were seen", () => {
+    const result = okResult(withCosts([oneWay("2027-01-12"), oneWay("2027-01-19"), ...verifiedRest()]));
     assert.equal(optionA(result).confidence, "verified");
     assert.match(result.telegramText, /Price: verified \(every cost is a concrete price/);
+    // A round-trip quote that names both flights, such as the airline's own fare page, is complete too.
+    const quote = flights({ source: "https://www.norwegian.com/se/fare/cph-agp", returnFlight: undefined });
+    assert.equal(optionA(okResult(withCosts([quote, ...verifiedRest()]))).confidence, "verified");
+  });
+
+  it("never calls a Google round-trip listing a verified itinerary", () => {
+    const result = okResult(withCosts([flights(), ...verifiedRest()]));
+    const option = optionA(result);
+    assert.equal(option.complete, true);
+    const quote = flights({ source: "https://www.norwegian.com/se/fare/cph-agp", returnFlight: undefined });
+    assert.equal(option.total, optionA(okResult(withCosts([quote, ...verifiedRest()]))).total, "the listed price counts once, like a quote");
+    assert.equal(option.confidence, "partly indicative");
+    assert.deepEqual(
+      option.lines.find((line) => line.item === "flights"),
+      { item: "flights", status: "verified", amount: 1626, approximate: false, optional: false, returnFlight: "not_seen" },
+    );
+    assert.doesNotMatch(result.telegramText, /Price: verified/);
+    assert.match(result.telegramText, /Price: golf bag fees, hotel, green fees and rental car verified; flights listed \(return flight not seen\)\n/);
+    assert.match(
+      result.telegramText,
+      /Listed flights: Google Flights' round-trip price for the outbound flight shown plus the cheapest return Google pairs with it\. I can't see that return flight \(it may be another airline, a long layover or a separate ticket\), and another return can cost more, so check the whole itinerary before you buy\./,
+    );
+    assert.doesNotMatch(okResult(withCosts([oneWay("2027-01-12"), oneWay("2027-01-19"), ...verifiedRest()])).telegramText, /Listed flights:/);
+  });
+
+  it("refuses a Google round-trip price that drops its return-flight caveat, or claims another search", () => {
+    assert.match(
+      problemsOf(withCosts([flights({ returnFlight: undefined }), ...verifiedRest()])),
+      /flights\)\.returnFlight must be "not_seen": a Google Flights round-trip price includes a return flight Hilla never sees/,
+    );
+    const helperLink = "https://www.google.com/travel/flights?q=Flights+to+AGP+from+CPH+on+2027-01-12+through+2027-01-19&curr=SEK&hl=en&gl=se";
+    assert.match(problemsOf(withCosts([flights({ source: helperLink, returnFlight: undefined, status: "indicative" }), ...verifiedRest()])), /returnFlight must be "not_seen"/);
+    assert.equal(optionA(okResult(withCosts([flights({ source: helperLink }), ...verifiedRest()]))).complete, true);
+    assert.match(
+      problemsOf(withCosts([flights({ source: helperLink, forDates: ["2027-01-12", "2027-01-18"], status: "indicative" }), ...verifiedRest()])),
+      /forDates must match its Google Flights search \(2027-01-12 to 2027-01-19\)/,
+    );
+    const forTwo = helperLink.replace("2027-01-19&", "2027-01-19+for+2+adults&");
+    assert.match(problemsOf(withCosts([flights({ source: forTwo }), ...verifiedRest()])), /forParty must match its Google Flights search, which is for 2 adults/);
+    assert.match(problemsOf(withCosts([oneWay("2027-01-12", { returnFlight: "not_seen" }), oneWay("2027-01-19"), ...verifiedRest()])), /returnFlight can only be "not_seen", on a round-trip/);
+    assert.match(problemsOf(withCosts([hotel({ returnFlight: "not_seen" }), flights(), golfBag(), greenFees(), car()])), /hotel\)\.returnFlight can only be/);
   });
 
   it("notes prices checked days ago", () => {
@@ -316,12 +375,8 @@ describe("exact dates", () => {
   });
 
   it("accepts a verified one-way leg on either trip date", () => {
-    const outbound = flights({ label: "CPH–AGP one way", forDates: ["2027-01-12"], amount: 900 });
-    const inbound = flights({ label: "AGP–CPH one way", forDates: ["2027-01-19"], amount: 800 });
-    assert.equal(
-      optionA(okResult(withCosts([outbound, inbound, golfBag(), hotel(), greenFees(), car()]))).lines.filter((line) => line.item === "flights").length,
-      2,
-    );
+    const result = okResult(withCosts([oneWay("2027-01-12"), oneWay("2027-01-19"), golfBag(), hotel(), greenFees(), car()]));
+    assert.equal(optionA(result).lines.filter((line) => line.item === "flights").length, 2);
   });
 
   it("charges each hotel of a multi-stop trip for its own nights only", () => {
@@ -339,6 +394,103 @@ describe("exact dates", () => {
     );
     const gap = hotel({ amount: 80, forDates: ["2027-01-16", "2027-01-19"] });
     assert.match(problemsOf(withCosts([flights(), golfBag(), first, gap, greenFees(), car()])), /must cover every night/);
+  });
+});
+
+describe("airfare covers each direction once", () => {
+  const rest = () => [golfBag(), hotel(), greenFees(), car()];
+  const restSek = sek(60 * 2) + sek(95 * 7) + sek(85 * 5) + sek(180);
+
+  it("adds two one-way fares as two separate tickets", () => {
+    const result = okResult(withCosts([oneWay("2027-01-12"), oneWay("2027-01-19"), ...rest()]));
+    const option = optionA(result);
+    assert.equal(option.complete, true);
+    assert.equal(option.total, 900 + 800 + restSek);
+    assert.match(result.telegramText, /Flights\s+1 700\n/);
+    assert.match(result.telegramText, /flights are two one-way tickets, bought separately, each with its own bag fees and change rules/);
+  });
+
+  it("never treats a missing return fare as zero", () => {
+    const result = okResult(withCosts([oneWay("2027-01-12"), ...rest()], {}, { request: { ...golfInput().request, budget: { amount: 30000 } } }));
+    const option = optionA(result);
+    assert.equal(option.complete, false);
+    assert.deepEqual(option.missing, ["return flight"]);
+    assert.equal(option.total, 900 + restSek, "the known costs, as a lower bound");
+    assert.equal(option.confidence, "incomplete");
+    assert.match(result.telegramText, /Total\s+≥/);
+    assert.match(result.telegramText, /Price: incomplete: .*return flight unknown/);
+    assert.match(result.telegramText, /Within your 30 000 SEK budget so far, but return flight still unpriced\./);
+    assert.deepEqual(optionA(okResult(withCosts([oneWay("2027-01-19"), ...rest()]))).missing, ["outbound flight"]);
+    // A return marked unavailable is unknown, never free.
+    const unknownReturn = okResult(withCosts([oneWay("2027-01-12"), { item: "flights", status: "unavailable", forDates: ["2027-01-19"] }, ...rest()]));
+    assert.deepEqual(optionA(unknownReturn).unknown, ["flights"]);
+    assert.equal(optionA(unknownReturn).complete, false);
+  });
+
+  it("refuses to pay for a flight twice", () => {
+    const twice = /flights pay for the (?:outbound|return)(?: and return)? flights? twice: a round-trip fare, or a package with flights, already includes both directions/;
+    assert.match(problemsOf(withCosts([flights(), oneWay("2027-01-19"), ...rest()])), twice, "a round trip plus its own return");
+    assert.match(problemsOf(withCosts([flights(), oneWay("2027-01-12"), ...rest()])), twice);
+    assert.match(problemsOf(withCosts([flights(), flights({ amount: 1700 }), ...rest()])), /pay for the outbound and return flights twice/);
+    assert.match(problemsOf(withCosts([oneWay("2027-01-12"), oneWay("2027-01-12", { amount: 950 }), oneWay("2027-01-19"), ...rest()])), twice);
+    const pkg = indicative("package", {
+      amount: 9000,
+      currency: "SEK",
+      per: "person",
+      forParty: { adults: 1, rooms: 1 },
+      covers: ["flights", "hotel", "taxes_fees", "green_fees", "airport_transfer", "course_transport", "golf_bag"],
+      rounds: 5,
+    });
+    assert.match(problemsOf(withCosts([pkg, oneWay("2027-01-19")])), twice, "a package that includes flights");
+    // A return still to price is not a second fare.
+    assert.equal(optionA(okResult(withCosts([oneWay("2027-01-12"), { item: "flights", status: "unavailable" }, ...rest()]))).complete, false);
+    // An optional fare stays out of the total, unless the budget is all-in.
+    const extra = oneWay("2027-01-19", { optional: true });
+    assert.equal(optionA(okResult(withCosts([flights(), extra, ...rest()]))).complete, true);
+    assert.match(problemsOf(withCosts([flights(), extra, ...rest()], {}, { request: { ...golfInput().request, allInclusive: true } })), twice);
+  });
+
+  it("checks a one-way Google fare flies the trip's way", () => {
+    const backwards = oneWay("2027-01-19", {
+      source: "https://www.google.com/travel/flights?q=One+way+flights+to+AGP+from+CPH+on+2027-01-19&curr=SEK&hl=en&gl=se",
+    });
+    assert.match(
+      problemsOf(withCosts([oneWay("2027-01-12"), backwards, ...rest()])),
+      /is a Google Flights search from CPH to AGP, the wrong way for this trip's return flight/,
+    );
+    const elsewhere = oneWay("2027-01-12", { source: "https://www.google.com/travel/flights?q=One+way+flights+to+FAO+from+CPH+on+2027-01-12" });
+    assert.match(problemsOf(withCosts([elsewhere, oneWay("2027-01-19"), ...rest()])), /search from CPH to FAO, the wrong way for this trip's outbound flight/);
+    const openJaw = okResult(withCosts([elsewhere, oneWay("2027-01-19"), ...rest()], { to: ["AGP", "FAO"] }));
+    assert.equal(optionA(openJaw).complete, true, "an open jaw lists both airports");
+  });
+
+  it("ranks on evidence: an incomplete total is never cheapest, and listed airfares are never final", () => {
+    const three = (recommended) =>
+      golfInput({
+        options: [
+          golfOption({ costs: [flights({ amount: 1500 }), ...rest()] }),
+          golfOption({ id: "B", title: "Same coast, both flights known", costs: [oneWay("2027-01-12"), oneWay("2027-01-19", { amount: 700 }), ...rest()] }),
+          golfOption({ id: "C", title: "Return still unpriced", costs: [oneWay("2027-01-12", { amount: 600 }), ...rest()] }),
+        ],
+        recommendation: { option: recommended, why: "Both flights known for a modest extra cost" },
+      });
+    const pickB = okResult(three("B"));
+    const [a, b, c] = pickB.options;
+    assert.ok(c.total < a.total && a.total < b.total);
+    assert.equal(pickB.recommendation.cheapestComplete, "A", "C's lower known total is incomplete, so it never ranks cheapest");
+    assert.match(
+      pickB.telegramText,
+      /It costs 100 SEK more than A, the lowest complete total\. That gap uses listed airfares whose return flights I can't see, so it can change\./,
+    );
+    const pickA = okResult(three("A"));
+    assert.match(pickA.telegramText, /It is also the lowest complete total\. That order uses listed airfares whose return flights I can't see, so it can change\./);
+    assert.doesNotMatch(pickA.telegramText, /\b(?:is|are) (?:the )?cheapest\b|definitely/i);
+    // With every flight known, the order is stated plainly.
+    const known = three("B");
+    known.options[0].costs = [oneWay("2027-01-12"), oneWay("2027-01-19", { amount: 500 }), ...rest()];
+    const plain = okResult(known);
+    assert.match(plain.telegramText, /It costs 200 SEK more than A, the lowest complete total\.\n/);
+    assert.doesNotMatch(plain.telegramText, /listed airfares|Listed flights:/);
   });
 });
 
@@ -1007,6 +1159,9 @@ describe("flight lookups summary", () => {
     offers: [offer()],
     ...overrides,
   });
+  // The results link the helper builds for one search.
+  const helperUrl = (from, to, depart, returnDate = null) =>
+    `https://www.google.com/travel/flights?q=${returnDate ? `Flights+to+${to}+from+${from}+on+${depart}+through+${returnDate}` : `One+way+flights+to+${to}+from+${from}+on+${depart}`}&curr=SEK&hl=en&gl=se`;
 
   it("compares departure airports and dates and picks the lowest fare", () => {
     const summary = summarizeFlightLookups(
@@ -1031,23 +1186,56 @@ describe("flight lookups summary", () => {
     );
     const text = summary.telegramText;
     assert.match(text, /^Flights · 1 adult · round trip\nGoogle Flights, checked 15 Oct 2026, 14:00\n/);
-    assert.match(text, /CPH → HEL, Fri 13 Nov – Sun 15 Nov: 1 626 SEK\n  Finnair, nonstop, 06:05–08:40 · 1 h 35 min/);
+    assert.match(text, /CPH → HEL, Fri 13 Nov – Sun 15 Nov: from 1 626 SEK\n  Outbound: Finnair, nonstop, 06:05–08:40 · 1 h 35 min/);
     assert.match(text, /MMX → HEL, Fri 13 Nov – Sun 15 Nov: no fares listed for this search\./);
-    assert.match(text, /CPH → HEL, Fri 20 Nov – Sun 22 Nov: 1 480 SEK\n  airBaltic, 1 stop via Riga/);
-    assert.match(text, /  Nonstop from 1 700 SEK: Finnair, nonstop/);
-    assert.match(text, /Lowest: CPH → HEL, Fri 20 Nov – Sun 22 Nov, 1 480 SEK for 1 adult \(airBaltic\)\./);
+    assert.match(text, /CPH → HEL, Fri 20 Nov – Sun 22 Nov: from 1 480 SEK\n  Outbound: airBaltic, 1 stop via Riga/);
+    assert.match(text, /  Nonstop outbound from 1 700 SEK: Finnair, nonstop/);
+    assert.match(text, /Lowest listed: CPH → HEL, Fri 20 Nov – Sun 22 Nov, from 1 480 SEK for 1 adult \(airBaltic outbound\)\./);
     assert.match(text, /Checked bags and golf bags are extra unless stated/);
     assert.equal(summary.lowest.priceSek, 1480);
     assert.equal(summary.costLines.length, 2);
   });
 
-  it("produces cost lines that compare accepts unchanged as verified", () => {
+  it("calls a round-trip fare a listing and never describes its return flight", () => {
+    const summary = summarizeFlightLookups([lookup()], { adults: 1 });
+    const text = summary.telegramText;
+    assert.match(
+      text,
+      /These are Google Flights' listed round-trip prices: the outbound flight shown plus the cheapest return Google pairs with it\. I can't see that return flight: it may be another airline, a long layover or a separate ticket, and another return can cost more\./,
+    );
+    assert.match(text, /Check the whole itinerary before you buy\. Prices can change; nothing is held or booked\./);
+    assert.doesNotMatch(text, /verified|confirmed|picked on the booking site/i);
+    // Only the outbound flight's airports and times appear: nothing about a return is made up.
+    assert.doesNotMatch(text, /Return:|Helsinki Airport|HEL → CPH|Sun 15 Nov: \d/);
+    const [line] = summary.costLines;
+    assert.equal(line.label, "CPH–HEL round trip, outbound Finnair nonstop");
+    assert.equal(line.returnFlight, "not_seen");
+    assert.equal(line.status, "verified", "the listing itself is verified: these dates, this party, taxes included");
+    assert.deepEqual(line.forDates, ["2026-11-13", "2026-11-15"]);
+  });
+
+  it("keeps a one-way fare's own flight, with no return caveat", () => {
+    const summary = summarizeFlightLookups(
+      [lookup({ returnDate: null, url: helperUrl("CPH", "HEL", "2026-11-13"), offers: [offer({ roundTrip: false, priceSek: 907 })] })],
+      { adults: 1 },
+    );
+    assert.match(summary.telegramText, /^Flights CPH → HEL · 1 adult · one way\n/);
+    assert.match(summary.telegramText, /Fri 13 Nov: 907 SEK\n  Finnair, nonstop, 06:05–08:40/);
+    assert.match(summary.telegramText, /Lowest: Fri 13 Nov, 907 SEK for 1 adult \(Finnair\)\.\nOne-way prices with taxes and required fees\./);
+    assert.doesNotMatch(summary.telegramText, /listed|return/i);
+    const [line] = summary.costLines;
+    assert.equal(line.label, "Finnair CPH–HEL one way, nonstop");
+    assert.equal(line.returnFlight, undefined);
+    assert.deepEqual(line.forDates, ["2026-11-13"]);
+  });
+
+  it("produces cost lines that compare accepts unchanged, a round trip as a listing", () => {
     const summary = summarizeFlightLookups([lookup({ offers: [offer({ fareNote: "This price does not include overhead bin access." })] })], { adults: 1 });
     const [line] = summary.costLines;
     assert.deepEqual(line.includes, ["economy seats", "taxes and required fees"]);
     assert.deepEqual(line.excludes, ["cabin bag (overhead bin)", "checked bags"]);
     assert.equal(line.status, "verified");
-    const result = okResult({
+    const flightOption = (costs) => ({
       request: { title: "Helsinki flight", kind: "flights", travellers: 1 },
       options: [
         {
@@ -1055,15 +1243,41 @@ describe("flight lookups summary", () => {
           title: "Helsinki",
           depart: "2026-11-13",
           return: "2026-11-15",
-          why: "Short nonstop flight.",
-          advantages: ["Nonstop"],
+          from: ["CPH"],
+          to: ["HEL"],
+          why: "Short flight.",
+          advantages: ["Short flight"],
           tradeOffs: ["Early start"],
-          costs: [line],
+          costs,
         },
       ],
     });
-    assert.equal(optionA(result).confidence, "verified");
+    const result = okResult(flightOption([line]));
+    assert.equal(optionA(result).complete, true);
+    assert.equal(optionA(result).confidence, "partly indicative");
+    assert.match(result.telegramText, /Price: flights listed \(return flight not seen\)/);
     assert.match(result.telegramText, /flights excludes cabin bag \(overhead bin\); flights excludes checked bags/);
+
+    // Each direction looked up one way: both flights are known, as two tickets.
+    const [out] = summarizeFlightLookups([lookup({ returnDate: null, url: helperUrl("CPH", "HEL", "2026-11-13"), offers: [offer({ roundTrip: false })] })], {
+      adults: 1,
+    }).costLines;
+    const [home] = summarizeFlightLookups(
+      [lookup({ from: "HEL", to: "CPH", depart: "2026-11-15", returnDate: null, url: helperUrl("HEL", "CPH", "2026-11-15"), offers: [offer({ roundTrip: false, priceSek: 718 })] })],
+      { adults: 1 },
+    ).costLines;
+    const both = okResult(flightOption([out, home]));
+    assert.equal(optionA(both).complete, true);
+    assert.equal(optionA(both).total, 1626 + 718);
+    assert.equal(optionA(both).confidence, "verified");
+    assert.match(both.telegramText, /flights are two one-way tickets, bought separately, each with its own bag fees and change rules/);
+    assert.doesNotMatch(both.telegramText, /Listed flights:/);
+
+    const wrongWay = summarizeFlightLookups(
+      [lookup({ depart: "2026-11-15", returnDate: null, url: helperUrl("CPH", "HEL", "2026-11-15"), offers: [offer({ roundTrip: false })] })],
+      { adults: 1 },
+    ).costLines[0];
+    assert.match(problemsOf(flightOption([out, wrongWay])), /is a Google Flights search from CPH to HEL, the wrong way for this trip's return flight/);
   });
 
   it("says plainly when no fare could be read", () => {
