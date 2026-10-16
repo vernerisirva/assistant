@@ -199,6 +199,48 @@ describe("parseGoogleFlightsPage", () => {
     assert.equal(parseGoogleFlightsPage(garbled, search).status, "unreadable");
   });
 
+  it("reads a round-trip page as outbound flights with round-trip totals, and nothing about the return", () => {
+    // Google lists departing flights only: each price is that flight plus the cheapest return it pairs with it.
+    const result = parseGoogleFlightsPage(flightsPage({ labels: [fareLabel({ price: "1492", stops: 1, airlines: "Air Baltic", layovers: ["1 hr 5 min"] })] }), search);
+    assert.equal(result.status, "ok");
+    const [offer] = result.offers;
+    assert.equal(offer.roundTrip, true);
+    assert.equal(offer.priceSek, 1492);
+    assert.equal(offer.departAirport, "Copenhagen Airport");
+    assert.equal(offer.arriveAirport, "Helsinki Airport");
+    assert.equal(offer.departDate, search.depart);
+    assert.deepEqual(Object.keys(offer).sort(), [
+      "airlines",
+      "arriveAirport",
+      "arriveDate",
+      "arriveTime",
+      "departAirport",
+      "departDate",
+      "departTime",
+      "duration",
+      "fareNote",
+      "layovers",
+      "operatedBy",
+      "priceSek",
+      "roundTrip",
+      "stops",
+    ]);
+    // A label for the way home on the return date is not this search's outbound flight.
+    const homeward = fareLabel({ price: "1492", from: "Helsinki Airport", to: "Copenhagen Airport", weekday: "Sunday", date: "November 15" });
+    assert.equal(parseGoogleFlightsPage(flightsPage({ labels: [homeward] }), search).status, "mismatch");
+  });
+
+  it("yields no price when Google changes its fare layout", () => {
+    const reworded = flightsPage({ labels: ["Round trip from SEK 1,492. Nonstop flight with Finnair. Leaves Copenhagen Airport at 6:05 AM on Friday, November 13."] });
+    assert.equal(parseGoogleFlightsPage(reworded, search).status, "no_listings", "fares in another format are never guessed at");
+    const renamed = flightsPage({ labels: [fareLabel({ price: "1626" }).replace("Swedish kronor", "SEK")] });
+    const result = parseGoogleFlightsPage(renamed, search);
+    assert.equal(result.status, "unreadable");
+    assert.deepEqual(result.offers, []);
+    const moved = flightsPage({ labels: [fareLabel({ price: "1626" })] }).replace(/aria-label="From/g, 'data-label="From');
+    assert.deepEqual(parseGoogleFlightsPage(moved, search).offers, []);
+  });
+
   it("decodes entities in names", () => {
     const page = flightsPage({ labels: [fareLabel({ price: "2530", stops: 1, airlines: "KLM & Transavia", layovers: ["4 hr 15 min"] })] });
     assert.match(page, /KLM &amp; Transavia/);
@@ -252,6 +294,18 @@ describe("lookUpFlights", () => {
     assert.match(results[0].reason, /consent\.google\.com/);
     assert.match(results[1].reason, /earlier lookup was redirected/);
     for (const result of results) assert.deepEqual(result.offers, []);
+  });
+
+  it("never reads Google's return-selection or booking pages, which robots.txt disallows", async () => {
+    for (const path of ["/travel/flights/search?tfs=CBwQAhoeEgoyMDI3LTAxLTEy", "/travel/flights/booking?tfs=CBwQAhoeEgoyMDI3LTAxLTEy"]) {
+      const results = await lookUpFlights([search], {
+        fetchImpl: fakeFetch(() => ({ url: `https://www.google.com${path}`, body: flightsPage({ labels: [fareLabel({ price: "1492" })] }) })).impl,
+        now: fixedNow,
+        pause: noPause,
+      });
+      assert.equal(results[0].status, "blocked", path);
+      assert.deepEqual(results[0].offers, []);
+    }
   });
 
   it("treats rate limits and the unsupported-browser page as blocks", async () => {

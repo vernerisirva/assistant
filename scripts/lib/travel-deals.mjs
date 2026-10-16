@@ -11,6 +11,13 @@
  *   `indicative`, `estimate` (with its basis) or `unavailable` (no price).
  * - A required component that is missing or unpriced makes the total
  *   incomplete ("at least ..."), never zero.
+ * - Airfare pays for each direction once: a round-trip fare, or one one-way
+ *   fare per direction (two separate tickets). A one-way fare alone leaves
+ *   the other direction unpriced.
+ * - A Google Flights round trip is a listing, not an itinerary: the outbound
+ *   flight shown plus the cheapest return Google pairs with it, which Hilla
+ *   never sees (`returnFlight: "not_seen"`). It is never called verified as a
+ *   whole, and comparisons built on it say so.
  * - Room prices are multiplied by rooms, not travellers, and a per-person
  *   price that assumes two sharing needs a single supplement for a solo trip.
  * - Converted amounts are marked approximate, with the rate and its date.
@@ -114,6 +121,7 @@ const COST_KEYS = [
   "covers",
   "board",
   "optional",
+  "returnFlight",
 ];
 const GOLF_KEYS = ["rounds", "courses", "teeTimes", "handicap", "daylight", "practice"];
 
@@ -249,6 +257,31 @@ export function searchLinks({ from = [], to = [], depart, returnDate = null, adu
   return links;
 }
 
+/** Whether a link is a Google Flights page, whatever its search. */
+function isGoogleFlightsLink(link) {
+  try {
+    const url = new URL(link);
+    return /^(?:www\.)?google\.[a-z.]+$/.test(url.hostname) && url.pathname.startsWith("/travel/flights");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The search a Google Flights results link asks for, in the format the
+ * helper and searchLinks build ("Flights to HEL from CPH on D through R for
+ * 2 adults"), or null for any other link.
+ */
+function googleFlightsSearch(link) {
+  if (!isGoogleFlightsLink(link)) return null;
+  const query = new URL(link).searchParams.get("q") ?? "";
+  const match = query.match(
+    /^(One way flights|Flights) to ([A-Z]{3}) from ([A-Z]{3}) on (\d{4}-\d{2}-\d{2})(?: through (\d{4}-\d{2}-\d{2}))?(?: for ([1-9]\d*) adults)?$/,
+  );
+  if (!match || (match[1] === "Flights") !== Boolean(match[5])) return null;
+  return { to: match[2], from: match[3], depart: match[4], returnDate: match[5] ?? null, adults: Number(match[6] ?? 1) };
+}
+
 // --- Flexible dates --------------------------------------------------------------
 
 const WEEKDAY_IDS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
@@ -298,10 +331,18 @@ export function sampleDepartureDates({ start, end, nights, weekdays = null, max 
  * The flights command's reply and ready-made cost lines from lookUpFlights
  * results: the lowest fare per route and date, verified for these exact
  * dates and this party, with bags left out unless the fare says otherwise.
+ *
+ * A round-trip fare is Google's listed total for the outbound flight shown
+ * plus the cheapest return it pairs with that flight. Google names that
+ * return only on its return-selection and booking pages, which its
+ * robots.txt closes to Hilla, and it can be another airline, a long layover
+ * or a separate ticket. So the reply calls it a listing and describes only
+ * the outbound flight, and the cost line says `returnFlight: "not_seen"`.
  */
 export function summarizeFlightLookups(results, { adults = 1, timezone = DEFAULT_TIMEZONE } = {}) {
   const routes = new Set(results.map((result) => `${result.from}-${result.to}`));
   const multiRoute = routes.size > 1;
+  const listings = results.some((result) => result.returnDate);
   const lines = [];
   const costLines = [];
   let lowest = null;
@@ -327,9 +368,10 @@ export function summarizeFlightLookups(results, { adults = 1, timezone = DEFAULT
     }
     const [cheapest] = result.offers;
     const nonstop = cheapest.stops > 0 ? result.offers.find((offer) => offer.stops === 0) : null;
-    lines.push(`${route}${dates}: ${formatInt(cheapest.priceSek)} SEK`);
-    lines.push(`  ${describeOffer(cheapest)}`);
-    if (nonstop) lines.push(`  Nonstop from ${formatInt(nonstop.priceSek)} SEK: ${describeOffer(nonstop)}`);
+    const listed = Boolean(result.returnDate);
+    lines.push(`${route}${dates}: ${listed ? "from " : ""}${formatInt(cheapest.priceSek)} SEK`);
+    lines.push(`  ${listed ? "Outbound: " : ""}${describeOffer(cheapest)}`);
+    if (nonstop) lines.push(`  Nonstop ${listed ? "outbound " : ""}from ${formatInt(nonstop.priceSek)} SEK: ${describeOffer(nonstop)}`);
     if (!lowest || cheapest.priceSek < lowest.offer.priceSek) lowest = { result, offer: cheapest };
     costLines.push(flightCostLine(result, cheapest, adults));
   }
@@ -337,13 +379,16 @@ export function summarizeFlightLookups(results, { adults = 1, timezone = DEFAULT
   lines.push("");
   if (lowest) {
     const { result, offer } = lowest;
+    const listed = Boolean(result.returnDate);
     const route = multiRoute ? `${result.from} → ${result.to}, ` : "";
     const dates = result.returnDate ? `${formatDay(result.depart)} – ${formatDay(result.returnDate)}` : formatDay(result.depart);
-    lines.push(`Lowest: ${route}${dates}, ${formatInt(offer.priceSek)} SEK for ${adults === 1 ? "1 adult" : `${adults} adults`} (${offer.airlines}).`);
     lines.push(
-      `${first.returnDate ? "Round-trip totals" : "One-way prices"} with taxes and required fees. Checked bags and golf bags are extra unless stated${
-        first.returnDate ? ", and the return flight is picked on the booking site" : ""
-      }. Prices can change; nothing is held or booked.`,
+      `Lowest${listed ? " listed" : ""}: ${route}${dates}, ${listed ? "from " : ""}${formatInt(offer.priceSek)} SEK for ${adults === 1 ? "1 adult" : `${adults} adults`} (${offer.airlines}${listed ? " outbound" : ""}).`,
+    );
+    lines.push(
+      listings
+        ? "These are Google Flights' listed round-trip prices: the outbound flight shown plus the cheapest return Google pairs with it. I can't see that return flight: it may be another airline, a long layover or a separate ticket, and another return can cost more. Taxes and required fees are included. Checked bags and golf bags are extra unless stated. Check the whole itinerary before you buy. Prices can change; nothing is held or booked."
+        : "One-way prices with taxes and required fees. Checked bags and golf bags are extra unless stated. Prices can change; nothing is held or booked.",
     );
   } else {
     lines.push("No fare could be read, so there is no verified flight price. The links show live prices.");
@@ -354,7 +399,16 @@ export function summarizeFlightLookups(results, { adults = 1, timezone = DEFAULT
 
   return {
     telegramText: lines.join("\n"),
-    lowest: lowest ? { from: lowest.result.from, to: lowest.result.to, depart: lowest.result.depart, return: lowest.result.returnDate, ...lowest.offer } : null,
+    lowest: lowest
+      ? {
+          from: lowest.result.from,
+          to: lowest.result.to,
+          depart: lowest.result.depart,
+          return: lowest.result.returnDate,
+          ...lowest.offer,
+          ...(lowest.result.returnDate ? { returnFlight: "not_seen" } : {}),
+        }
+      : null,
     costLines,
   };
 }
@@ -409,6 +463,10 @@ function describeOffer(offer) {
   return parts.join(" · ");
 }
 
+/**
+ * A verified price for what the page shows: a one-way flight, or Google's
+ * round-trip listing, where only the outbound flight is known.
+ */
 function flightCostLine(result, offer, adults) {
   const route = `${result.from}–${result.to}`;
   const stops = offer.stops === 0 ? "nonstop" : `${offer.stops} stop${offer.stops === 1 ? "" : "s"}`;
@@ -416,7 +474,7 @@ function flightCostLine(result, offer, adults) {
   if (offer.fareNote && /overhead bin/i.test(offer.fareNote)) excludes.unshift("cabin bag (overhead bin)");
   return {
     item: "flights",
-    label: `${offer.airlines} ${route} ${result.returnDate ? "return" : "one way"}, ${stops}`.slice(0, 60),
+    label: (result.returnDate ? `${route} round trip, outbound ${offer.airlines} ${stops}` : `${offer.airlines} ${route} one way, ${stops}`).slice(0, 60),
     amount: offer.priceSek,
     currency: "SEK",
     per: "trip",
@@ -427,6 +485,7 @@ function flightCostLine(result, offer, adults) {
     forParty: { adults },
     includes: ["economy seats", "taxes and required fees"],
     excludes,
+    ...(result.returnDate ? { returnFlight: "not_seen" } : {}),
   };
 }
 
@@ -508,6 +567,7 @@ export function buildComparison(input, { now = new Date(), timezone = DEFAULT_TI
         amount: line.display,
         approximate: line.approximate,
         optional: line.optional,
+        ...(line.returnFlight ? { returnFlight: line.returnFlight } : {}),
       })),
     })),
     comparisons,
@@ -634,7 +694,7 @@ function validateOption(option, index, { request, today, now, fail, warnings }) 
   const tradeOffs = textList(option.tradeOffs, `${at} tradeOffs`, { max: 3, length: 100, min: 1 }, fail);
   const links = linkList(option.links, `${at} links`, fail);
 
-  const shell = { id, depart: option.depart, return: option.return, nights };
+  const shell = { id, depart: option.depart, return: option.return, nights, from, to };
   const rawCosts = Array.isArray(option.costs) ? option.costs : [];
   if (rawCosts.length < 1 || rawCosts.length > 16) fail(`${at} costs`, "must list 1 to 16 cost lines.");
   const hasSupplement = rawCosts.some((line) => line?.item === "single_supplement" && line?.optional !== true);
@@ -644,6 +704,7 @@ function validateOption(option, index, { request, today, now, fail, warnings }) 
 
   validateStayDates(costs, shell, at, fail);
   validateSupplement(costs, request, at, fail);
+  validateFlightLegs(costs, request, at, fail);
 
   let golf = null;
   if (request?.kind === "golf") golf = validateGolf(option.golf, `${at} golf`, { request, costs, fail });
@@ -811,6 +872,44 @@ function validateCost(line, index, { at, option, request, now, hasSupplement, fa
     fail(`${named}.forParty`, "is required for a whole-trip price: how many people it was quoted for.");
   }
 
+  // Hilla reads only Google Flights' first results page, which lists a round
+  // trip by its outbound flight: the return flight in that price is never seen.
+  let returnFlight = null;
+  if (line.returnFlight !== undefined) {
+    if (line.returnFlight !== "not_seen" || item !== "flights" || forDates?.length === 1) {
+      fail(`${named}.returnFlight`, 'can only be "not_seen", on a round-trip flights price whose return flight wasn\'t seen.');
+    } else returnFlight = "not_seen";
+  }
+  if (item === "flights" && amount !== null && typeof source === "string" && isGoogleFlightsLink(source)) {
+    const search = googleFlightsSearch(source);
+    if (!search && status === "verified") {
+      fail(
+        `${named}.source`,
+        "must be the flights command's Google Flights link, so its dates, party and route can be checked; copy the flights costLines entry unchanged.",
+      );
+    }
+    if ((search ? search.returnDate !== null : forDates?.length === 2) && returnFlight === null) {
+      fail(
+        `${named}.returnFlight`,
+        'must be "not_seen": a Google Flights round-trip price includes a return flight Hilla never sees. Copy the flights costLines entry unchanged.',
+      );
+    }
+    if (search) checkGoogleSearch(search, { forDates, forParty, option, named, fail });
+  }
+
+  // Which of the trip's two journeys a travel price pays for: a round trip
+  // (or a price without dates) both, a one-way fare the direction of its date.
+  const travel = [item, ...(covers ?? [])].some((covered) => covered === "flights" || covered === "train");
+  const legs = !travel
+    ? []
+    : per === "person_direction" || forDates === null || forDates.length === 2
+      ? ["outbound", "return"]
+      : forDates[0] === option.depart
+        ? ["outbound"]
+        : forDates[0] === option.return
+          ? ["return"]
+          : [];
+
   const includes = textList(line.includes, `${named}.includes`, { max: 6, length: 60 }, fail);
   if (status === "verified" && includes.length === 0)
     fail(`${named}.includes`, "is required for a verified price: what it covers, such as economy seats and taxes, or room only.");
@@ -839,6 +938,8 @@ function validateCost(line, index, { at, option, request, now, hasSupplement, fa
     covers: [...new Set([item, ...(covers ?? []), ...(roomPriced && taxesIncluded(includes, excludes) ? ["taxes_fees"] : [])])],
     board: line.board ?? null,
     optional: line.optional === true,
+    returnFlight,
+    legs,
     staleDays: checkedAt ? Math.floor((now.getTime() - Date.parse(checkedAt)) / 86_400_000) : null,
   };
   if (request && forParty && !normalized.optional) {
@@ -847,6 +948,30 @@ function validateCost(line, index, { at, option, request, now, hasSupplement, fa
     normalized.check = check;
   }
   return normalized;
+}
+
+/**
+ * A Google Flights fare is for the search in its link: those dates, that
+ * party, and that direction, so a fare copied onto another trip, or a one-way
+ * fare flown the wrong way, never prices this one.
+ */
+function checkGoogleSearch(search, { forDates, forParty, option, named, fail }) {
+  const dates = search.returnDate ? [search.depart, search.returnDate] : [search.depart];
+  if (forDates && forDates.join() !== dates.join()) {
+    fail(`${named}.forDates`, `must match its Google Flights search (${dates.join(" to ")}); copy the flights costLines entry unchanged.`);
+  }
+  if (forParty && forParty.adults !== search.adults) {
+    fail(`${named}.forParty`, `must match its Google Flights search, which is for ${search.adults} ${search.adults === 1 ? "adult" : "adults"}.`);
+  }
+  const leg = search.depart === option.depart ? "outbound" : !search.returnDate && search.depart === option.return ? "return" : null;
+  if (!leg) return;
+  const [origins, destinations] = leg === "outbound" ? [option.from, option.to] : [option.to, option.from];
+  if ((origins.length > 0 && !origins.includes(search.from)) || (destinations.length > 0 && !destinations.includes(search.to))) {
+    fail(
+      `${named}.source`,
+      `is a Google Flights search from ${search.from} to ${search.to}, not this trip's ${leg} route (${origins.join("/") || "any"} → ${destinations.join("/") || "any"}).`,
+    );
+  }
 }
 
 /**
@@ -890,6 +1015,32 @@ function validateSupplement(costs, request, at, fail) {
     fail(
       `${at} single_supplement`,
       'only applies on top of a room price quoted for people sharing: set that price\'s forParty to the sharing it was quoted for, such as {"adults": 2, "rooms": 1}, or drop the supplement.',
+    );
+  }
+}
+
+/**
+ * Each direction is paid for once. A round-trip fare, or a package with
+ * flights, already includes the return, so a one-way fare on top of it (or a
+ * second round trip) would charge a flight twice.
+ */
+function validateFlightLegs(costs, request, at, fail) {
+  const paid = costs.filter((line) => line.amount !== null && (!line.optional || request?.allInclusive) && line.covers?.includes("flights"));
+  const twice = ["outbound", "return"].filter((leg) => paid.filter((line) => line.legs?.includes(leg)).length > 1);
+  if (twice.length > 0) {
+    fail(
+      `${at} flights`,
+      `pay for the ${twice.join(" and ")} flight${twice.length > 1 ? "s" : ""} twice: a round-trip fare, or a package with flights, already includes both directions. Keep one round-trip fare, or one one-way fare each way.`,
+    );
+    return;
+  }
+  // Two verified one-way tickets make one known itinerary only in one currency.
+  const oneWay = (leg) => paid.find((line) => line.item === "flights" && line.status === "verified" && line.legs?.length === 1 && line.legs[0] === leg);
+  const [out, home] = [oneWay("outbound"), oneWay("return")];
+  if (out && home && out.currency !== home.currency) {
+    fail(
+      `${at} flights`,
+      `are two verified one-way fares in different currencies (${out.currency}, ${home.currency}); look up both directions with the flights command, which prices both in SEK.`,
     );
   }
 }
@@ -1122,6 +1273,13 @@ function priceOption(option, request, fx) {
   const missing = requiredGroups(request)
     .filter((group) => !group.some((item) => counted.some((line) => line.covers.includes(item))))
     .map((group) => ITEM_NAME[group[0]]);
+  // A one-way fare pays for one direction; the other is still unpriced, never free.
+  const travel = requiredGroups(request).find((group) => group.includes("flights"));
+  if (travel && !missing.includes(ITEM_NAME[travel[0]])) {
+    const legs = new Set(counted.filter((line) => line.covers.some((item) => travel.includes(item))).flatMap((line) => line.legs));
+    const mode = counted.some((line) => line.covers.includes("flights")) ? "flight" : "journey";
+    for (const leg of ["outbound", "return"]) if (!legs.has(leg)) missing.push(`${leg} ${mode}`);
+  }
   const unknown = [...new Set(counted.filter((line) => line.amount === null).map((line) => ITEM_NAME[line.item]))];
   const known = counted.reduce((sum, line) => sum + (line.display ?? 0), 0);
   const complete = missing.length === 0 && unknown.length === 0;
@@ -1141,6 +1299,7 @@ function priceOption(option, request, fx) {
     perRound,
     approximate,
     confidence: confidenceOf(counted, complete),
+    listedAirfare: counted.some((line) => line.returnFlight === "not_seen"),
     optionalLines: request.allInclusive ? [] : lines.filter((line) => line.optional),
     notes: optionNotes(option, counted),
   };
@@ -1162,12 +1321,15 @@ function optionNotes(option, counted) {
     if (line.staleDays >= 2) notes.push(`${ITEM_NAME[line.item]} price checked ${line.staleDays} days ago`);
     if (line.source === "user") notes.push(`${ITEM_NAME[line.item]} price is from the offer you sent, not checked by me`);
   }
+  const oneWay = (leg) => counted.some((line) => line.item === "flights" && line.amount !== null && line.legs.length === 1 && line.legs[0] === leg);
+  if (oneWay("outbound") && oneWay("return")) notes.push("flights are two one-way tickets, bought separately, each with its own bag fees and change rules");
   return [...new Set(notes)];
 }
 
 function confidenceOf(lines, complete) {
   if (!complete) return "incomplete";
-  if (lines.every((line) => line.status === "verified")) return "verified";
+  // A round-trip listing whose return flight was never seen is not a verified itinerary.
+  if (lines.every((line) => line.status === "verified" && !line.returnFlight)) return "verified";
   return lines.some((line) => line.status === "estimate") ? "partly estimated" : "partly indicative";
 }
 
@@ -1213,12 +1375,21 @@ function describeRecommendation(recommendation, options, request) {
   const option = options.find((candidate) => candidate.id === recommendation.option);
   const complete = options.filter((candidate) => candidate.complete);
   const cheapest = complete.length > 0 ? complete.reduce((low, candidate) => (candidate.total < low.total ? candidate : low)) : null;
+  // A listed airfare is a starting price whose return flight isn't seen, so a
+  // ranking that rests on one says so and never calls that total complete.
+  const lowest = (candidate) => (candidate.listedAirfare ? "the lowest listed total" : "the lowest complete total");
   let note;
   if (!option.complete) note = `Its total isn't complete yet: ${[...option.missing, ...option.unknown].join(", ")} still unpriced.`;
   else if (cheapest && cheapest.id !== option.id && cheapest.total < option.total) {
-    note = `It costs ${formatInt(option.total - cheapest.total)} ${request.currency} more than ${cheapest.id}, the lowest complete total.`;
-  } else if (complete.length > 1) note = "It is also the lowest complete total.";
-  else note = null;
+    note = `It costs ${formatInt(option.total - cheapest.total)} ${request.currency} more than ${cheapest.id}, ${lowest(cheapest)}.`;
+    const pending = [option.listedAirfare ? "Its" : null, cheapest.listedAirfare ? `${cheapest.id}'s` : null].filter(Boolean);
+    if (pending.length === 2) note += " Both final airfares still need confirming: their return flights aren't seen yet.";
+    else if (pending.length === 1) note += ` ${pending[0]} final airfare still needs confirming: the return flight isn't seen yet.`;
+  } else if (complete.length > 1) {
+    note = option.listedAirfare
+      ? "It also has the lowest listed total, but its final airfare still needs confirming: the return flight isn't seen yet."
+      : `It is also the lowest complete total${complete.some((candidate) => candidate.listedAirfare) ? "; the other options' listed airfares can still change" : ""}.`;
+  } else note = null;
   return { option, why: recommendation.why, note, cheapestComplete: cheapest?.id ?? null };
 }
 
@@ -1301,6 +1472,11 @@ function formatComparison({ request, options, fx, comparisons, recommended, limi
   if (request.kind === "golf") {
     lines.push(`Per round = the ${request.travellers > 1 ? "trip cost per person" : "whole trip cost"} divided by the rounds played, not the green fee.`);
   }
+  if (options.some((option) => option.listedAirfare)) {
+    lines.push(
+      "Listed flights: Google Flights' round-trip price for the outbound flight shown plus the cheapest return Google pairs with it. I can't see that return flight (it may be another airline, a long layover or a separate ticket), and another return can cost more, so check the whole itinerary before you buy.",
+    );
+  }
   const limits = limitsText(options, [...fxWarnings, ...limitations]);
   if (limits) lines.push(`Limits: ${limits}`);
   lines.push("Nothing is booked or held, and prices can change. I can't book or pay; use the links to book yourself.");
@@ -1382,9 +1558,13 @@ function budgetLine(option, request) {
 
 function confidenceText(option) {
   const counted = option.lines.filter((line) => !line.optional);
-  const byStatus = (status) => [...new Set(counted.filter((line) => line.status === status).map((line) => ITEM_NAME[line.item]))];
+  const listed = (line) => line.returnFlight === "not_seen";
+  const byStatus = (status, test = () => true) => [
+    ...new Set(counted.filter((line) => line.status === status && test(line)).map((line) => ITEM_NAME[line.item])),
+  ];
   const parts = [
-    ["verified", byStatus("verified")],
+    ["verified", byStatus("verified", (line) => !listed(line))],
+    ["listed (return flight not seen)", byStatus("verified", listed)],
     ["indicative", byStatus("indicative")],
     ["estimated", byStatus("estimate")],
     ["unknown", [...byStatus("unavailable"), ...option.missing]],

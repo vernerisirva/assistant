@@ -31,24 +31,30 @@ function frontmatter(text) {
   return fields;
 }
 
-function fareLabel(price, { weekday = "Friday", date = "November 13" } = {}) {
-  return `From ${price} Swedish kronor round trip total. Nonstop flight with Finnair. Leaves Copenhagen Airport at 6:05 AM on ${weekday}, ${date} and arrives at Helsinki Airport at 8:40 AM on ${weekday}, ${date}. Total duration 1 hr 35 min.   Select flight`;
+function fareLabel(price, { weekday = "Friday", date = "November 13", roundTrip = true } = {}) {
+  return `From ${price} Swedish kronor${roundTrip ? " round trip total" : ""}. Nonstop flight with Finnair. Leaves Copenhagen Airport at 6:05 AM on ${weekday}, ${date} and arrives at Helsinki Airport at 8:40 AM on ${weekday}, ${date}. Total duration 1 hr 35 min.   Select flight`;
 }
 
-function fakeGoogle(prices = ["1626"]) {
+/** A Google Flights results page; with followDates its fares are for the searched date and trip type. */
+function fakeGoogle(prices = ["1626"], { followDates = false } = {}) {
   const calls = [];
   const impl = async (url, init) => {
     calls.push({ url, init });
     const query = new URL(url).searchParams.get("q") ?? "";
     const adults = Number(query.match(/for (\d) adults/)?.[1] ?? 1);
     const [depart, returnDate] = [...query.matchAll(/\d{4}-\d{2}-\d{2}/g)].map((match) => match[0]);
-    const label = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+    const format = (iso, options) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { ...options, timeZone: "UTC" });
+    const label = (iso) => format(iso, { weekday: "short", month: "short", day: "numeric" });
+    const fare = (price) =>
+      followDates
+        ? fareLabel(price, { weekday: format(depart, { weekday: "long" }), date: format(depart, { month: "long", day: "numeric" }), roundTrip: Boolean(returnDate) })
+        : fareLabel(price);
     const body = [
       "<title>Copenhagen to Helsinki | Google Flights</title>",
       `<input type="text" value="${label(depart)}" placeholder="Departure" />`,
       returnDate ? `<input type="text" value="${label(returnDate)}" placeholder="Return" />` : "",
       `<button aria-label="${adults} passenger${adults === 1 ? "" : "s"}, change number of passengers."></button>`,
-      ...prices.map((price) => `<div aria-label="${fareLabel(String(Number(price) * adults))}"></div>`),
+      ...prices.map((price) => `<div aria-label="${fare(String(Number(price) * adults))}"></div>`),
       `<span>Prices include required taxes + fees for ${adults} adult${adults === 1 ? "" : "s"}.</span>`,
     ].join("\n");
     return { status: 200, ok: true, url, text: async () => body };
@@ -109,6 +115,21 @@ describe("travel-deals SKILL.md", () => {
     }
   });
 
+  it("says a round trip is a listing with an unseen return, and how to see both flights", () => {
+    for (const rule of [
+      /A round-trip fare is a listing, not an itinerary: the outbound flight shown plus the cheapest return Google pairs with it/,
+      /You can't see that return \(it may be another airline, a long layover or a separate ticket\), another return can cost more/,
+      /never describe the return, never say "nonstop flights" or "direct both ways", and never call it a confirmed itinerary/,
+      /To see both flights, look up each direction with `--one-way`/,
+      /compare shows it as listed and never calls the trip verified/,
+      /Airfare pays for each direction once: one round-trip fare, or one one-way fare each way/,
+      /A trip whose two flights are both known can beat a slightly cheaper listing whose return nobody has seen/,
+    ]) {
+      assert.match(skill, rule);
+    }
+    assert.doesNotMatch(skill, /"Nonstop flight"/, "the example claims nothing about the return flight");
+  });
+
   it("only documents helper commands and flags that exist", () => {
     const commands = [...skill.matchAll(/npm run --silent travel -- ([^`\n]+)/g)].map((match) => match[1].trim());
     assert.ok(commands.length >= 4);
@@ -134,7 +155,7 @@ describe("travel-deals SKILL.md", () => {
     assert.equal(flights.lookups[0].status, "mismatch", "a page for other dates yields no price");
     const line = {
       item: "flights",
-      label: "Finnair CPH–AGP return, nonstop",
+      label: "CPH–AGP round trip, outbound Finnair nonstop",
       amount: 1626,
       currency: "SEK",
       per: "trip",
@@ -144,6 +165,7 @@ describe("travel-deals SKILL.md", () => {
       forDates: ["2027-01-12", "2027-01-19"],
       forParty: { adults: 1 },
       includes: ["economy seats", "taxes and required fees"],
+      returnFlight: "not_seen",
     };
     example.options[0].costs[0] = line;
     for (const cost of example.options[0].costs) if (cost.checkedAt) cost.checkedAt = "2026-10-15T10:00:00Z";
@@ -230,8 +252,64 @@ describe("travel CLI", () => {
     assert.equal(result.lowest.priceSek, 3252);
     assert.equal(result.costLines[0].forParty.adults, 2);
     assert.equal(result.costLines[0].status, "verified");
+    assert.equal(result.costLines[0].returnFlight, "not_seen", "a round-trip page never shows the return flight");
     assert.match(result.telegramText, /^Flights · 2 adults · round trip\n/);
+    assert.match(result.telegramText, /I can't see that return flight/);
     assert.match(result.guidance, /send telegramText word for word/);
+    assert.match(result.guidance, /never describe the return flight or call it a confirmed itinerary/);
+  });
+
+  it("names both flights when each direction is looked up one way, and refuses paying one twice", async () => {
+    const google = fakeGoogle(["907"], { followDates: true });
+    const out = await run(["flights", "--from", "CPH", "--to", "HEL", "--depart", "2026-11-13", "--one-way"], { fetchImpl: google.impl });
+    const home = await run(["flights", "--from", "HEL", "--to", "CPH", "--depart", "2026-11-15", "--one-way"], { fetchImpl: google.impl });
+    const listed = await run(["flights", "--from", "CPH", "--to", "HEL", "--depart", "2026-11-13", "--return", "2026-11-15"], { fetchImpl: google.impl });
+    assert.deepEqual(
+      [out, home, listed].map((result) => result.lookups[0].status),
+      ["ok", "ok", "ok"],
+    );
+    assert.equal(out.costLines[0].returnFlight, undefined);
+    assert.equal(listed.costLines[0].returnFlight, "not_seen");
+    assert.equal(listed.lowest.returnFlight, "not_seen");
+    assert.equal(listed.lookups[0].returnFlight, "not_seen");
+    assert.equal(out.lookups[0].returnFlight, undefined);
+    const input = {
+      request: { title: "Helsinki weekend", kind: "flights", travellers: 1 },
+      options: [
+        {
+          id: "A",
+          title: "Helsinki",
+          depart: "2026-11-13",
+          return: "2026-11-15",
+          from: ["CPH"],
+          to: ["HEL"],
+          why: "Short flight.",
+          advantages: ["Short flight"],
+          tradeOffs: ["Early start"],
+          costs: [out.costLines[0], home.costLines[0]],
+        },
+      ],
+    };
+    const compare = (costs) => {
+      input.options[0].costs = costs;
+      return run(["compare", "--json-stdin"], { stdin: Readable.from([JSON.stringify(input)]) });
+    };
+    const both = await compare([out.costLines[0], home.costLines[0]]);
+    assert.equal(both.ok, true, both.problems?.join("\n"));
+    assert.equal(both.options[0].total, 907 * 2);
+    assert.equal(both.options[0].confidence, "verified");
+    assert.match(both.telegramText, /flights are two one-way tickets, bought separately/);
+    const twice = await compare([listed.costLines[0], home.costLines[0]]);
+    assert.equal(twice.ok, false);
+    assert.match(twice.problems.join("\n"), /pay for the return flight twice/);
+    const half = await compare([out.costLines[0]]);
+    assert.equal(half.options[0].complete, false);
+    assert.match(half.telegramText, /Total\s+≥907/);
+    // compare reads the helper's own links: a one-way fare flown the wrong way never prices the trip home.
+    const wrongWay = await run(["flights", "--from", "CPH", "--to", "HEL", "--depart", "2026-11-15", "--one-way"], { fetchImpl: google.impl });
+    const backwards = await compare([out.costLines[0], wrongWay.costLines[0]]);
+    assert.equal(backwards.ok, false);
+    assert.match(backwards.problems.join("\n"), /is a Google Flights search from CPH to HEL, not this trip's return route \(HEL → CPH\)/);
   });
 
   it("samples a flexible window and enforces the lookup cap before fetching", async () => {
