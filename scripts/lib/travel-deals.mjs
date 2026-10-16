@@ -1575,12 +1575,14 @@ function describeRecommendation(recommendation, options, request) {
   let note;
   if (!option.complete) {
     note = `Its total isn't complete yet: ${[...option.missing, ...option.unknown].join(", ")} still unpriced.`;
-    // Without complete totals no price gap is stated, but what its schedule gives over the lowest known costs still is.
-    const lowestKnown = options
-      .filter((candidate) => candidate.id !== option.id && candidate.total < option.total)
-      .sort((left, right) => left.total - right.total)[0];
+    // Without complete totals no price gap is stated, but what the schedules give still is: its own over the
+    // lowest known costs, or, when it has those, what a pricier option's schedule would give instead.
+    const others = options.filter((candidate) => candidate.id !== option.id).sort((left, right) => left.total - right.total);
+    const lowestKnown = others.find((candidate) => candidate.total < option.total);
     const gains = lowestKnown ? scheduleGains(option, lowestKnown) : [];
     if (gains.length > 0) note += ` Compared with ${lowestKnown.id}, whose known costs are lowest: ${gains.join("; ")}.`;
+    const pricier = lowestKnown ? null : others.find((candidate) => candidate.total > option.total && scheduleGains(candidate, option).length > 0);
+    if (pricier) note += ` ${pricier.id}, with higher known costs, gives: ${scheduleGains(pricier, option).join("; ")}.`;
   } else if (cheapest && cheapest.id !== option.id && cheapest.total < option.total) {
     note = `It costs ${formatInt(option.total - cheapest.total)} ${request.currency} more than ${cheapest.id}, ${lowest(cheapest)}.`;
     const gains = scheduleGains(option, cheapest);

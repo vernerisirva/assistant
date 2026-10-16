@@ -799,6 +799,14 @@ describe("flight schedules and convenience", () => {
       /Its total isn't complete yet: hotel taxes and fees still unpriced\. Compared with A, whose known costs are lowest: flight home at 18:45 \(A: 06:55\); a round may fit on the last day \(A: none\)\./,
     );
     assert.doesNotMatch(text, /costs \d[\d ]* SEK more/, "no price gap between incomplete totals");
+    // Picking the option with the lowest known costs, the note says what the pricier schedule would give.
+    input.recommendation = { option: "A", why: "Same hotel and courses" };
+    const cheaperPick = okResult(input).telegramText;
+    assert.match(
+      cheaperPick,
+      /Its total isn't complete yet: hotel taxes and fees still unpriced\. B, with higher known costs, gives: flight home at 18:45 \(A: 06:55\); a round may fit on the last day \(A: none\)\./,
+    );
+    assert.doesNotMatch(cheaperPick, /costs \d[\d ]* SEK more/);
   });
 
   it("compares schedules only on facts both options have", () => {
