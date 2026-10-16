@@ -666,6 +666,13 @@ describe("flight schedules and convenience", () => {
     assert.match(result.telegramText, /flights listed \(return flight not seen\)/);
   });
 
+  it("says when Google didn't describe a stop, rather than implying a short one", () => {
+    const unlisted = okResult(withCosts([outLeg({ stops: 1, layovers: [], durationMinutes: 400, arriveTime: "18:00" }), homeLeg(), ...rest()]));
+    assert.match(lineOf(unlisted.telegramText, "Flights (local times)"), /Norwegian, 1 stop, layover not listed, 6 h 40 min\./);
+    const partly = okResult(withCosts([outLeg({ stops: 2, layovers: [{ city: "Oslo", minutes: 60, overnight: false }], durationMinutes: 500, arriveTime: "19:40" }), homeLeg(), ...rest()]));
+    assert.match(lineOf(partly.telegramText, "Flights (local times)"), /2 stops via Oslo \(1 h\), 1 more layover not listed/);
+  });
+
   it("flags a connection on separate tickets", () => {
     const selfTransfer = outLeg({ stops: 1, layovers: [{ city: "Barcelona", minutes: 140, overnight: false }], separateTickets: true, durationMinutes: 420, arriveTime: "18:20" });
     const result = okResult(withCosts([selfTransfer, homeLeg(), ...rest()]));
@@ -679,7 +686,10 @@ describe("flight schedules and convenience", () => {
       lineOf(full.telegramText, "Golf days"),
       "Golf days: A round may fit on arrival day, starting about 12:10; a round may fit on the last day, finishing by 15:35.",
     );
-    assert.match(full.telegramText, /Golf days assume about 4 h 30 min per round, 2 h at the airport before a flight and 30 min to leave it after landing\./);
+    assert.match(
+      full.telegramText,
+      /Golf days assume about 4 h 30 min per round, 2 h at the airport before a flight, 30 min to leave it after landing, and each drive taking as long either way, via the accommodation\./,
+    );
     assert.match(lineOf(full.telegramText, "Travel:"), /airport transfer about 1 h \(\[source\]\(https:\/\/hotel-sol\.example\.com\/getting-here\)\); drive to the course about 10 min/);
     assert.match(full.telegramText, /daylight about 08:28–18:24 \(\[source\]\(https:\/\/www\.timeanddate\.com\/sun\/spain\/malaga\?month=1&year=2027\)\)/);
 

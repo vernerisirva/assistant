@@ -49,6 +49,8 @@ OPENCLAW_CONFIG_PATH="$PWD/.openclaw/openclaw.json" OPENCLAW_STATE_DIR="$PWD/.op
     - "no round" when even the best case leaves no room (an early flight home always does);
     - otherwise "not checked".
   - Golf days assume about 4 h 30 min per round, 2 h at the airport before a flight and 30 min to leave it after landing; the reply says so. Tee times stay unchecked.
+  - Each sourced drive time is used both ways, and airport to course is counted via the accommodation. That is never shorter than the direct drive, so a "may fit" stays conservative.
+  - A stop Google's label doesn't describe shows as "layover not listed", never as a short connection.
 - **Recommendations:** when the recommended option costs more, the note lists what its schedule gives, and only from facts both options have: fewer stops, a later flight home, an earlier landing, more full days, a round where the other has none. No score is computed.
 - **Compatibility:** inputs without `flight`, `travelTimes`, `preferences` or structured daylight work as before, and their replies are unchanged.
 

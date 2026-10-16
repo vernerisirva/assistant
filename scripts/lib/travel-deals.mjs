@@ -465,14 +465,20 @@ function describeOffer(offer) {
   return parts.join(" · ");
 }
 
-/** "nonstop", or "1 stop via Riga (9 h, overnight)" with each layover as Google gives it. */
+/**
+ * "nonstop", or "1 stop via Riga (9 h, overnight)" with each layover as
+ * Google gives it; a stop Google's label didn't describe says so.
+ */
 function stopsText(flight) {
   if (flight.stops === 0) return "nonstop";
-  const via = (flight.layovers ?? []).map(
+  const listed = flight.layovers ?? [];
+  const via = listed.map(
     (stop) =>
       `${stop.city} (${stop.minutes === null || stop.minutes === undefined ? String(stop.duration ?? "?").replace(/\bhr\b/g, "h") : formatMinutes(stop.minutes)}${stop.overnight ? ", overnight" : ""})`,
   );
-  return `${flight.stops} ${flight.stops === 1 ? "stop" : "stops"}${via.length > 0 ? ` via ${via.join(", ")}` : ""}`;
+  const unlisted = flight.stops - listed.length;
+  const gap = unlisted <= 0 ? "" : listed.length === 0 ? ", layover not listed" : `, ${unlisted} more ${unlisted === 1 ? "layover" : "layovers"} not listed`;
+  return `${flight.stops} ${flight.stops === 1 ? "stop" : "stops"}${via.length > 0 ? ` via ${via.join(", ")}` : ""}${gap}`;
 }
 
 /** " (+1)" when a flight lands on a later local date than it leaves. */
@@ -811,9 +817,10 @@ function validateOption(option, index, { request, today, now, fail, warnings }) 
 }
 
 /**
- * How long the airport transfer (airport to the accommodation) and the drive
- * to the course take, each only with the page that says so. A time no page
- * gives is left out, and the reply says it wasn't checked.
+ * How long the journeys between the airport and the accommodation, and
+ * between the accommodation and the course, take (either way), each only with
+ * the page that says so. A time no page gives is left out, and the reply says
+ * it wasn't checked.
  */
 function validateTravelTimes(times, at, fail) {
   if (!isPlainObject(times)) {
@@ -1674,6 +1681,8 @@ function travelFacts(option, counted, request) {
  * only when the flight, both travel times and daylight are all known; it is
  * ruled out when even the best case (no travel time, the widest possible day)
  * leaves no room; anything else is "not checked". Tee times are never known.
+ * A drive takes as long either way, and airport to course is counted via the
+ * accommodation, which is never shorter than driving straight there.
  */
 function golfWindows(out, home, times, sun) {
   const airport = times.airport?.minutes ?? null;
@@ -1857,7 +1866,9 @@ function formatComparison({ request, options, fx, comparisons, recommended, limi
     lines.push(`Per round = the ${request.travellers > 1 ? "trip cost per person" : "whole trip cost"} divided by the rounds played, not the green fee.`);
   }
   if (options.some((option) => option.travel?.golf)) {
-    lines.push("Golf days assume about 4 h 30 min per round, 2 h at the airport before a flight and 30 min to leave it after landing.");
+    lines.push(
+      "Golf days assume about 4 h 30 min per round, 2 h at the airport before a flight, 30 min to leave it after landing, and each drive taking as long either way, via the accommodation.",
+    );
   }
   if (options.some((option) => option.listedAirfare)) {
     lines.push(
