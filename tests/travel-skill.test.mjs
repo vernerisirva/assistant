@@ -139,6 +139,9 @@ describe("travel-deals SKILL.md", () => {
       /It never promises a round, and without those facts it says "not checked"/,
       /go in `request\.preferences`, only as they said them/,
       /judge by what they said matters, not by your own taste in departure times/,
+      /copy that offer's `costLine` from `lookups\[\]\.offers`; never build a flights line yourself/,
+      /A course at the accommodation is `"course": \{"minutes": 0, "source": "\.\.\."\}` with the resort's own page/,
+      /never say in `advantages`, `tradeOffs` or `why` that a round fits on the arrival day or the last day/,
     ]) {
       assert.match(skill, rule);
     }
@@ -250,6 +253,47 @@ describe("travel CLI", () => {
     assert.throws(() => parseTravelArgs(["flights", "--pay"]), /Unknown travel option: --pay/);
     assert.throws(() => parseTravelArgs(["flights", "--from"]), /--from needs a value/);
     assert.match(TRAVEL_USAGE, /travel compare --json-stdin/);
+  });
+
+  it("shows the usage for --help instead of failing", async () => {
+    assert.deepEqual(parseTravelArgs(["flights", "--help"]), { command: "help" });
+    assert.deepEqual(parseTravelArgs(["-h"]), { command: "help" });
+    assert.equal((await run(["flights", "--help"])).usage, TRAVEL_USAGE);
+  });
+
+  it("gives every listed offer its own cost line, so a later flight is copied, never built", async () => {
+    const google = fakeGoogle(["450", "636"], { followDates: true });
+    const home = await run(["flights", "--from", "HEL", "--to", "CPH", "--depart", "2026-11-15", "--one-way"], { fetchImpl: google.impl });
+    const out = await run(["flights", "--from", "CPH", "--to", "HEL", "--depart", "2026-11-13", "--one-way"], { fetchImpl: google.impl });
+    const offers = home.lookups[0].offers;
+    assert.deepEqual(
+      offers.map((offer) => offer.costLine.amount),
+      [450, 636],
+    );
+    assert.deepEqual(offers[0].costLine, home.costLines[0], "the cheapest offer's line is the costLines entry");
+    assert.equal(offers[1].costLine.flight.from, "HEL");
+    const input = {
+      request: { title: "Helsinki weekend", kind: "flights", travellers: 1 },
+      options: [
+        {
+          id: "A",
+          title: "Helsinki",
+          depart: "2026-11-13",
+          return: "2026-11-15",
+          from: ["CPH"],
+          to: ["HEL"],
+          why: "Short flight.",
+          advantages: ["Short flight"],
+          tradeOffs: ["Early start"],
+          costs: [out.costLines[0], offers[1].costLine],
+        },
+      ],
+    };
+    const result = await run(["compare", "--json-stdin"], { stdin: Readable.from([JSON.stringify(input)]) });
+    assert.equal(result.ok, true, result.problems?.join("\n"));
+    assert.equal(result.options[0].total, 450 + 636);
+    assert.match(result.guidance ?? "", /word for word/);
+    assert.match(home.guidance, /copy that offer's costLine from lookups\[\]\.offers/);
   });
 
   it("looks up each origin and date, and returns verified cost lines and the reply", async () => {

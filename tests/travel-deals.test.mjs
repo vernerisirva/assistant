@@ -783,6 +783,32 @@ describe("flight schedules and convenience", () => {
     assert.equal(lineOf(pickA.telegramText, "Golf days"), "Golf days: No round on arrival day (lands 14:50, dark by 18:24); no round on the last day (at the airport by 04:55, light from 08:28).");
   });
 
+  it("still lists what a better schedule gives when the totals are incomplete, with no price claim", () => {
+    // Hotel taxes are unknown for both, so neither total is complete.
+    const untaxed = () => [golfBag(), hotel({ includes: ["breakfast"] }), { item: "taxes_fees", status: "unavailable" }, greenFees(), car()];
+    const input = golfInput({
+      options: [
+        golfOption({ costs: [outLeg(), homeLeg({ departTime: "06:55", arriveTime: "10:35" }), ...untaxed()], golf: { ...golfOption().golf, daylight: sun }, travelTimes: times }),
+        golfOption({ id: "B", title: "Evening flight home", costs: [outLeg(), homeLeg({}, { amount: 1300 }), ...untaxed()], golf: { ...golfOption().golf, daylight: sun }, travelTimes: times }),
+      ],
+      recommendation: { option: "B", why: "The evening flight keeps the last morning for golf" },
+    });
+    const text = okResult(input).telegramText;
+    assert.match(
+      text,
+      /Its total isn't complete yet: hotel taxes and fees still unpriced\. Compared with A, whose known costs are lowest: flight home at 18:45 \(A: 06:55\); a round may fit on the last day \(A: none\)\./,
+    );
+    assert.doesNotMatch(text, /costs \d[\d ]* SEK more/, "no price gap between incomplete totals");
+    // Picking the option with the lowest known costs, the note says what the pricier schedule would give.
+    input.recommendation = { option: "A", why: "Same hotel and courses" };
+    const cheaperPick = okResult(input).telegramText;
+    assert.match(
+      cheaperPick,
+      /Its total isn't complete yet: hotel taxes and fees still unpriced\. B, with higher known costs, gives: flight home at 18:45 \(A: 06:55\); a round may fit on the last day \(A: none\)\./,
+    );
+    assert.doesNotMatch(cheaperPick, /costs \d[\d ]* SEK more/);
+  });
+
   it("compares schedules only on facts both options have", () => {
     // A listing's return is unknown, so no later-flight-home or last-day claim is made against it.
     const input = golfInput({
