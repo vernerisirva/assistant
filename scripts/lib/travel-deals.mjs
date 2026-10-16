@@ -472,10 +472,9 @@ function describeOffer(offer) {
 function stopsText(flight) {
   if (flight.stops === 0) return "nonstop";
   const listed = flight.layovers ?? [];
-  const via = listed.map(
-    (stop) =>
-      `${stop.city} (${stop.minutes === null || stop.minutes === undefined ? String(stop.duration ?? "?").replace(/\bhr\b/g, "h") : formatMinutes(stop.minutes)}${stop.overnight ? ", overnight" : ""})`,
-  );
+  const length = (stop) =>
+    Number.isInteger(stop.minutes) ? formatMinutes(stop.minutes) : stop.duration ? String(stop.duration).replace(/\bhr\b/g, "h") : "length not listed";
+  const via = listed.map((stop) => `${stop.city} (${length(stop)}${stop.overnight ? ", overnight" : ""})`);
   const unlisted = flight.stops - listed.length;
   const gap = unlisted <= 0 ? "" : listed.length === 0 ? ", layover not listed" : `, ${unlisted} more ${unlisted === 1 ? "layover" : "layovers"} not listed`;
   return `${flight.stops} ${flight.stops === 1 ? "stop" : "stops"}${via.length > 0 ? ` via ${via.join(", ")}` : ""}${gap}`;

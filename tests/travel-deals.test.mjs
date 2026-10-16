@@ -671,6 +671,9 @@ describe("flight schedules and convenience", () => {
     assert.match(lineOf(unlisted.telegramText, "Flights (local times)"), /Norwegian, 1 stop, layover not listed, 6 h 40 min\./);
     const partly = okResult(withCosts([outLeg({ stops: 2, layovers: [{ city: "Oslo", minutes: 60, overnight: false }], durationMinutes: 500, arriveTime: "19:40" }), homeLeg(), ...rest()]));
     assert.match(lineOf(partly.telegramText, "Flights (local times)"), /2 stops via Oslo \(1 h\), 1 more layover not listed/);
+    const noLength = okResult(withCosts([outLeg({ stops: 1, layovers: [{ city: "Riga", minutes: null, overnight: false }], arriveTime: "18:00" }), homeLeg(), ...rest()]));
+    assert.match(lineOf(noLength.telegramText, "Flights (local times)"), /1 stop via Riga \(length not listed\)/);
+    assert.doesNotMatch(noLength.telegramText, /\(\?\)/);
   });
 
   it("flags a connection on separate tickets", () => {
