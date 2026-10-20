@@ -78,6 +78,7 @@ JSON
 
 ## When Something Went Wrong
 
+- A change or golf answer after the plan was applied cannot go through `revise`: its tasks already exist. Say when they were created (`status`), and that changing or removing created tasks follows the normal Todoist rules, so ask before touching any.
 - Status says a plan couldn't be delivered: it is an unshown draft and never applies; the apply check keeps sending it. If the user asks for the plan in chat, `show` says to run `npm run --silent weekly-plan -- propose --reply --input-json '{"weekStart":"YYYY-MM-DD"}'` with its Monday, and reply with that `telegramText` exactly: that shows it and starts its window.
 - Status says a plan is waiting for the user's OK: Todoist couldn't be read when it was made, and that week has tasks it didn't account for, so nothing was created automatically. Explain that in a sentence; an OK, a change or a cancel decides.
 - A plan stored before golf answers became optional may still be waiting for them (`awaiting_input`). Golf answers for it go through `npm run --silent weekly-plan -- answer --input-json-stdin` with `{"golf": {...}}` as above (a non-golf change can go along as `"changes"`); it builds the plan from what they said with defaults for the rest and returns it to send exactly. `propose --reply` with that week's `weekStart` builds it with defaults for everything unanswered. Either way only days that haven't passed are planned, and its window starts when it is shown.

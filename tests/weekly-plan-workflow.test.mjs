@@ -341,6 +341,23 @@ describe("weekly plan workflow", () => {
       assert.equal(todoist.calls.addTask.length, versionEntry(plan(), 1).plan.operations.length);
     });
 
+    it("never applies a plan made without Todoist while Todoist still can't be read at its deadline", async () => {
+      todoist.getTasks = async () => {
+        throw new Error("fetch failed");
+      };
+      await proposeAndShow();
+      const texts = [];
+      for (let check = 0; check < 9; check += 1) {
+        at(new Date(Date.parse("2026-09-26T19:00:00.000Z") + check * 15 * 60_000).toISOString());
+        texts.push((await run(["apply-due"])).text);
+      }
+      assert.deepEqual(texts.slice(0, 7), Array(7).fill("NO_REPLY"), "it waits for a readable Todoist");
+      assert.match(texts[7], /^Weekly plan could not be applied/);
+      assert.equal(texts[8], "NO_REPLY");
+      assert.equal(plan().status, "failed");
+      assert.equal(todoist.calls.addTask.length, 0, "nothing is created on an empty assumption");
+    });
+
     it("holds a plan made without Todoist for an OK when that week has tasks it didn't count, and says so once", async () => {
       const realGetTasks = todoist.getTasks.bind(todoist);
       todoist.getTasks = async () => {
