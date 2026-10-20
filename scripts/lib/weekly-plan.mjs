@@ -41,6 +41,7 @@ import {
   applyGolfChanges,
   classifyGolfTitle,
   deriveGolfWeek,
+  formatGolfRefinements,
   formatGolfSection,
   golfTask,
   keepCurrentGolfWeek,
@@ -1211,19 +1212,35 @@ export function isWeeklyPlanAcceptance(message) {
 // ---------------------------------------------------------------------------
 // Messages.
 
-export function formatPlanMessage(document, { version, deadline, changeSummary = [], timezone = WEEKLY_PLAN_TIMEZONE }) {
+/**
+ * The plan as the user sees it. The first version asks the golf questions it
+ * assumed answers to, once; every version says when its tasks are created if
+ * the user does nothing, and how to change, accept or cancel it.
+ * @param today the local date it is shown on: a week that has started is "This week's plan"
+ */
+export function formatPlanMessage(document, { version, deadline, changeSummary = [], timezone = WEEKLY_PLAN_TIMEZONE, today = null }) {
   const entry = document.versions.find((candidate) => candidate.version === version);
   if (!entry) throw new Error(`Plan ${document.planId} has no version ${version}.`);
   const plan = entry.plan;
+  const started = Boolean(today) && today >= plan.weekStart;
   const lines = [
-    `${version === 1 ? "Next week's plan" : "Updated plan"} · ${formatWeekLabel(plan.weekStart)} · v${version}`,
+    `${version === 1 ? (started ? "This week's plan" : "Next week's plan") : "Updated plan"} · ${formatWeekLabel(plan.weekStart)} · v${version}`,
   ];
   if (changeSummary.length > 0) lines.push(`Changes: ${changeSummary.join(" · ")}`);
+  else if (version === 1) lines.push("Here is your plan. I've used your existing tasks, preferences and sensible defaults.");
+  // Plans stored before recipes were required have no food language; they
+  // show their extras, breakfast and backup lines exactly as before.
+  const recipePlan = Boolean(plan.food.language);
   const targets = TARGET_KEYS.map((key) => `${TARGET_LABELS[key]} ${plan.targets[key]}`).join(" · ");
+  // Which gym session and mobility routine each day gets, read from the tasks themselves.
+  const sessions = recipePlan ? sessionNames(plan.operations) : new Map();
   const labelsOf = (day, { withGolf }) =>
     day.activities
       .filter((activity) => withGolf || activity.activity !== "golf")
-      .map((activity) => `${SCHEDULE_LABELS[activity.activity]}${activity.status === "existing" ? " (in Todoist)" : ""}`);
+      .map((activity) => {
+        const session = activity.status === "new" ? sessions.get(`${activity.activity}:${day.date}`) : null;
+        return `${SCHEDULE_LABELS[activity.activity]}${session ? ` (${session})` : ""}${activity.status === "existing" ? " (in Todoist)" : ""}`;
+      });
 
   if (plan.golf) {
     // The golf week has its own section; the schedule below lists the rest.
@@ -1241,9 +1258,6 @@ export function formatPlanMessage(document, { version, deadline, changeSummary =
     }
   }
 
-  // Plans stored before recipes were required have no food language; they
-  // show their extras, breakfast and backup lines exactly as before.
-  const recipePlan = Boolean(plan.food.language);
   lines.push("", "Food");
   for (const session of plan.food.prep) {
     lines.push(
@@ -1269,22 +1283,56 @@ export function formatPlanMessage(document, { version, deadline, changeSummary =
 
   if (plan.notes.length > 0) lines.push("", ...plan.notes.map((note) => `Note: ${note}`));
   if (plan.question) lines.push("", `Question: ${plan.question}`);
+  const revised = changeSummary.length > 0;
+  if (version === 1 && !revised && plan.golf?.assumed?.length > 0) lines.push("", ...formatGolfRefinements(plan.golf.assumed));
 
   const count = plan.operations.length;
   const when = formatLocalDateTime(deadline, timezone);
   lines.push(
     "",
-    count > 0
-      ? `I'll create ${count} Todoist task${count === 1 ? "" : "s"} at ${when} unless you change or cancel the plan.`
-      : `Nothing new to add to Todoist; I'll close this plan at ${when} unless you change it.`,
-    changeSummary.length > 0
+    count === 0
+      ? `Nothing new to add to Todoist; I'll close this plan at ${when} unless you change it.`
+      : revised
+        ? `I'll create ${count} Todoist task${count === 1 ? "" : "s"} at ${when} unless you change or cancel the plan.`
+        : `If you don't reply, that's fine: I'll create ${count} Todoist task${count === 1 ? "" : "s"} at ${when}.`,
+  );
+  // Shown late in a day, the window ends after that day: its tasks would be overdue then.
+  const deadlineDate = localDateInTimeZone(new Date(deadline), timezone);
+  const lateDate = plan.operations.map((operation) => operation.date).filter((date) => date < deadlineDate).sort()[0];
+  if (lateDate) lines.push(`${weekdayName(lateDate)}'s tasks would be overdue by then, so they are only created if you reply OK before ${weekdayName(lateDate)} ends.`);
+  lines.push(
+    revised
       ? `The 12-hour review window restarted with this change. Reply OK to ${count > 0 ? "create them" : "close it"} now, or tell me what else to change.`
-      : `Reply OK to ${count > 0 ? "create them" : "close it"} now, or tell me what to change, e.g. ${
-          plan.golf ? '"Move wedges to Thursday", "Gym 3 times", "No salmon"' : '"Gym 3 times", "Move Friday gym to Sunday", "No salmon", "Add bananas"'
-        } or "Skip this week".`,
+      : "Reply with changes, OK to apply now, or Skip this week to cancel.",
   );
 
   return lines.join("\n");
+}
+
+/** "Helkropp A" for each new gym task and the routine's name for each mobility task, by `activity:date`. */
+function sessionNames(operations) {
+  const names = new Map();
+  for (const operation of operations) {
+    if (operation.activity !== "gym" && operation.activity !== "stretch") continue;
+    const [first = ""] = String(operation.payload?.description ?? "").split("\n");
+    const name = first.split(/ [–·] /)[0].trim();
+    if (name) names.set(`${operation.activity}:${operation.date}`, name);
+  }
+  return names;
+}
+
+const HELD_LABELS = Object.freeze({ shopping: "groceries", mealPrep: "cooking", gym: "gym", golf: "golf", stretch: "stretching" });
+
+/** The one message for a plan held at its deadline: it was built without Todoist, and that week has tasks it didn't count. */
+export function formatApplyHold(document) {
+  const found = [
+    ...new Set((document.applyHold?.unaccounted ?? []).map(({ activity, date }) => `${HELD_LABELS[activity] ?? activity} ${shortWeekday(date)}`)),
+  ];
+  return [
+    `Weekly plan · ${formatWeekLabel(document.weekStart)} · v${document.currentVersion}: nothing created yet`,
+    `I couldn't read Todoist when I made this plan, and that week already has tasks it didn't account for (${found.join(", ")}). To avoid doubling up, I didn't create anything automatically.`,
+    "Reply OK to create the plan as shown anyway, tell me what to change, or Skip this week to cancel.",
+  ].join("\n");
 }
 
 export function formatApplySummary(document) {

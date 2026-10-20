@@ -184,10 +184,14 @@ function describeWeeklyPlan(weeklyPlan) {
     return pending
       .map((plan) =>
         plan.status === "pending"
-          ? `${plan.weekId} pending (v${plan.currentVersion}), applies at ${plan.reviewDeadlineLocal}`
+          ? plan.waitingForOk
+            ? `${plan.weekId} pending (v${plan.currentVersion}), waiting for your OK`
+            : `${plan.weekId} pending (v${plan.currentVersion}), applies at ${plan.reviewDeadlineLocal}`
           : plan.status === "awaiting_input"
             ? `${plan.weekId} waiting for golf answers`
-            : `${plan.weekId} ${plan.status} (v${plan.currentVersion})`,
+            : plan.status === "draft" && plan.deliveryAttempts
+              ? `${plan.weekId} not delivered yet (${plan.deliveryAttempts} ${plan.deliveryAttempts === 1 ? "try" : "tries"}), not applied until shown`
+              : `${plan.weekId} ${plan.status} (v${plan.currentVersion})`,
       )
       .join("; ");
   }

@@ -350,6 +350,7 @@ describe("agent configuration", () => {
     const section = prompt.slice(prompt.indexOf("Weekly plan:"), prompt.indexOf("Quiet Ops:"));
 
     assert.match(section, /stored plan is the authority, not the chat history/);
+    assert.match(section, /scheduled job sends next week's complete food, shopping, gym, stretching and golf plan, with labelled defaults for what the user hasn't said; replies refine it, silence lets it apply/);
     assert.match(section, /first run `npm run --silent weekly-plan -- guide` and follow it; it starts with the plan's status/);
     assert.match(section, /golf days, holes or focus such as `18 holes Wednesday` or `focus on putting`/);
     assert.match(section, /revise --expect-version N --changes-json-stdin/);
@@ -367,7 +368,7 @@ describe("agent configuration", () => {
     // The golf boundary is in the standing orders themselves, not only in the guide.
     assert.match(
       section,
-      /Golf answers and changes carry the user's exact words\. Never fill in playing days, holes, competitions, lessons, focus areas or practice time from memory or habit; ask instead\. Plan practice, never swing mechanics, and never seven golf days\./,
+      /Golf answers and changes carry the user's exact words\. Never fill in playing days, holes, competitions, lessons, focus areas or practice time from memory or habit; unsaid ones stay the planner's defaults\. Plan practice, never swing mechanics, and never seven golf days\./,
     );
     assert.match(section, /Send every weekly-plan `telegramText` word for word, never shortened or reworded: the shown plan is what applies/);
     assert.ok(Buffer.byteLength(section) < 2700, `weekly plan section is ${Buffer.byteLength(section)} bytes`);
@@ -399,10 +400,18 @@ describe("agent configuration", () => {
     assert.match(guide, /`Gym 3 times` → `\{"targets":\{"gym":3\}\}`/);
     assert.match(guide, /`Move Friday gym to Sunday` → `\{"moves":\[\{"activity":"gym","from":"friday","to":"sunday"\}\]\}`/);
     assert.match(guide, /`Don't use salmon` → `\{"excludeIngredients":\["salmon"\]\}`/);
-    assert.match(guide, /npm run --silent weekly-plan -- answer --input-json-stdin <<'JSON'/);
-    assert.match(guide, /Never fill a gap\. Playing days, holes, competitions, lessons, focus areas, technical priorities and time limits come only from what the user said in this conversation, never from memory, earlier weeks or habit/);
-    assert.match(guide, /no plan version yet|No plan exists yet, nothing can be accepted or applied, and no review window runs/);
-    assert.match(guide, /that is when the 12-hour review window starts/);
+    assert.match(guide, /npm run --silent weekly-plan -- revise --expect-version 1 --changes-json-stdin <<'JSON'\n\{"golf": \{"replyText": /);
+    assert.match(guide, /Never fill a gap\. Playing days, holes, competitions, lessons, focus areas, technical priorities and time limits come only from what the user said in this conversation, never from memory, earlier weeks or habit; whatever they haven't said stays the planner's labelled default/);
+    // Answers are optional: the plan is complete without them, and silence lets the shown version apply.
+    assert.match(guide, /Golf answers are not needed: without them every golf day is practice \(never an invented round\) and the focus is a balanced mix for competitive play, both labelled as defaults/);
+    assert.match(guide, /Sending it starts the 12-hour review window\. If the user doesn't reply, the deterministic apply check creates exactly the shown version's Todoist tasks/);
+    assert.match(guide, /Use what a partial answer gives and nothing more\. `Playing Wednesday and Saturday` sets the playing days and keeps the default focus/);
+    assert.match(guide, /Never ask again for what the user left out/);
+    assert.match(guide, /ask one short question, only when the change cannot be made safely or meaningfully without it\. A missing preference is not unclear/);
+    // The everyday replies to a pending plan, each with where it goes.
+    for (const reply of ["Gym three days instead", "Play 18 holes Saturday", "No salmon", "Make recipes in Finnish", "Move the rest day to Friday", "Looks good", "Skip this week"]) {
+      assert.ok(guide.includes(`\`${reply}\``), reply);
+    }
     assert.match(guide, /Never add mechanics or a diagnosis/);
     assert.match(guide, /It only reads them\. Remembering anything, such as a normal golf week, follows the memory rules: only on the user's explicit request/);
     assert.match(guide, /No weather, no golf statistics, no bookings, and no scheduled or post-round messages/);

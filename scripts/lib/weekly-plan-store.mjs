@@ -8,11 +8,15 @@
  * restarts.
  *
  * States:
- * - awaiting_input: next week's context is stored and the golf questions were
- *   asked (or are about to be); there is no plan version yet. Never applies,
- *   and the review window has not started.
- * - draft: stored, not yet shown to the user. Never applies.
- * - pending: shown; applies after the review deadline or on explicit OK.
+ * - awaiting_input: only in plans stored before golf answers became optional:
+ *   the week's context and the golf questions, with no plan version yet.
+ *   Never applies; answering it, or proposing that week again, builds the
+ *   plan with defaults for whatever is still unanswered.
+ * - draft: stored, not yet shown to the user. Never applies. A draft the
+ *   scheduled proposal could not deliver is sent again by the apply check.
+ * - pending: shown; applies after the review deadline or on explicit OK. A
+ *   plan built without reading Todoist is held for an explicit OK when the
+ *   week turns out to have tasks it did not account for (`applyHold`).
  * - applying: task creation in progress; a crash leaves this state and the
  *   next check resumes it without redoing finished operations.
  * - applied: every operation was created, already existed, or had a date in
@@ -53,6 +57,10 @@ export const FINAL_STATUSES = Object.freeze(["applied", "applied_with_errors", "
 const DONE_OUTCOMES = new Set(["created", "already_exists", "skipped_past_date", "failed"]);
 const LOCK_STALE_MS = 15 * 60_000;
 const LOCK_HEARTBEAT_MS = 60_000;
+/** Minutes before each retry of an undelivered plan: 15, 30, 60, then every 2 hours. */
+const DELIVERY_RETRY_MINUTES = Object.freeze([15, 30, 60, 120]);
+/** A scheduled draft that no send ever touched is left alone this long, so a running proposal finishes first. */
+const UNSENT_DRAFT_GRACE_MS = 10 * 60_000;
 
 export function resolveWeeklyPlanDir(stateDir) {
   return join(stateDir, "weekly-plan");
@@ -349,7 +357,63 @@ export function markPlanDisplayed(
     reviewWindowHours,
     reviewDeadline: computeReviewDeadline(at, { hours: reviewWindowHours, roundMinutes }),
     applyDeferrals: null,
+    applyHold: null,
+    delivery: null,
     history: [...document.history, { at, event: "displayed", version, channel, ...(messageId ? { messageId } : {}) }],
+  };
+}
+
+/**
+ * A send of the draft did not reach Telegram. The draft stays unshown, so it
+ * never applies, and the apply check sends it again after a growing pause.
+ */
+export function recordDeliveryFailure(document, { error, now }) {
+  if (document.status !== "draft") throw new Error(`Weekly plan ${document.planId} is ${document.status}, not an unshown draft.`);
+  const at = toIso(now);
+  const attempts = (document.delivery?.attempts ?? 0) + 1;
+  const pause = DELIVERY_RETRY_MINUTES[Math.min(attempts, DELIVERY_RETRY_MINUTES.length) - 1];
+  return {
+    ...document,
+    updatedAt: at,
+    delivery: {
+      attempts,
+      lastError: deliveryErrorText(error),
+      lastAttemptAt: at,
+      nextAttemptAt: new Date(Date.parse(at) + pause * 60_000).toISOString(),
+    },
+    history: [...document.history, { at, event: "delivery-failed", version: document.currentVersion, attempt: attempts }],
+  };
+}
+
+/** A failed send's error as it is stored, so the same error can be recognised next time. */
+export function deliveryErrorText(error) {
+  return String(error ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
+}
+
+/**
+ * Whether the apply check should send this draft now: a send already failed
+ * and its pause is over, or the scheduled proposal stored it and no send ever
+ * touched it (the job stopped in between). Never after the plan's week.
+ */
+export function isDeliveryRetryDue(document, now, { today }) {
+  if (document.status !== "draft" || document.weekEnd < today) return false;
+  if (document.delivery?.attempts > 0) return Date.parse(document.delivery.nextAttemptAt) <= toMs(now);
+  const scheduled = document.versions.find((entry) => entry.version === document.currentVersion)?.source === "scheduled";
+  return scheduled && toMs(now) - Date.parse(document.createdAt) >= UNSENT_DRAFT_GRACE_MS;
+}
+
+/**
+ * The plan was built without reading Todoist, and at its deadline that week
+ * has tasks the plan did not account for. Nothing is created automatically;
+ * an explicit OK, a change or a cancel decides. Reported once per version.
+ */
+export function recordApplyHold(document, { unaccounted, now }) {
+  const at = toIso(now);
+  return {
+    ...document,
+    updatedAt: at,
+    applyHold: { version: document.currentVersion, at, unaccounted },
+    history: [...document.history, { at, event: "apply-held", version: document.currentVersion }],
   };
 }
 
@@ -397,12 +461,14 @@ export function cancelPlan(document, { now, reason = null }) {
 
 /**
  * The deadline path applies only a pending plan whose latest version was
- * shown and whose full review window has passed.
+ * shown and whose full review window has passed, and never one that waits for
+ * an explicit OK.
  */
 export function isPlanDue(document, now) {
   return (
     document.status === "pending" &&
     document.displayedVersion === document.currentVersion &&
+    document.applyHold?.version !== document.currentVersion &&
     Boolean(document.reviewDeadline) &&
     Date.parse(document.reviewDeadline) <= toMs(now)
   );
@@ -527,6 +593,12 @@ export function summarizeWeeklyPlans(documents, { now = new Date(), currentWeekS
     counts: countOutcomes(document),
     failureReason: document.failureReason ?? null,
     deferredChecks: document.applyDeferrals?.count ?? 0,
+    ...(document.delivery?.attempts > 0
+      ? { deliveryAttempts: document.delivery.attempts, deliveryError: document.delivery.lastError, nextDeliveryAt: document.delivery.nextAttemptAt }
+      : {}),
+    ...(document.applyHold && document.applyHold.version === document.currentVersion && document.status === "pending"
+      ? { waitingForOk: true, unaccountedTasks: document.applyHold.unaccounted }
+      : {}),
     ...(document.status === "awaiting_input"
       ? { golfQuestionsAskedAt: document.awaiting?.askedAt ?? null, golfMissing: golfInputStatus(document.awaiting.golf).missing }
       : {}),

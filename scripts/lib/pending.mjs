@@ -3,8 +3,9 @@
  * Hilla is genuinely waiting for the user.
  *
  * Each source is a small provider over state that already exists; nothing new
- * is stored. The weekly plan store gives a plan waiting for the user's golf
- * answers or awaiting review with its deadline, and the focus record gives a
+ * is stored. The weekly plan store gives a plan awaiting review with its
+ * deadline, one waiting for an explicit OK, or an older one waiting for golf
+ * answers, and the focus record gives a
  * running session. Approval prompts and
  * clarifying questions asked in chat are not stored anywhere, so this view
  * cannot list them and says so. Recommendations, Todoist tasks, and memory are
@@ -31,7 +32,7 @@ export function redactPendingText(text, secrets = []) {
   return redactSensitiveText(String(text ?? ""), secrets).replace(secretShapedPattern, "<redacted>");
 }
 
-/** A weekly plan that waits for the user's golf answers, or was shown and waits for their OK, change, or cancel. */
+/** A weekly plan that was shown and waits for the user's OK, change, or cancel, or an older one waiting for golf answers. */
 export const weeklyPlanPendingProvider = Object.freeze({
   id: "weekly-plan",
   label: "the weekly plan",
@@ -42,7 +43,17 @@ export const weeklyPlanPendingProvider = Object.freeze({
 
     for (const plan of plans) {
       const week = formatWeekLabel(plan.weekStart);
-      if (plan.status === "pending" && plan.reviewDeadline) {
+      if (plan.status === "pending" && plan.applyHold?.version === plan.currentVersion) {
+        items.push({
+          type: "weekly_plan",
+          source: "weekly-plan",
+          summary: `Weekly plan for ${week} (v${plan.currentVersion})`,
+          detail: "It waits for your OK: I couldn't read Todoist when I made it, and that week has tasks it didn't account for, so nothing is created automatically.",
+          since: plan.applyHold.at,
+          deadline: null,
+          requiredAction: "Reply OK to create it as shown, ask for a change, or cancel it.",
+        });
+      } else if (plan.status === "pending" && plan.reviewDeadline) {
         const deadlinePassed = Date.parse(plan.reviewDeadline) <= now.getTime();
         items.push({
           type: "weekly_plan",
@@ -64,13 +75,17 @@ export const weeklyPlanPendingProvider = Object.freeze({
             detail: "The plan is built after your answers; nothing is created before you've seen it.",
             since: plan.awaiting.askedAt,
             deadline: null,
-            requiredAction: "Say which days you're playing and what to focus on, or “No golf this week” or “Skip this week”.",
+            requiredAction: "Say which days you're playing and what to focus on, or ask for the plan and I'll use defaults, or “Skip this week”.",
           });
         } else {
           notes.push(`The weekly plan for ${week} couldn't ask its golf questions yet, so nothing will be created.`);
         }
       } else if (plan.status === "draft") {
-        notes.push(`A weekly plan draft for ${week} was never shown, so it will not apply.`);
+        notes.push(
+          plan.delivery?.attempts > 0
+            ? `The weekly plan for ${week} couldn't be delivered yet, so it won't apply until you've seen it; the apply check keeps trying to send it.`
+            : `A weekly plan draft for ${week} was never shown, so it will not apply.`,
+        );
       } else if (plan.status === "applying") {
         notes.push(`The weekly plan for ${week} is being applied right now.`);
       }

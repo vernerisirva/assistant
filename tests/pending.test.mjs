@@ -13,7 +13,9 @@ import {
   formatPendingActions,
   redactPendingText,
 } from "../scripts/lib/pending.mjs";
-import { createWeeklyPlanStore } from "../scripts/lib/weekly-plan-store.mjs";
+import { createAwaitingDocument, createWeeklyPlanStore, recordApplyHold, recordGolfQuestion } from "../scripts/lib/weekly-plan-store.mjs";
+import { buildInitialPlanInputs } from "../scripts/lib/weekly-plan.mjs";
+import { emptyGolfInputs } from "../scripts/lib/golf-week.mjs";
 import { PENDING_COVERAGE, parsePendingArgs, runPendingCli } from "../scripts/pending.mjs";
 import { GOLF_ANSWER } from "./fixtures/golf-answers.mjs";
 import { runWeeklyPlanCli } from "../scripts/weekly-plan.mjs";
@@ -227,35 +229,42 @@ describe("pending actions", () => {
     }
   });
 
-  it("lists the golf questions as waiting on the user, and nothing when they were never sent", async () => {
+  it("lists an older week's golf questions as waiting on the user, and nothing when they were never sent", async () => {
     const state = withState();
-    const context = (sendMessage) => ({
-      stateDir: state.stateDir,
-      env: { TELEGRAM_USER_ID: "1" },
-      schedules,
-      todoistClient: fakeTodoist(),
-      sendMessage,
-      now: () => SATURDAY_0900,
-      random: () => "abc123",
-    });
     try {
-      await assert.rejects(
-        runWeeklyPlanCli(["propose", "--send"], context(async () => {
-          throw new Error("offline");
-        })),
-        /Could not send the golf questions/,
+      // Stored before golf answers became optional.
+      const store = createWeeklyPlanStore({ stateDir: state.stateDir });
+      const config = JSON.parse(readFileSync("config/weekly-plan.json", "utf8"));
+      const inputs = buildInitialPlanInputs({}, { config, weekStart: "2026-09-28" });
+      store.writePlan(
+        createAwaitingDocument({ planId: "wp-2026-W40-abc123", weekStart: "2026-09-28", baseInputs: inputs, golf: emptyGolfInputs(config), now: SATURDAY_0900, timezone: "Europe/Stockholm" }),
       );
       const unsent = collectPendingActions({ stateDir: state.stateDir, now: SATURDAY_0900 });
       assert.deepEqual(unsent.items, []);
       assert.deepEqual(unsent.notes, ["The weekly plan for 28 Sep–4 Oct couldn't ask its golf questions yet, so nothing will be created."]);
 
-      await runWeeklyPlanCli(["propose", "--send"], context(async () => ({ messageId: 7 })));
+      editPlan(state.stateDir, "wp-2026-W40-abc123", (plan) => recordGolfQuestion(plan, { askedAt: SATURDAY_0900, channel: "telegram-send", messageId: 7 }));
       const asked = collectPendingActions({ stateDir: state.stateDir, now: minutesAfter(SATURDAY_0900, 5) });
       assert.deepEqual(asked.items.map((item) => [item.type, item.summary, item.deadline]), [
         ["weekly_plan", "Golf questions for the weekly plan for 28 Sep–4 Oct", null],
       ]);
-      assert.match(formatPendingActions(asked), /Say which days you're playing and what to focus on, or “No golf this week” or “Skip this week”\./);
+      assert.match(formatPendingActions(asked), /Say which days you're playing and what to focus on, or ask for the plan and I'll use defaults, or “Skip this week”\./);
       assert.match(formatPendingActions(asked), /nothing is created before you've seen it/);
+    } finally {
+      state.cleanup();
+    }
+  });
+
+  it("lists a plan that waits for an explicit OK, with no deadline", async () => {
+    const state = withState();
+    try {
+      await proposePlan(state.stateDir);
+      editPlan(state.stateDir, "wp-2026-W40-abc123", (plan) => recordApplyHold(plan, { unaccounted: [{ activity: "gym", date: "2026-09-29" }], now: minutesAfter(SATURDAY_0900, 720) }));
+      const held = collectPendingActions({ stateDir: state.stateDir, now: minutesAfter(SATURDAY_0900, 730) });
+      assert.deepEqual(held.items.map((item) => [item.summary, item.deadline, item.requiredAction]), [
+        ["Weekly plan for 28 Sep–4 Oct (v1)", null, "Reply OK to create it as shown, ask for a change, or cancel it."],
+      ]);
+      assert.match(held.items[0].detail, /I couldn't read Todoist when I made it/);
     } finally {
       state.cleanup();
     }
@@ -285,7 +294,10 @@ describe("pending actions", () => {
       );
       const draft = collectPendingActions({ stateDir: state.stateDir, now: SATURDAY_0900 });
       assert.deepEqual(draft.items, []);
-      assert.equal(formatPendingActions(draft), "Nothing is waiting on you right now.\n\nA weekly plan draft for 28 Sep–4 Oct was never shown, so it will not apply.");
+      assert.equal(
+        formatPendingActions(draft),
+        "Nothing is waiting on you right now.\n\nThe weekly plan for 28 Sep–4 Oct couldn't be delivered yet, so it won't apply until you've seen it; the apply check keeps trying to send it.",
+      );
 
       editPlan(state.stateDir, "wp-2026-W40-abc123", (plan) => ({ ...plan, status: "applying" }));
       assert.deepEqual(collectPendingActions({ stateDir: state.stateDir, now: SATURDAY_0900 }).notes, ["The weekly plan for 28 Sep–4 Oct is being applied right now."]);

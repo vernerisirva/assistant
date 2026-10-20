@@ -310,15 +310,15 @@ describe("capability boundaries", () => {
     assert.match(capabilityById("routines.check-ins").summary, /they change nothing/);
   });
 
-  it("describes the golf week truthfully: asked, not guessed, six golf days, one task each, the same 12-hour review", () => {
+  it("describes the golf week truthfully: defaults until told, never guessed, six golf days, one task each, the same 12-hour review", () => {
     const golf = capabilityById("weekly-plan.golf");
     assert.equal(golf.partOf, "weekly-plan.plan");
-    assert.match(golf.summary, /I ask which days you're playing \(9 or 18 holes\), your 1–2 focus areas and any competition or lesson/);
+    assert.match(golf.summary, /around your playing days \(9 or 18 holes\), 1–2 focus areas and any competition or lesson; until you say, it's practice with a balanced focus\./);
     assert.match(golf.summary, /six golf days and a rest day toward competitive golf/);
     assert.match(golf.limit, /Playing days, competitions and technique come only from you, never guessed/);
     assert.match(golf.limit, /Each golf day gets one Todoist task with a full session plan/);
     assert.match(golf.limit, /added 12 hours after you see the plan unless you change or cancel it; OK adds them now/);
-    assert.match(capabilityById("weekly-plan.plan").summary, /^every Saturday I ask about your golf week/);
+    assert.match(capabilityById("weekly-plan.plan").summary, /^every Saturday I send next week's full plan for food, gym, stretching and golf, with defaults for what you haven't said/);
     // Not claimed: booking or paying for rounds, weather, scheduled coaching.
     const text = [golf.summary, golf.limit, ...golf.examples].join(" ");
     assert.doesNotMatch(text, /\b(book|weather|forecast|statistic|strokes gained|swing fix|daily|after each round)/i);

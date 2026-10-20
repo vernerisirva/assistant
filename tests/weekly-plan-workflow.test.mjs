@@ -12,7 +12,7 @@ import {
   WEEKLY_PLAN_PROPOSE_JOB,
   buildWeeklyPlanCronJobs,
 } from "../scripts/lib/weekly-plan-cron.mjs";
-import { GOLF_ANSWER, answerJson } from "./fixtures/golf-answers.mjs";
+import { answerJson } from "./fixtures/golf-answers.mjs";
 
 const schedules = JSON.parse(readFileSync("config/schedules.json", "utf8"));
 const SATURDAY_0900 = "2026-09-26T07:00:00.000Z";
@@ -95,12 +95,8 @@ describe("weekly plan workflow", () => {
   const at = (iso) => {
     clock = new Date(iso);
   };
-  const answer = (golf = GOLF_ANSWER, extra) => run(["answer", "--input-json", answerJson(golf)], extra);
-  /** Saturday's question, then the user's golf answer at the same time: the shown v1. */
-  const proposeAndAnswer = async (extra) => {
-    await run(["propose", "--send"], extra);
-    return answer(GOLF_ANSWER, extra);
-  };
+  /** Saturday 09:00: the complete default plan, sent and shown as v1. */
+  const proposeAndShow = (extra) => run(["propose", "--send"], extra);
 
   beforeEach(() => {
     stateDir = mkdtempSync(join(tmpdir(), "weekly-plan-"));
@@ -115,7 +111,7 @@ describe("weekly plan workflow", () => {
   });
 
   describe("proposal persistence", () => {
-    it("asks the golf questions first: the week is stored before sending, with no version, deadline or tasks", async () => {
+    it("stores the complete plan as a draft before sending, then shows it with a 12-hour deadline, without golf answers", async () => {
       let statusWhileSending;
       const result = await run(["propose", "--send"], {
         sendMessage: async (text) => {
@@ -125,36 +121,37 @@ describe("weekly plan workflow", () => {
         },
       });
 
-      assert.equal(statusWhileSending, "awaiting_input");
-      assert.equal(result.status, "awaiting_input");
+      assert.equal(statusWhileSending, "draft");
+      assert.equal(result.status, "pending");
       assert.equal(result.sent, true);
       assert.equal(result.telegramText, null);
       assert.match(result.message, /Return NO_REPLY/);
       const document = plan();
-      assert.equal(document.currentVersion, 0);
-      assert.deepEqual(document.versions, []);
-      assert.equal(document.reviewDeadline, null);
-      assert.equal(document.displayedAt, null);
-      assert.match(sent[0], /^Next week's plan · 28 Sep–4 Oct\n\nBefore I build next week's golf plan:\n\n1\. Which days are you playing next week, and roughly 9 or 18 holes\?\n2\. What 1–2 things do you want to focus on\?\n3\. Any competition, lesson or other important golf event\?/);
-      assert.equal(todoist.calls.addTask.length, 0);
+      assert.equal(document.currentVersion, 1);
+      assert.equal(document.displayedVersion, 1);
+      assert.equal(document.displayedAt, SATURDAY_0900);
+      assert.equal(document.displayChannel, "telegram-send");
+      assert.equal(document.reviewDeadline, "2026-09-26T19:00:00.000Z");
+      assert.equal(document.displayedDigest, versionEntry(document, 1).digest);
+      assert.match(sent[0], /^Next week's plan · 28 Sep–4 Oct · v1\nHere is your plan\. I've used your existing tasks, preferences and sensible defaults\.\n\nGolf · 6 golf days, 1 rest day\n/);
+      assert.match(sent[0], /\nIf you don't reply, that's fine: I'll create \d+ Todoist tasks at 21:00 on Saturday 26 Sep\.\nReply with changes, OK to apply now, or Skip this week to cancel\.$/);
+      assert.equal(todoist.calls.addTask.length, 0, "showing the plan never creates tasks");
     });
 
-    it("starts the 12-hour window only when the complete plan is shown after the golf answers", async () => {
-      await run(["propose", "--send"]);
-      at("2026-09-26T09:40:00.000Z"); // 11:40 Stockholm
-      const shown = await answer();
+    it("starts the 12-hour window only when a send reaches Telegram, never when the draft is stored", async () => {
+      sendFails = true;
+      await assert.rejects(run(["propose", "--send"]), /stays a draft and will not apply until it has been shown/);
+      assert.equal(plan().reviewDeadline, null);
 
-      assert.equal(shown.status, "pending");
-      assert.equal(shown.version, 1);
-      assert.equal(shown.reviewDeadline, "2026-09-26T21:45:00.000Z");
-      assert.equal(shown.reviewDeadlineLocal, "23:45 on Saturday 26 Sep");
-      assert.match(shown.telegramText, /^Next week's plan · 28 Sep–4 Oct · v1\n\nGolf · 6 golf days, 1 rest day/);
+      sendFails = false;
+      at("2026-09-26T07:15:00.000Z"); // the next apply check sends it
+      assert.equal((await run(["apply-due"])).text, "NO_REPLY");
       const document = plan();
       assert.equal(document.status, "pending");
-      assert.equal(document.displayedAt, "2026-09-26T09:40:00.000Z");
-      assert.equal(document.displayChannel, "chat-reply");
-      assert.equal(document.displayedDigest, versionEntry(document, 1).digest);
-      assert.equal(todoist.calls.addTask.length, 0, "showing the plan never creates tasks");
+      assert.equal(document.displayedAt, "2026-09-26T07:15:00.000Z");
+      assert.equal(document.reviewDeadline, "2026-09-26T19:15:00.000Z");
+      assert.equal(sent.length, 1);
+      assert.equal(todoist.calls.addTask.length, 0);
     });
 
     it("with golf off, stores the proposal as a draft before sending, then marks it pending with a 12-hour deadline", async () => {
@@ -199,43 +196,110 @@ describe("weekly plan workflow", () => {
       assert.equal(sent.length, 1);
     });
 
-    it("keeps waiting when the golf questions cannot be sent, then sends them on the next try", async () => {
+    it("keeps an undelivered plan an unshown draft, and the apply check sends it again with growing pauses", async () => {
       sendFails = true;
-      await assert.rejects(run(["propose", "--send"]), /Could not send the golf questions to Telegram; nothing was shown and nothing will apply/);
-      assert.equal(plan().status, "awaiting_input");
-      assert.equal(plan().awaiting.askedAt, null);
+      await assert.rejects(run(["propose", "--send"]), /Could not send the weekly plan to Telegram: Telegram unreachable\. It stays a draft/);
+      assert.equal(plan().status, "draft");
+      assert.equal(plan().delivery.attempts, 1);
+      assert.match((await run(["status"])).telegramText, /^Weekly plan for 28 Sep–4 Oct \(v1\) couldn't be delivered yet \(1 try; last error: Telegram unreachable\)\. It won't apply until you've seen it; the next try is at 09:15 on Saturday 26 Sep\.$/m);
 
-      at("2026-09-27T12:00:00.000Z");
+      at("2026-09-26T07:10:00.000Z");
       assert.equal((await run(["apply-due"])).text, "NO_REPLY");
+      assert.equal(plan().delivery.attempts, 1, "not before its pause is over");
+      at("2026-09-26T07:15:00.000Z");
+      assert.equal((await run(["apply-due"])).text, "NO_REPLY", "a failed retry stays quiet");
+      assert.equal(plan().delivery.attempts, 2);
+      assert.equal(plan().delivery.nextAttemptAt, "2026-09-26T07:45:00.000Z");
+      at("2026-09-27T12:00:00.000Z");
+      await run(["apply-due"]);
+      assert.equal(plan().status, "draft");
+      assert.equal(todoist.calls.addTask.length, 0, "an unshown plan never applies");
 
       sendFails = false;
-      const retried = await run(["propose", "--send"]);
-      assert.equal(retried.status, "awaiting_input");
-      assert.equal(retried.sent, true);
+      at("2026-09-27T12:30:00.000Z");
+      await run(["apply-due"]);
+      assert.equal(plan().status, "draft", "the third failure pauses an hour");
+      at("2026-09-27T13:00:00.000Z");
+      await run(["apply-due"]);
+      assert.equal(plan().status, "pending");
+      assert.equal(plan().reviewDeadline, "2026-09-28T01:00:00.000Z");
       assert.equal(sent.length, 1);
       assert.equal((await run(["propose", "--send"])).status, "exists", "a second Saturday run sends nothing");
       assert.equal(sent.length, 1);
     });
 
-    it("survives a restart: a fresh store reads the same pending plan", async () => {
-      await proposeAndAnswer();
+    it("reports an unexpected error in a resend once, and keeps pausing instead of repeating it", async () => {
+      sendFails = true;
+      await assert.rejects(run(["propose", "--send"]));
+      const path = join(stateDir, "weekly-plan/plans/wp-2026-W40-abc123.json");
+      const document = JSON.parse(readFileSync(path, "utf8"));
+      document.currentVersion = 2; // no such version: showing it fails before any send
+      writeFileSync(path, JSON.stringify(document));
+      sendFails = false;
+
+      at("2026-09-26T07:15:00.000Z");
+      const first = await run(["apply-due"]);
+      assert.match(first.text, /^Weekly plan 2026-W40 could not be sent: Weekly plan wp-2026-W40-abc123 has no version 2\.$/);
+      assert.equal(first.failures, 1);
+      at("2026-09-26T07:45:00.000Z");
+      assert.equal((await run(["apply-due"])).text, "NO_REPLY", "reported once");
+      assert.equal(plan().delivery.attempts, 3);
+      assert.equal(sent.length, 0);
+      assert.equal(todoist.calls.addTask.length, 0);
+    });
+
+    it("sends a scheduled draft that no send ever touched, after a grace period", async () => {
+      // The job stopped between storing the draft and sending it.
+      const stopping = {
+        ...createWeeklyPlanStore({ stateDir }),
+        withPlanLock: async () => {
+          throw new Error("process killed");
+        },
+      };
+      await assert.rejects(run(["propose", "--send"], { store: stopping }), /process killed/);
+      assert.equal(plan().status, "draft");
+      assert.equal(plan().delivery, undefined);
+
+      at("2026-09-26T07:05:00.000Z");
+      await run(["apply-due"]);
+      assert.equal(plan().status, "draft", "a proposal that may still be running is left alone");
+      at("2026-09-26T07:15:00.000Z");
+      await run(["apply-due"]);
+      assert.equal(plan().status, "pending");
+      assert.equal(sent.length, 1);
+    });
+
+    it("survives a restart: a fresh store reads the same pending plan and applies it at the deadline", async () => {
+      await proposeAndShow();
       const reloaded = createWeeklyPlanStore({ stateDir }).readPlan("wp-2026-W40-abc123");
       assert.equal(reloaded.status, "pending");
       assert.deepEqual(reloaded.versions, plan().versions);
+      at("2026-09-26T19:00:00.000Z");
+      assert.match((await runWeeklyPlanCli(["apply-due"], context({ store: createWeeklyPlanStore({ stateDir }) }))).text, /^Applied weekly plan/);
     });
 
     it("does not create a second proposal for the same week", async () => {
-      await proposeAndAnswer();
+      await proposeAndShow();
       const again = await run(["propose", "--send"], { random: () => "def456" });
       assert.equal(again.status, "exists");
       assert.equal(sent.length, 1);
       assert.equal(store().listPlans().length, 1);
     });
 
+    it("refuses to start a second plan beside an unreadable plan file for the same week", async () => {
+      mkdirSync(join(stateDir, "weekly-plan/plans"), { recursive: true });
+      writeFileSync(join(stateDir, "weekly-plan/plans/wp-2026-W40-old111.json"), "{ broken");
+      await assert.rejects(run(["propose", "--send"]), /The stored weekly plan for 28 Sep–4 Oct can't be read \(wp-2026-W40-old111\.json\), so I won't start a second plan for that week/);
+      assert.equal(sent.length, 0);
+      // Another week's broken file does not block this one.
+      at("2026-10-03T07:00:00.000Z");
+      assert.equal((await run(["propose", "--send"], { random: () => "def456" })).status, "pending");
+    });
+
     it("previews a plain proposal without storing anything that could apply", async () => {
       const preview = await run(["propose"]);
       assert.equal(preview.status, "preview");
-      assert.match(preview.telegramText, /^Next week's plan · 28 Sep–4 Oct\n\nBefore I build next week's golf plan:/);
+      assert.match(preview.telegramText, /^Next week's plan · 28 Sep–4 Oct · v1\nHere is your plan\./);
       assert.deepEqual(store().listPlans(), []);
 
       const offPreview = await run(["propose"], { loadPlanningConfig: golfOff });
@@ -243,39 +307,97 @@ describe("weekly plan workflow", () => {
       assert.deepEqual(store().listPlans(), []);
 
       const sentLater = await run(["propose", "--send"]);
-      assert.equal(sentLater.status, "awaiting_input");
+      assert.equal(sentLater.status, "pending");
     });
 
     it("reads existing Todoist tasks so the proposal does not duplicate them", async () => {
       todoist = fakeTodoist([{ id: "1", content: "Golf round: Bro Hof", due: { date: "2026-10-03" } }]);
-      const shown = await proposeAndAnswer();
+      await proposeAndShow();
       const entry = versionEntry(plan(), 1);
       assert.equal(entry.plan.operations.filter((operation) => operation.date === "2026-10-03" && operation.activity === "golf").length, 0);
-      assert.match(shown.telegramText, /\nSat — Golf round: Bro Hof \(in Todoist\)\n/);
+      assert.match(sent[0], /\nSat — Golf round: Bro Hof \(in Todoist\)\n/);
+      assert.equal(entry.plan.golf.activeDays, 6, "the existing round counts toward the six golf days");
     });
 
-    it("re-reads Todoist when the answers arrive, so a golf task added since Saturday counts", async () => {
-      await run(["propose", "--send"]);
-      todoist.tasks.push({ id: "9", content: "Golf — Lesson with Anna", due: { date: "2026-10-01" } });
-      const shown = await answer();
-      const entry = versionEntry(plan(), 1);
-      assert.ok(entry.plan.operations.every((operation) => !(operation.activity === "golf" && operation.date === "2026-10-01")));
-      assert.match(shown.telegramText, /\nThu — Golf — Lesson with Anna \(in Todoist\)\n/);
-      assert.equal(entry.plan.golf.activeDays, 6, "the existing lesson counts toward the six golf days");
-    });
-
-    it("still proposes when Todoist cannot be read, and says duplicates are re-checked", async () => {
+    it("says so when Todoist cannot be read instead of treating it as empty", async () => {
       todoist.getTasks = async () => {
         throw new Error("Todoist API request failed: 503");
       };
-      const shown = await proposeAndAnswer();
-      assert.match(shown.telegramText, /couldn't read Todoist just now/);
+      await proposeAndShow();
+      assert.match(sent[0], /\nNote: I couldn't retrieve your Todoist tasks, so I can't safely rule out duplicates\. I'll check again before creating anything, and ask you first if that week already has tasks this plan didn't account for\.\n/);
+      assert.equal(versionEntry(plan(), 1).inputs.existingUnchecked, true);
+    });
+
+    it("applies a plan made without Todoist when the missing read changes nothing", async () => {
+      const realGetTasks = todoist.getTasks.bind(todoist);
+      todoist.getTasks = async () => {
+        throw new Error("fetch failed");
+      };
+      await proposeAndShow();
+      todoist.getTasks = realGetTasks;
+      todoist.tasks.push({ id: "other", content: "Call the bank", due: { date: "2026-09-30" } });
+      at("2026-09-26T19:00:00.000Z");
+      assert.match((await run(["apply-due"])).text, /^Applied weekly plan/);
+      assert.equal(todoist.calls.addTask.length, versionEntry(plan(), 1).plan.operations.length);
+    });
+
+    it("holds a plan made without Todoist for an OK when that week has tasks it didn't count, and says so once", async () => {
+      const realGetTasks = todoist.getTasks.bind(todoist);
+      todoist.getTasks = async () => {
+        throw new Error("fetch failed");
+      };
+      await proposeAndShow();
+      todoist.getTasks = realGetTasks;
+      todoist.tasks.push(
+        { id: "g1", content: "Gym with Anna", due: { date: "2026-09-29" } },
+        { id: "g2", content: "18 holes at Bro Hof", due: { date: "2026-10-03" } },
+      );
+
+      at("2026-09-26T19:00:00.000Z");
+      const held = await run(["apply-due"]);
+      assert.equal(
+        held.text,
+        [
+          "Weekly plan · 28 Sep–4 Oct · v1: nothing created yet",
+          "I couldn't read Todoist when I made this plan, and that week already has tasks it didn't account for (gym Tue, golf Sat). To avoid doubling up, I didn't create anything automatically.",
+          "Reply OK to create the plan as shown anyway, tell me what to change, or Skip this week to cancel.",
+        ].join("\n"),
+      );
+      assert.equal(todoist.calls.addTask.length, 0);
+      at("2026-09-26T19:15:00.000Z");
+      assert.equal((await run(["apply-due"])).text, "NO_REPLY", "reported once");
+      assert.match((await run(["status"])).telegramText, /is waiting for your OK: I couldn't read Todoist when I made it/);
+
+      const accepted = await run(["accept", "--version", "1", "--reply-text", "OK"]);
+      assert.equal(accepted.status, "applied");
+      assert.equal(todoist.calls.addTask.length, versionEntry(plan(), 1).plan.operations.length);
+    });
+
+    it("counts Todoist's tasks when a plan made without them is revised", async () => {
+      const realGetTasks = todoist.getTasks.bind(todoist);
+      todoist.getTasks = async () => {
+        throw new Error("fetch failed");
+      };
+      await proposeAndShow();
+      todoist.getTasks = realGetTasks;
+      todoist.tasks.push({ id: "g2", content: "18 holes at Bro Hof", due: { date: "2026-10-03" } });
+
+      at("2026-09-26T08:00:00.000Z");
+      const revised = await run(["revise", "--expect-version", "1", "--changes-json", '{"excludeIngredients":["durian"]}']);
+      assert.equal(revised.version, 2);
+      assert.match(revised.telegramText, /\nChanges: No durian · Counted 1 task already in Todoist\n/);
+      assert.doesNotMatch(revised.telegramText, /couldn't retrieve your Todoist tasks/);
+      const entry = versionEntry(plan(), 2);
+      assert.equal(entry.inputs.existingUnchecked, undefined);
+      assert.equal(entry.plan.golf.days.find((day) => day.date === "2026-10-03").role, "existing");
+      at("2026-09-26T19:00:00.000Z");
+      assert.equal((await run(["apply-due"])).text, "NO_REPLY", "the revision restarted the window");
     });
   });
 
   describe("versions and the review window", () => {
     it("a modification stores a new version, shows it, and restarts the 12-hour window", async () => {
-      await proposeAndAnswer();
+      await proposeAndShow();
       at("2026-09-26T18:30:00.000Z"); // 20:30 Stockholm
 
       const revised = await run(["revise", "--expect-version", "1", "--changes-json", '{"targets":{"gym":3}}']);
@@ -294,7 +416,7 @@ describe("weekly plan workflow", () => {
     });
 
     it("never applies before the deadline, and applies exactly the latest version after it", async () => {
-      await proposeAndAnswer();
+      await proposeAndShow();
       at("2026-09-26T18:30:00.000Z");
       await run(["revise", "--expect-version", "1", "--changes-json", answerJson({ replyText: "Gym 3 times, and no golf next week", activeDays: 0 }, { targets: { gym: 3 } })]);
 
@@ -314,7 +436,7 @@ describe("weekly plan workflow", () => {
     });
 
     it("rejects a revision based on a version the user is no longer looking at", async () => {
-      await proposeAndAnswer();
+      await proposeAndShow();
       await run(["revise", "--expect-version", "1", "--changes-json", '{"targets":{"gym":3}}']);
       await assert.rejects(
         run(["revise", "--expect-version", "1", "--changes-json", '{"targets":{"gym":1}}']),
@@ -323,7 +445,7 @@ describe("weekly plan workflow", () => {
     });
 
     it("does not create a version or restart the window for a change that alters nothing", async () => {
-      await proposeAndAnswer();
+      await proposeAndShow();
       at("2026-09-26T10:00:00.000Z");
       const result = await run(["revise", "--expect-version", "1", "--changes-json", '{"excludeIngredients":["durian"]}']);
       assert.equal(result.changed, false);
@@ -332,7 +454,7 @@ describe("weekly plan workflow", () => {
     });
 
     it('explicit "OK" applies the displayed version immediately', async () => {
-      await proposeAndAnswer();
+      await proposeAndShow();
       at("2026-09-26T08:00:00.000Z");
       const accepted = await run(["accept", "--version", "1", "--reply-text", "OK"]);
 
@@ -344,14 +466,14 @@ describe("weekly plan workflow", () => {
     });
 
     it("an old version cannot be accepted after a revision", async () => {
-      await proposeAndAnswer();
+      await proposeAndShow();
       await run(["revise", "--expect-version", "1", "--changes-json", '{"targets":{"gym":3}}']);
       await assert.rejects(run(["accept", "--version", "1", "--reply-text", "OK"]), /not the current displayed version/);
       assert.equal(todoist.calls.addTask.length, 0);
     });
 
     it("a reply that is not explicit acceptance creates nothing", async () => {
-      await proposeAndAnswer();
+      await proposeAndShow();
       // Normalizing alone would read the hedged ones as "ok" and apply at once.
       for (const reply of ["ok but no salmon", "ok 👎", "ok？", "ok…", "ok 🤔", "okay ❌", "create it?", "ok men utan lax"]) {
         const result = await run(["accept", "--version", "1", "--reply-text", reply]);
@@ -362,7 +484,7 @@ describe("weekly plan workflow", () => {
     });
 
     it('a plain Swedish acceptance such as "Ser bra ut" applies the displayed version', async () => {
-      await proposeAndAnswer();
+      await proposeAndShow();
       at("2026-09-26T08:00:00.000Z");
       const accepted = await run(["accept", "--version", "1", "--reply-text", "Ser bra ut"]);
       assert.equal(accepted.applied, true);
@@ -370,7 +492,7 @@ describe("weekly plan workflow", () => {
     });
 
     it('"Skip this week" cancels: nothing is created, now or after the deadline', async () => {
-      await proposeAndAnswer();
+      await proposeAndShow();
       const cancelled = await run(["cancel", "--reason", "Skip this week"]);
       assert.equal(cancelled.status, "cancelled");
       assert.match(cancelled.telegramText, /Nothing was created in Todoist/);
@@ -385,7 +507,7 @@ describe("weekly plan workflow", () => {
     });
 
     it("an applied plan cannot be cancelled or applied again", async () => {
-      await proposeAndAnswer();
+      await proposeAndShow();
       await run(["accept", "--version", "1", "--reply-text", "Go ahead"]);
       const count = todoist.calls.addTask.length;
 
@@ -400,7 +522,7 @@ describe("weekly plan workflow", () => {
 
   describe("deterministic application", () => {
     async function proposeAndReachDeadline() {
-      await proposeAndAnswer();
+      await proposeAndShow();
       at("2026-09-26T19:00:00.000Z");
     }
 
@@ -557,7 +679,7 @@ describe("weekly plan workflow", () => {
     });
 
     it("tells the user at once when an explicit OK cannot reach Todoist, and keeps the plan pending", async () => {
-      await proposeAndAnswer();
+      await proposeAndShow();
       todoist.getTasks = async () => {
         throw new Error("fetch failed");
       };
@@ -663,7 +785,7 @@ describe("weekly plan workflow", () => {
     });
 
     it("skips operations whose date has already passed instead of creating overdue tasks", async () => {
-      await proposeAndAnswer();
+      await proposeAndShow();
       at("2026-09-26T09:00:00.000Z");
       await run(["revise", "--expect-version", "1", "--changes-json", '{"targets":{"gym":3}}']);
       at("2026-09-29T22:30:00.000Z"); // Wednesday 00:30 in Stockholm
@@ -748,13 +870,12 @@ describe("weekly plan workflow", () => {
       assert.match((await run(["status"])).telegramText, /No weekly plan is pending/);
 
       await run(["propose", "--send"]);
-      const waiting = await run(["status"]);
-      assert.equal(waiting.pending[0].status, "awaiting_input");
-      assert.deepEqual(waiting.pending[0].golfMissing, ["rounds", "focus"]);
-      assert.match(waiting.telegramText, /^Weekly plan for 28 Sep–4 Oct is waiting for your golf answers \(which days you're playing and what to focus on\); nothing is created until you've seen the full plan\.$/);
-      assert.match(waiting.guidance, /weekly-plan -- guide/);
+      const shown = await run(["status"]);
+      assert.equal(shown.pending[0].status, "pending");
+      assert.equal(shown.pending[0].currentVersion, 1);
+      assert.equal(shown.telegramText, "Weekly plan for 28 Sep–4 Oct is pending (v1); I'll create its tasks at 21:00 on Saturday 26 Sep unless you change or cancel it.");
+      assert.match(shown.guidance, /weekly-plan -- guide/);
 
-      await answer();
       await run(["revise", "--expect-version", "1", "--changes-json", '{"targets":{"stretch":4}}']);
       const pending = await run(["status"]);
       assert.equal(pending.pending.length, 1);
@@ -771,11 +892,17 @@ describe("weekly plan workflow", () => {
       assert.match(applied.telegramText, /was applied at 21:00 on Saturday 26 Sep \(v2\)/);
     });
 
-    it("shows the open golf questions, then the current plan", async () => {
-      await run(["propose", "--send"]);
-      assert.equal((await run(["show"])).telegramText, sent[0]);
-      const answered = await answer();
-      assert.equal((await run(["show"])).telegramText, answered.telegramText);
+    it("shows the current plan as it was shown, and never shows an undelivered draft as if it counted", async () => {
+      sendFails = true;
+      await assert.rejects(run(["propose", "--send"]));
+      const draft = await run(["show"]);
+      assert.equal(draft.telegramText, null);
+      assert.match(draft.message, /never shown, so it will not apply\. To show it, run npm run --silent weekly-plan -- propose --reply --input-json '\{"weekStart":"2026-09-28"\}'/);
+
+      sendFails = false;
+      const shown = await run(["propose", "--reply", "--input-json", '{"weekStart":"2026-09-28"}']);
+      assert.equal(shown.status, "pending");
+      assert.equal((await run(["show"])).telegramText, shown.telegramText);
     });
   });
 
