@@ -14,7 +14,9 @@ import { localDateInTimeZone } from "./routine-skips.mjs";
 import {
   WEEKLY_PLAN_TIMEZONE,
   checkWeeklyPlanOperation,
+  formatApplyHold,
   formatApplySummary,
+  normalizeExistingTasks,
   operationRequestId,
 } from "./weekly-plan.mjs";
 import {
@@ -26,6 +28,7 @@ import {
   isOutcomeDone,
   isPlanDue,
   recordApplyDeferral,
+  recordApplyHold,
   recordOutcome,
   versionEntry,
 } from "./weekly-plan-store.mjs";
@@ -127,6 +130,20 @@ export async function applyWeeklyPlan({
       openTasks = read.tasks;
     }
 
+    // A plan built while Todoist could not be read is created automatically
+    // only if that missing read changes nothing: the week has no gym, golf,
+    // stretching, cooking or grocery task the plan would have counted.
+    if (trigger === "deadline" && document.status === "pending" && versionEntry(document, version).inputs?.existingUnchecked) {
+      const today = localDateInTimeZone(now(), timezone);
+      const unaccounted = normalizeExistingTasks(openTasks, document.weekStart)
+        .filter((task) => task.date >= today)
+        .map(({ activity, date }) => ({ activity, date }));
+      if (unaccounted.length > 0) {
+        document = store.writePlan(recordApplyHold(document, { unaccounted, now: now() }));
+        return { applied: false, reason: "needs-ok", document, summary: formatApplyHold(document) };
+      }
+    }
+
     document = store.writePlan(beginApply(document, { trigger, now: now() }));
     const today = localDateInTimeZone(now(), timezone);
     const save = (opId, outcome) => {
@@ -222,7 +239,8 @@ export function evaluateExisting(operation, tasks) {
   return match ? { kind: "exists", taskId: match.id ?? null } : { kind: "none" };
 }
 
-async function readOpenTasksWithRetry(todoist, { sleep, retryDelaysMs }) {
+/** Open Todoist tasks, with the bounded retry for transient errors: `{ tasks, error }`. */
+export async function readOpenTasksWithRetry(todoist, { sleep = defaultSleep, retryDelaysMs = DEFAULT_RETRY_DELAYS_MS } = {}) {
   let result = await readOpenTasks(todoist);
   for (const delay of retryDelaysMs) {
     if (!result.error || !isTransient(result.error)) break;

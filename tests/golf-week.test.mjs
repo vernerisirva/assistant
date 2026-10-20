@@ -12,6 +12,8 @@ import {
   formatGolfClarification,
   formatGolfFollowUp,
   formatGolfQuestion,
+  formatGolfRefinements,
+  formatGolfSection,
   golfFocusKind,
   golfInputStatus,
   readSavedGolfRoutines,
@@ -376,11 +378,50 @@ describe("golf week planning", () => {
     assert.equal(unavailable.restDays, 0);
   });
 
-  it("plans nothing on days that have already passed when the answers arrive mid-week", () => {
+  it("plans nothing on days that have already passed, and never catches up on them", () => {
     const week = weekFor(answered(GOLF_ANSWER), { today: DAY.wed });
     assert.equal(dayOf(week, DAY.mon).role, "off");
     assert.equal(dayOf(week, DAY.tue).role, "off");
-    assert.match(week.notes.join(" "), /Only room for 5 golf days/);
+    assert.equal(week.targetDays, 4, "five days left keep a golf-free day");
+    assert.deepEqual([week.activeDays, week.restDays], [4, 1]);
+    assert.match(week.notes.join(" "), /The week has already started, so the 5 days left get 4 golf days and keep a golf-free day; missed golf days aren't caught up\./);
+
+    // A default week started on Tuesday: five golf days and one rest day, not six in a row.
+    const late = weekFor(emptyGolfInputs(config), { today: DAY.tue });
+    assert.deepEqual([late.activeDays, late.restDays], [5, 1]);
+    assert.equal(late.days.filter((day) => day.role === "practice").length, 5);
+    // A full week from Monday is not cut.
+    assert.equal(weekFor(emptyGolfInputs(config), { today: DAY.mon }).activeDays, 6);
+  });
+
+  it("plans a complete, labelled default week when nothing was answered", () => {
+    const week = weekFor(emptyGolfInputs(config));
+    assert.deepEqual([week.activeDays, week.restDays], [6, 1]);
+    assert.deepEqual(week.assumed, ["rounds", "focus"]);
+    assert.ok(week.days.every((day) => !["round", "competition", "lesson"].includes(day.role)), "no invented rounds");
+    const kinds = practice(week).map((day) => day.kind);
+    assert.deepEqual(new Set(kinds).size, kinds.length, "a balanced mix, each area once");
+    assert.ok(practice(week).some((day) => day.pressure), "some sessions end with a test");
+    const lines = formatGolfSection(week);
+    assert.ok(lines.includes("This week's focus: a balanced mix for competitive play (default: you haven't named a focus)"));
+    assert.ok(lines.includes("Playing days: not given yet, so every golf day is practice, not a round (default)"));
+    assert.equal(weekFor(answered(GOLF_ANSWER)).assumed, undefined, "nothing assumed once both are answered");
+    assert.deepEqual(formatGolfRefinements(["focus"]), ["One thing you can help me improve:", "What would you like to focus on in your golf practice?"]);
+    assert.deepEqual(formatGolfRefinements([]), []);
+  });
+
+  it("plans the practice afresh when the first answers replace the defaults, keeping what the user moved", () => {
+    const { inputs, plan } = planWith(emptyGolfInputs(config));
+    const moved = applyWeeklyPlanChanges(inputs, plan, { golf: { replyText: "Move the Monday session to Sunday", moves: [{ from: "monday", to: "sunday" }] } }, { config, food });
+    const afterMove = buildWeeklyPlan(moved.inputs, { config, food });
+    const sundayKind = dayOf(afterMove.golf, DAY.sun).kind;
+    assert.equal(dayOf(afterMove.golf, DAY.mon).role, "rest");
+
+    const focused = applyWeeklyPlanChanges(moved.inputs, afterMove, { golf: { replyText: "Focus on putting", focus: ["Putting"] } }, { config, food });
+    const week = buildWeeklyPlan(focused.inputs, { config, food }).golf;
+    assert.equal(dayOf(week, DAY.sun).kind, sundayKind, "the moved session stays");
+    assert.equal(week.days.filter((day) => day.focusIndex === 0).length, 3, "six practice days give the main focus three sessions");
+    assert.ok(week.days.filter((day) => day.focusIndex === 0).every((day) => day.kind === "putting"));
   });
 
   it("writes one task per golf day with the whole session, due on its day", () => {

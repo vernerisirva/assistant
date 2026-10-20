@@ -17,7 +17,6 @@ import {
   parseAssistantStatusArgs,
   runAssistantStatusCli,
 } from "../scripts/assistant-status.mjs";
-import { answerJson } from "./fixtures/golf-answers.mjs";
 import { runWeeklyPlanCli } from "../scripts/weekly-plan.mjs";
 import { createLiveCron, loadLiveCronSnapshot, normalizeCronJob } from "../scripts/lib/live-cron.mjs";
 import { runQuietOpsCli } from "../scripts/quiet-ops.mjs";
@@ -816,20 +815,24 @@ describe("assistant status weekly plan", () => {
     const stateDir = join(directory, ".openclaw/state");
     const now = new Date("2026-09-26T07:00:00.000Z");
     try {
+      let sendFails = true;
       const context = {
         stateDir,
         env: { TELEGRAM_USER_ID: "1029709001" },
         todoistClient: { getTasks: async () => [] },
-        sendMessage: async () => ({ messageId: 1 }),
+        sendMessage: async () => {
+          if (sendFails) throw new Error("offline");
+          return { messageId: 1 };
+        },
         now: () => now,
         random: () => "abc123",
       };
-      await runWeeklyPlanCli(["propose", "--send"], context);
-      const asked = buildAssistantStatus({ ...loadAssistantStatusInputs({ env: {}, projectRoot: directory, stateDir }), now });
-      assert.equal(asked.weeklyPlan.pending[0].status, "awaiting_input");
-      assert.match(formatAssistantStatus(asked), /Weekly plan: 2026-W40 waiting for golf answers\./);
+      await assert.rejects(runWeeklyPlanCli(["propose", "--send"], context), /stays a draft/);
+      const undelivered = buildAssistantStatus({ ...loadAssistantStatusInputs({ env: {}, projectRoot: directory, stateDir }), now });
+      assert.match(formatAssistantStatus(undelivered), /Weekly plan: 2026-W40 not delivered yet \(1 try\), not applied until shown\./);
 
-      await runWeeklyPlanCli(["answer", "--input-json", answerJson()], context);
+      sendFails = false;
+      await runWeeklyPlanCli(["propose", "--send"], context);
       const inputs = loadAssistantStatusInputs({ env: {}, projectRoot: directory, stateDir });
       const status = buildAssistantStatus({ ...inputs, now });
 

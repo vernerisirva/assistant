@@ -440,12 +440,11 @@ describe("weekly plan food through the CLI", () => {
       "--input-json",
       JSON.stringify({ food: { addShopping: ["Chips", { name: "Skyr", section: "dairy" }], addMeals: ["turkey-pasta"], customMeals: [{ name: "Reservmat" }], portions: { "chicken-rice-veg": 8 }, excludeIngredients: ["lax"] } }),
     ]);
-    const base = plan().awaiting.baseInputs.food;
+    assert.equal(plan().status, "pending");
+    const base = versionEntry(plan(), 1).inputs.food;
     assert.deepEqual([base.addedMeals, base.customMeals, base.extraShopping, base.portions], [[], [], [], {}]);
     assert.deepEqual(base.excludeIngredients, ["lax"], "an exclusion only removes, so it is kept");
 
-    const shown = await run(["answer", "--input-json", answerJson(GOLF_ANSWER)]);
-    assert.equal(shown.status, "pending");
     const v1 = versionEntry(plan(), 1).plan;
     assertFoodInvariants(v1);
     assert.doesNotMatch(JSON.stringify(v1), /Chips|Skyr|Reservmat|turkey-pasta|laxfilé/);
@@ -455,16 +454,24 @@ describe("weekly plan food through the CLI", () => {
   it("uses a saved recipe-language preference, and records the language with the plan", async () => {
     remember([{ category: "food", key: "recipe-language", value: "finska" }]);
     await run(["propose", "--send"]);
-    const shown = await run(["answer", "--input-json", answerJson(GOLF_ANSWER)]);
     const v1 = versionEntry(plan(), 1).plan;
     assert.equal(v1.food.language, "fi");
     assert.ok(opsOf(v1, "mealPrep").every((operation) => operation.payload.content.startsWith("Ruoanlaitto – ")));
-    assert.match(shown.telegramText, /\n• Recipes in Finnish\n/);
+    assert.match(sent[0], /\n• Recipes in Finnish\n/);
+  });
+
+  it('switches a shown plan\'s recipes to Finnish on "Make recipes in Finnish"', async () => {
+    await run(["propose", "--send"]);
+    const revised = await run(["revise", "--expect-version", "1", "--changes-json", '{"recipeLanguage":"fi"}']);
+    assert.equal(revised.version, 2);
+    const v2 = versionEntry(plan(), 2).plan;
+    assertFoodInvariants(v2);
+    assert.ok(opsOf(v2, "mealPrep").every((operation) => operation.payload.content.startsWith("Ruoanlaitto – ")));
+    assert.equal(opsOf(v2, "shopping")[0].payload.content, "Viikon ruokaostokset");
   });
 
   it("asks for what a supplied recipe is missing and stores nothing", async () => {
     await run(["propose", "--send"]);
-    await run(["answer", "--input-json", answerJson(GOLF_ANSWER)]);
     const before = planFile();
     const result = await run([
       "revise",
@@ -484,25 +491,25 @@ describe("weekly plan food through the CLI", () => {
 
   it("asks the same way when the recipe comes with the golf answer", async () => {
     await run(["propose", "--send"]);
-    const result = await run(["answer", "--input-json", answerJson(GOLF_ANSWER, { changes: { addMeals: [{ name: "Gryta" }] } })]);
+    const result = await run(["revise", "--expect-version", "1", "--changes-json", JSON.stringify({ golf: GOLF_ANSWER, addMeals: [{ name: "Gryta" }] })]);
     assert.equal(result.status, "clarify");
-    assert.equal(plan().status, "awaiting_input");
-    assert.equal(plan().currentVersion, 0);
+    assert.equal(plan().status, "pending");
+    assert.equal(plan().currentVersion, 1);
   });
 
-  it("runs the whole week end to end: ask, answer, inspect, revise a meal, deterministic apply, no duplicates", async () => {
+  it("runs the whole week end to end: plan, answer, inspect, revise a meal, deterministic apply, no duplicates", async () => {
     const memoryBefore = createHash("sha256").update(readFileSync(memoryPath)).digest("hex");
 
-    // 1. Saturday 09:00: a new weekly proposal asks the golf questions.
-    assert.equal((await run(["propose", "--send"])).status, "awaiting_input");
+    // 1. Saturday 09:00: the complete plan is sent at once.
+    assert.equal((await run(["propose", "--send"])).status, "pending");
     assert.equal(sent.length, 1);
 
-    // 2–3. The golf answer builds and shows the complete plan.
+    // 2–3. The golf answer is a revision, shown with a new window.
     at("2026-10-10T09:40:00.000Z");
-    const shown = await run(["answer", "--input-json", answerJson(GOLF_ANSWER)]);
+    const shown = await run(["revise", "--expect-version", "1", "--changes-json", answerJson(GOLF_ANSWER)]);
     assert.equal(shown.status, "pending");
     assert.equal(shown.reviewDeadline, "2026-10-10T21:45:00.000Z");
-    const v1 = versionEntry(plan(), 1).plan;
+    const v1 = versionEntry(plan(), 2).plan;
     assert.equal(v1.golf.activeDays, 6);
     assert.equal(opsOf(v1, "golf").length, 6);
 
@@ -523,31 +530,31 @@ describe("weekly plan food through the CLI", () => {
 
     // 7–9. Revising one meal changes its cooking task and groceries together and restarts the window.
     at("2026-10-10T18:30:00.000Z");
-    const revised = await run(["revise", "--expect-version", "1", "--changes-json", '{"removeMeals":["salmon-potatoes-veg"],"addMeals":["beef-chili-rice"]}']);
-    assert.equal(revised.version, 2);
+    const revised = await run(["revise", "--expect-version", "2", "--changes-json", '{"removeMeals":["salmon-potatoes-veg"],"addMeals":["beef-chili-rice"]}']);
+    assert.equal(revised.version, 3);
     assert.equal(revised.reviewDeadline, "2026-10-11T06:30:00.000Z");
-    assert.match(revised.telegramText, /^Updated plan · 12 Oct–18 Oct · v2\nChanges: Added Chili con carne med ris · Removed Ugnsbakad lax med potatis och haricots verts\n/);
-    const v2 = versionEntry(plan(), 2).plan;
+    assert.match(revised.telegramText, /^Updated plan · 12 Oct–18 Oct · v3\nChanges: Added Chili con carne med ris · Removed Ugnsbakad lax med potatis och haricots verts\n/);
+    const v2 = versionEntry(plan(), 3).plan;
     assertFoodInvariants(v2);
     const salmonDate = v1.food.prep.find((session) => session.mealId === "salmon-potatoes-veg").date;
     assert.equal(opsOf(v2, "mealPrep").find((operation) => operation.date === salmonDate).payload.content, "Matlagning – Chili con carne med ris");
     assert.ok(!shoppingItems(v2).some((item) => item.name === "Laxfilé"));
     assert.ok(shoppingItems(v2).some((item) => item.name === "Nötfärs"));
     assert.deepEqual(opsOf(v2, "golf"), opsOf(v1, "golf"), "golf is untouched by a food change");
-    assert.deepEqual(versionEntry(plan(), 1).plan, v1, "the shown v1 is kept as it was");
+    assert.deepEqual(versionEntry(plan(), 2).plan, v1, "the shown v2 is kept as it was");
 
-    // 10. The deterministic executor applies exactly v2 at its deadline.
+    // 10. The deterministic executor applies exactly v3 at its deadline.
     at("2026-10-11T06:29:00.000Z");
     assert.equal((await run(["apply-due"])).text, "NO_REPLY");
     at("2026-10-11T06:30:00.000Z");
     const applied = await run(["apply-due"]);
-    assert.match(applied.text, /^Applied weekly plan · 12 Oct–18 Oct · v2\nCreated: \d+ · Already existed: 0 · Failed: 0/);
+    assert.match(applied.text, /^Applied weekly plan · 12 Oct–18 Oct · v3\nCreated: \d+ · Already existed: 0 · Failed: 0/);
     assert.deepEqual(todoist.calls.addTask.map((call) => call.payload), v2.operations.map((operation) => operation.payload));
 
     // 11–12. Repeating the apply creates nothing, and nothing is duplicated.
     at("2026-10-11T06:45:00.000Z");
     assert.equal((await run(["apply-due"])).text, "NO_REPLY");
-    assert.equal((await run(["accept", "--plan-id", PLAN, "--version", "2", "--reply-text", "OK"])).applied, false);
+    assert.equal((await run(["accept", "--plan-id", PLAN, "--version", "3", "--reply-text", "OK"])).applied, false);
     assert.equal(todoist.calls.addTask.length, v2.operations.length);
     const keys = todoist.tasks.map((task) => `${task.due.date} ${task.content}`);
     assert.equal(new Set(keys).size, keys.length, "no duplicate tasks");

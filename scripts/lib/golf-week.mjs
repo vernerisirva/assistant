@@ -10,6 +10,10 @@
  * Saved playbooks only shape the wording: the user's cue word and the names of
  * their own routines.
  *
+ * Answers are optional. Without them the week is still complete and labelled
+ * as defaults: no playing days means practice days, never invented rounds, and
+ * no focus means a balanced mix for competitive play.
+ *
  * Everything after that is plain code. Rounds, lessons and golf tasks already
  * in Todoist are anchors; practice fills the other days up to six golf days,
  * and at least one day stays golf-free. Six golf days are not six hard days: a
@@ -41,6 +45,12 @@ export const GOLF_QUESTIONS = Object.freeze({
   events: "Any competition, lesson or other important golf event?",
 });
 
+/** The plan's optional questions, asked once with the first version shown. */
+export const GOLF_REFINEMENTS = Object.freeze({
+  rounds: "Which days will you play golf, if any? Roughly 9 or 18 holes, and is any of it a competition or a lesson?",
+  focus: "What would you like to focus on in your golf practice?",
+});
+
 const MAX_FOCUS_AREAS = 2;
 const INTENSITY_RANK = Object.freeze({ light: 0, moderate: 1, full: 2 });
 /** The least a session needs from its day to be worth doing in full. */
@@ -70,12 +80,12 @@ const ROUND_LIKE = new Set(["round", "competition", "golf"]);
 
 const FOCUS_KIND_PATTERNS = Object.freeze([
   ["putting", /\b(putt\p{L}*|green ?reading|lag ?putt\p{L}*|(3|three)[- ]?putt\p{L}*)/iu],
-  ["wedges", /\b(wedg\p{L}*|inspel\p{L}*)|\b\d{2,3}\s*(-|–|to)\s*\d{2,3}\s*(m|metres?|meters?|yards?|yds)\b|\b(inside|under|within)\s+\d{2,3}\s*(m|metres?|meters?|yards?|yds)\b/iu],
-  ["short-game", /\b(short ?game|chip\p{L}*|pitch\p{L}*|bunker\p{L}*|sand ?shots?|up[- ]and[- ]downs?|around the greens?|närspel\p{L}*)/iu],
-  ["scoring", /\b(scoring|pressure|score\p{L}*)/iu],
-  ["on-course", /\b(course management|strategy|decision\p{L}*|club selection|target selection|game ?plan|on[- ]course|banspel\p{L}*)/iu],
-  ["process", /\b(mental\p{L}*|routine\p{L}*|rutin\p{L}*|pre-?shot|commit\p{L}*|confidence|självförtroende|nerves|patience|reset)/iu],
-  ["range", /\b(driv\p{L}*|tee ?shots?|irons?|long ?game|ball[- ]?striking|full swing|swing\p{L}*|club ?face|strike|contact|hybrids?|woods?|fairway\p{L}*|järn\p{L}*|utslag\p{L}*)/iu],
+  ["wedges", /\b(wedg\p{L}*|inspel\p{L}*|lähestym\p{L}*)|\b\d{2,3}\s*(-|–|to)\s*\d{2,3}\s*(m|metres?|meters?|yards?|yds)\b|\b(inside|under|within)\s+\d{2,3}\s*(m|metres?|meters?|yards?|yds)\b/iu],
+  ["short-game", /\b(short ?game|chip\p{L}*|pitch\p{L}*|bunker\p{L}*|bunkk\p{L}*|sand ?shots?|up[- ]and[- ]downs?|around the greens?|närspel\p{L}*|lähipel\p{L}*|lyhy\p{L}*\s+pel\p{L}*)/iu],
+  ["scoring", /\b(scoring|pressure|score\p{L}*|paine\p{L}*)/iu],
+  ["on-course", /\b(course management|strategy|strategi\p{L}*|decision\p{L}*|päätök\p{L}*|club selection|mailavalin\p{L}*|target selection|game ?plan|on[- ]course|banspel\p{L}*|kenttäpel\p{L}*)/iu],
+  ["process", /\b(mental\p{L}*|mentaal\p{L}*|henkinen|henkis\p{L}*|routine\p{L}*|rutin\p{L}*|rutiin\p{L}*|pre-?shot|commit\p{L}*|confidence|självförtroende|itseluottam\p{L}*|nerves|patience|reset)/iu],
+  ["range", /\b(driv\p{L}*|draiv\p{L}*|tee ?shots?|avauslyön\p{L}*|irons?|rauta\p{L}*|raudo\p{L}*|raudat|long ?game|pitk\p{L}*\s+pel\p{L}*|ball[- ]?striking|full swing|swing\p{L}*|sving\p{L}*|club ?face|strike|contact|osum\p{L}*|hybrids?|woods?|fairway\p{L}*|järn\p{L}*|utslag\p{L}*)/iu],
 ]);
 
 export function golfFocusKind(text) {
@@ -84,68 +94,71 @@ export function golfFocusKind(text) {
 
 // ---------------------------------------------------------------------------
 // Grounding: is a value in the user's words? Lenient about phrasing and
-// language (English and Swedish), strict about substance: a weekday that was
-// never mentioned cannot become a playing day.
+// language (English, Swedish and Finnish), strict about substance: a weekday
+// that was never mentioned cannot become a playing day.
 
 // Day names and abbreviations take only a short ending, so "sun" never
 // matches "sunny". A Swedish day name also starts a compound through the
-// genitive s: "onsdagskvällen", "lördagsmorgon".
+// genitive s: "onsdagskvällen", "lördagsmorgon". A Finnish day name takes its
+// case endings ("keskiviikkona", "lauantain"); the two-letter Finnish
+// abbreviations are left out because "to" and "la" are ordinary words.
 const DAY_WORDS = Object.freeze([
-  { words: ["monday", "mon", "mån"], swedish: ["måndag", "mandag"] },
-  { words: ["tuesday", "tue", "tues", "tis"], swedish: ["tisdag"] },
-  { words: ["wednesday", "wed", "weds", "ons"], swedish: ["onsdag"] },
-  { words: ["thursday", "thu", "thur", "thurs", "tors", "tor"], swedish: ["torsdag"] },
-  { words: ["friday", "fri", "fre"], swedish: ["fredag"] },
-  { words: ["saturday", "sat", "lör"], swedish: ["lördag", "lordag"] },
-  { words: ["sunday", "sun", "sön"], swedish: ["söndag", "sondag"] },
+  { words: ["monday", "mon", "mån"], swedish: ["måndag", "mandag"], finnish: "maanantai" },
+  { words: ["tuesday", "tue", "tues", "tis"], swedish: ["tisdag"], finnish: "tiistai" },
+  { words: ["wednesday", "wed", "weds", "ons"], swedish: ["onsdag"], finnish: "keskiviikko" },
+  { words: ["thursday", "thu", "thur", "thurs", "tors", "tor"], swedish: ["torsdag"], finnish: "torstai" },
+  { words: ["friday", "fri", "fre"], swedish: ["fredag"], finnish: "perjantai" },
+  { words: ["saturday", "sat", "lör"], swedish: ["lördag", "lordag"], finnish: "lauantai" },
+  { words: ["sunday", "sun", "sön"], swedish: ["söndag", "sondag"], finnish: "sunnuntai" },
 ]);
 const MONTH_WORDS = Object.freeze([
-  ["jan", "january", "januari"],
-  ["feb", "february", "februari"],
-  ["mar", "march", "mars"],
-  ["apr", "april"],
-  ["may", "maj"],
-  ["jun", "june", "juni"],
-  ["jul", "july", "juli"],
-  ["aug", "august", "augusti"],
-  ["sep", "sept", "september"],
-  ["oct", "october", "okt", "oktober"],
-  ["nov", "november"],
-  ["dec", "december"],
+  ["jan", "january", "januari", "tammikuu", "tammikuuta", "tammikuun"],
+  ["feb", "february", "februari", "helmikuu", "helmikuuta", "helmikuun"],
+  ["mar", "march", "mars", "maaliskuu", "maaliskuuta", "maaliskuun"],
+  ["apr", "april", "huhtikuu", "huhtikuuta", "huhtikuun"],
+  ["may", "maj", "toukokuu", "toukokuuta", "toukokuun"],
+  ["jun", "june", "juni", "kesäkuu", "kesäkuuta", "kesäkuun"],
+  ["jul", "july", "juli", "heinäkuu", "heinäkuuta", "heinäkuun"],
+  ["aug", "august", "augusti", "elokuu", "elokuuta", "elokuun"],
+  ["sep", "sept", "september", "syyskuu", "syyskuuta", "syyskuun"],
+  ["oct", "october", "okt", "oktober", "lokakuu", "lokakuuta", "lokakuun"],
+  ["nov", "november", "marraskuu", "marraskuuta", "marraskuun"],
+  ["dec", "december", "joulukuu", "joulukuuta", "joulukuun"],
 ]);
 const NUMBER_WORDS = Object.freeze({
-  1: ["one", "single"],
-  2: ["two", "couple", "två"],
-  3: ["three", "tre"],
-  4: ["four", "fyra"],
-  5: ["five", "fem"],
-  6: ["six", "sex"],
-  9: ["nine", "nio"],
-  15: ["fifteen", "femton", "a quarter of an hour", "kvart"],
-  18: ["eighteen", "arton", "full round", "full rounds"],
-  20: ["twenty", "tjugo"],
-  30: ["thirty", "trettio", "half an hour", "half hour", "halvtimme"],
-  40: ["forty", "fyrtio"],
-  45: ["forty-five", "forty five", "fyrtiofem", "three quarters of an hour"],
-  60: ["sixty", "an hour", "one hour", "1 hour", "1 h", "1h", "en timme", "1 timme"],
-  90: ["ninety", "nittio", "an hour and a half", "one and a half hours", "1.5 hours", "1.5 h", "1,5 h", "1,5 timme", "en och en halv timme"],
-  120: ["two hours", "2 hours", "2 h", "2h", "två timmar"],
+  1: ["one", "single", "yksi", "yhden"],
+  2: ["two", "couple", "två", "kaksi", "kahden"],
+  3: ["three", "tre", "kolme"],
+  4: ["four", "fyra", "neljä"],
+  5: ["five", "fem", "viisi"],
+  6: ["six", "sex", "kuusi"],
+  9: ["nine", "nio", "yhdeksän"],
+  15: ["fifteen", "femton", "a quarter of an hour", "kvart", "viisitoista", "vartti", "varttitunti"],
+  18: ["eighteen", "arton", "full round", "full rounds", "kahdeksantoista", "täysi kierros", "täyden kierroksen"],
+  20: ["twenty", "tjugo", "kaksikymmentä"],
+  30: ["thirty", "trettio", "half an hour", "half hour", "halvtimme", "kolmekymmentä", "puoli tuntia", "puolen tunnin"],
+  40: ["forty", "fyrtio", "neljäkymmentä"],
+  45: ["forty-five", "forty five", "fyrtiofem", "three quarters of an hour", "neljäkymmentäviisi", "kolme varttia"],
+  60: ["sixty", "an hour", "one hour", "1 hour", "1 h", "1h", "en timme", "1 timme", "kuusikymmentä", "tunti", "tunnin", "yksi tunti"],
+  90: ["ninety", "nittio", "an hour and a half", "one and a half hours", "1.5 hours", "1.5 h", "1,5 h", "1,5 timme", "en och en halv timme", "yhdeksänkymmentä", "puolitoista tuntia", "puolentoista tunnin"],
+  120: ["two hours", "2 hours", "2 h", "2h", "två timmar", "kaksi tuntia", "kahden tunnin"],
 });
 
 const word = (body) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${body})(?![\\p{L}\\p{N}])`, "iu");
 // A competition or a lesson needs the user to name one: an "important round"
-// is an ordinary round, and a coach's advice is not a booked lesson.
+// is an ordinary round, and a coach's advice is not a booked lesson. A Finnish
+// "tunti" is only an hour; it is a lesson with a prefix that says so.
 const COMPETITION_PATTERN = word(
-  "competition\\p{L}*|comps?|tournament\\p{L}*|\\p{L}*tävling\\p{L}*|(?:serie|lag|klubb)?match\\p{L}*|qualif\\p{L}*|championship\\p{L}*|\\p{L}*mästerskap\\p{L}*|club champs|cup|medal|stableford|scramble",
+  "competition\\p{L}*|comps?|tournament\\p{L}*|\\p{L}*tävling\\p{L}*|(?:serie|lag|klubb)?match\\p{L}*|qualif\\p{L}*|championship\\p{L}*|\\p{L}*mästerskap\\p{L}*|club champs|cup|medal|stableford|scramble|kilpailu\\p{L}*|kilpaile\\p{L}*|(?:seura|golf|joukkue)?kis[ao]\\p{L}*|turnau\\p{L}*|\\p{L}*mestaruu\\p{L}*|karsin\\p{L}*|reikäpel\\p{L}*",
 );
 const LESSON_PATTERN = word(
-  "lesson\\p{L}*|(?:golf|privat|grupp|tränar)?lektion\\p{L}*|coaching session|session with (?:my|the) (?:coach|pro|instructor|trainer|tränare)|tränarpass",
+  "lesson\\p{L}*|(?:golf|privat|grupp|tränar)?lektion\\p{L}*|coaching session|session with (?:my|the) (?:coach|pro|instructor|trainer|tränare)|tränarpass|(?:golf|oppi|yksityis|ryhmä|valmennus|pro)-?tun(?:ti\\p{L}*|n[ie]\\p{L}*)|valmennu\\p{L}*|valmentaja(?:n|ni)? kanssa",
 );
-const BALANCE_PATTERN = word("balance\\p{L}*|balanced|choose|you choose|you pick|pick for me|up to you|your call|whatever|no specific|no particular|nothing specific|nothing in particular|anything|mixed|a mix|välj\\p{L}*|du väljer|blandat|valfritt");
-const SAME_PATTERN = word("same|samma|like last week|as last week|as before|som förra veckan|unchanged|oförändrat");
-const NORMAL_PATTERN = word("normal|usual|regular|typical|vanlig\\p{L}*");
-const NO_ROUNDS_PATTERN = word("no (?:full )?rounds?|not playing|won['’]?t (?:be )?play\\p{L}*|will not play|not going to play|no 18|no 9|inga rundor|ingen runda|spelar inte|inte spela|just practi[cs]e|only practi[cs]e|practi[cs]e only");
-const NO_GOLF_PATTERN = word("no golf|not playing golf|no golfing|skip golf|skipping golf|without golf|ingen golf|inte golf|golf[- ]?free|break from golf|pause golf");
+const BALANCE_PATTERN = word("balance\\p{L}*|balanced|choose|you choose|you pick|pick for me|up to you|your call|whatever|no specific|no particular|nothing specific|nothing in particular|anything|mixed|a mix|välj\\p{L}*|du väljer|blandat|valfritt|valitse\\p{L}*|sinä valitset|saat valita|tasapain\\p{L}*|monipuoli\\p{L}*|sekalai\\p{L}*|ei mitään erityis\\p{L}*|ei erityis\\p{L}*|mitä tahansa|ihan sama");
+const SAME_PATTERN = word("same|samma|like last week|as last week|as before|som förra veckan|unchanged|oförändrat|sama\\p{L}*|kuin viime viikolla|kuten viime viikolla|ennallaan");
+const NORMAL_PATTERN = word("normal|usual|regular|typical|vanlig\\p{L}*|normaal\\p{L}*|tavalli\\p{L}*|tavanomai\\p{L}*");
+const NO_ROUNDS_PATTERN = word("no (?:full )?rounds?|not playing|won['’]?t (?:be )?play\\p{L}*|will not play|not going to play|no 18|no 9|inga rundor|ingen runda|spelar inte|inte spela|just practi[cs]e|only practi[cs]e|practi[cs]e only|en pelaa|ei kierroks\\p{L}*|ei kierrosta|ei yhtään kierrosta|vain harjoittel\\p{L}*|pelkkää harjoittelua|pelkästään harjoittel\\p{L}*");
+const NO_GOLF_PATTERN = word("no golf|not playing golf|no golfing|skip golf|skipping golf|without golf|ingen golf|inte golf|golf[- ]?free|break from golf|pause golf|ei golfia|ei golffia|en golfaa|en pelaa golfia|golfvapaa\\p{L}*|golftauko|tauko golfista|ilman golfia");
 
 const STOPWORDS = new Set(
   (
@@ -154,7 +167,9 @@ const STOPWORDS = new Set(
     "inside under within over around about between " +
     "focus focusing work working practice practise practicing practising improve improving better main second primary secondary " +
     "thing things area areas game games shot shots play playing golf m meter meters metre metres yard yards yds " +
-    "och att på med för vill jobba träna träning fokus mer min mitt mina nästa vecka veckan spel spelet slag golfen"
+    "och att på med för vill jobba träna träning fokus mer min mitt mina nästa vecka veckan spel spelet slag golfen " +
+    "ja tai että haluan haluaisin keskity keskityn keskittyä keskitytään harjoitella harjoittelen harjoittelu harjoitus harjoituksia " +
+    "treenata treeni enemmän vähemmän ensi viikko viikolla viikon viikkoa pelata pelaan golfia golffia lyönti lyönnit parantaa"
   ).split(" "),
 );
 
@@ -170,15 +185,16 @@ function dayMentioned(date, sources, { today = null } = {}) {
   const patterns = [
     word(`(?:${DAY_WORDS[index].words.join("|")})(?:s|en|ens|ar|arna)?`),
     word(`(?:${DAY_WORDS[index].swedish.join("|")})(?:s\\p{L}*|en|ens|ar|arna)?`),
+    word(`${DAY_WORDS[index].finnish}\\p{L}*`),
     new RegExp(escapeRegExp(date)),
     new RegExp(`(?<!\\d)${dayOfMonth}(?:st|nd|rd|th|:e)(?![\\p{L}\\p{N}])`, "iu"),
     new RegExp(`(?<![\\d.])${dayOfMonth}\\s*[./]\\s*${month}(?![\\d])`, "u"),
     new RegExp(`(?<![\\d.])${dayOfMonth}\\.?\\s+(?:${months})(?![\\p{L}])`, "iu"),
     new RegExp(`(?<![\\p{L}])(?:${months})\\.?\\s+${dayOfMonth}(?!\\d)`, "iu"),
   ];
-  if (index >= 5) patterns.push(word("weekends?|helg(?:en)?"));
-  if (today && date === today) patterns.push(word("today|tonight|idag|i dag|ikväll|i kväll"));
-  if (today && date === addDays(today, 1)) patterns.push(word("tomorrow|imorgon|i morgon|imorrn"));
+  if (index >= 5) patterns.push(word("weekends?|helg(?:en)?|viikonlop\\p{L}*"));
+  if (today && date === today) patterns.push(word("today|tonight|idag|i dag|ikväll|i kväll|tänään|tänä iltana"));
+  if (today && date === addDays(today, 1)) patterns.push(word("tomorrow|imorgon|i morgon|imorrn|huomenna"));
   return sources.some((source) => patterns.some((pattern) => pattern.test(source)));
 }
 
@@ -209,7 +225,7 @@ function sharesWords(value, sources) {
 // ---------------------------------------------------------------------------
 // Inputs.
 
-/** The golf part before the user has said anything about the week. */
+/** The golf part before the user has said anything about the week: the planner's defaults. */
 export function emptyGolfInputs(config) {
   const activeDays = config?.golf?.activeDays ?? MAX_GOLF_DAYS;
   if (!Number.isInteger(activeDays) || activeDays < 0 || activeDays > MAX_GOLF_DAYS) {
@@ -233,7 +249,12 @@ export function emptyGolfInputs(config) {
   };
 }
 
-/** Complete when the week's playing days and focus are known, or the user said no golf at all. */
+/**
+ * Which of the week's two optional answers are still defaults: the playing
+ * days (`rounds`) and the focus. Complete when both are known, or the user
+ * said no golf at all. A plan never waits for them; plans stored before the
+ * answers became optional (`awaiting_input`) still report what they asked.
+ */
 export function golfInputStatus(golf) {
   if (golf.activeDaysExplicit && golf.activeDays === 0) return { complete: true, missing: [] };
   const missing = [];
@@ -281,7 +302,9 @@ const GOLF_CHANGE_KEYS = Object.freeze([
  *
  * In a plan that was already built (`context.plan`), today's practice sessions
  * and rest day are kept where they are first, so a change moves only what it
- * names, as the rest of the weekly plan does.
+ * names, as the rest of the weekly plan does. The first playing days or focus
+ * the user gives replace defaults that nobody chose, so the practice around
+ * them is planned afresh; only sessions the user moved stay put.
  *
  * @returns {{ golf, summary: string[], problems: { field, reason, question }[] }}
  */
@@ -289,8 +312,9 @@ export function applyGolfChanges(previous, rawChanges, context) {
   const changes = requireObject(rawChanges, "golf");
   rejectUnknownKeys(changes, GOLF_CHANGE_KEYS, "golf");
   const replyText = requireReplyText(changes.replyText);
-  const { weekStart, today = null, previousWeek = null, normalWeekText = null, plan = null } = context;
+  const { weekStart, today = null, previousWeek = null, normalWeekText = null, plan = null, saved } = context;
   const golf = structuredClone(previous);
+  const before = { roundsKnown: golf.roundsKnown, focusMode: golf.focus?.mode ?? null };
   if (plan) keepCurrentWeek(golf, plan);
   const summary = [];
   const problems = [];
@@ -444,8 +468,10 @@ export function applyGolfChanges(previous, rawChanges, context) {
       golf.focus = { mode: "areas", areas: uniqueText(areas) };
       summary.push(`Golf: focus ${golf.focus.areas.map(lowerFirst).join(", ")}`);
     }
-    // The sessions follow the new focus; upkeep sessions stay where they are.
-    golf.pins = golf.pins.filter((pin) => pin.focusIndex === null);
+    // The sessions follow the new focus. After an earlier focus its upkeep
+    // sessions stay where they are; a balanced or default week chose every
+    // session for that mix, so only the ones the user moved stay.
+    golf.pins = golf.pins.filter((pin) => pin.focusIndex === null && (pin.explicit || before.focusMode === "areas"));
   }
 
   if (changes.technicalPriority !== undefined) {
@@ -521,6 +547,15 @@ export function applyGolfChanges(previous, rawChanges, context) {
     flag("rounds", "That would be golf on all seven days.", "That's golf every day next week. Which day should be golf-free?");
   }
 
+  // The first playing days or focus replace defaults nobody chose: the
+  // practice and the golf-free day are planned around them afresh, worded
+  // with the saved routines the chat reply may read (`context.saved`).
+  if (plan && ((!before.roundsKnown && golf.roundsKnown) || (!before.focusMode && golf.focus))) {
+    golf.pins = golf.pins.filter((pin) => pin.explicit);
+    golf.previousRestDays = [];
+    if (saved !== undefined) golf.saved = saved;
+  }
+
   for (const raw of requireList(changes.moves ?? [], "moves", 7)) {
     if (!plan) throw new Error("Golf sessions can be moved once the plan has been built and shown.");
     requireObject(raw, "golf move");
@@ -589,8 +624,8 @@ function moveGolfDay(golf, plan, from, to) {
   // A practice session swaps with whatever is on the target day; moving it
   // onto the golf-free day makes its old day the golf-free one.
   golf.pins = golf.pins.filter((pin) => pin.date !== from && pin.date !== to);
-  golf.pins.push({ date: to, kind: source.kind, focusIndex: source.focusIndex ?? null });
-  if (target?.role === "practice") golf.pins.push({ date: from, kind: target.kind, focusIndex: target.focusIndex ?? null });
+  golf.pins.push({ date: to, kind: source.kind, focusIndex: source.focusIndex ?? null, explicit: true });
+  if (target?.role === "practice") golf.pins.push({ date: from, kind: target.kind, focusIndex: target.focusIndex ?? null, explicit: true });
   if (target?.role === "rest") golf.restDays = [from];
   golf.pins.sort((a, b) => a.date.localeCompare(b.date));
   return `Golf: ${lowerFirst(source.label)} ${shortWeekday(from)} → ${shortWeekday(to)}`;
@@ -691,7 +726,14 @@ export function deriveGolfWeek({ golf, weekStart, existing = [], dayLoads = {}, 
   };
   const anchors = dates.filter((date) => days.get(date).role);
   const candidates = dates.filter((date) => !days.get(date).role && !offReason(date));
-  const target = noGolf ? 0 : golf.activeDays;
+  // Days that have passed are not caught up: what is left of the week keeps a
+  // golf-free day instead of packing the missed golf days into it.
+  const remaining = dates.filter((date) => !passed(date)).length;
+  const wanted = noGolf ? 0 : golf.activeDays;
+  const target = remaining < dates.length ? Math.min(wanted, Math.max(0, remaining - 1)) : wanted;
+  if (target < wanted) {
+    notes.push(`The week has already started, so the ${remaining} days left get ${target} golf day${target === 1 ? "" : "s"} and keep a golf-free day; missed golf days aren't caught up.`);
+  }
   let need = Math.max(0, target - anchors.length);
   if (need > candidates.length) {
     notes.push(`Only room for ${anchors.length + candidates.length} golf days this week.`);
@@ -848,6 +890,9 @@ export function deriveGolfWeek({ golf, weekStart, existing = [], dayLoads = {}, 
   }
 
   const list = dates.map((date) => publicDay(days.get(date)));
+  // What the week assumed because the user hasn't said it; absent when they
+  // have, so a plan built from complete answers keeps its earlier shape.
+  const assumed = noGolf ? [] : golfInputStatus(golf).missing;
   return {
     direction: settings.direction ?? null,
     targetDays: target,
@@ -856,6 +901,7 @@ export function deriveGolfWeek({ golf, weekStart, existing = [], dayLoads = {}, 
     focus: golf.focus ? structuredClone(golf.focus) : null,
     technicalPriority: golf.technicalPriority ?? null,
     saved: golf.saved ?? null,
+    ...(assumed.length > 0 ? { assumed } : {}),
     days: list,
     notes,
   };
@@ -1039,7 +1085,7 @@ function successLine(day, kindSettings) {
 // ---------------------------------------------------------------------------
 // Messages.
 
-/** The Saturday question: one compact message, answered naturally. */
+/** The questions a plan stored before the answers became optional (`awaiting_input`) asked. */
 export function formatGolfQuestion({ weekStart, previousWeek = null }) {
   const lines = [
     `Next week's plan · ${formatWeekLabel(weekStart)}`,
@@ -1098,20 +1144,34 @@ export function describeGolfInput(golf) {
   return parts.join(" · ");
 }
 
-/** The proposal's golf section. */
+/** The proposal's golf section. Defaults are labelled as defaults. */
 export function formatGolfSection(week) {
   const anchors = week.days.filter((day) => day.role !== "rest" && day.role !== "off" && day.role !== "practice");
   if (week.targetDays === 0 && anchors.length === 0) return ["Golf", "No golf this week."];
   const plural = (count, noun) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+  const assumed = week.assumed ?? [];
   const lines = [
     `Golf · ${plural(week.activeDays, "golf day")}${week.restDays > 0 ? `, ${plural(week.restDays, "rest day")}` : ""}`,
   ];
   if (week.direction) lines.push(`Long-term direction: ${lowerFirst(week.direction)}`);
   if (week.focus?.mode === "areas") lines.push(`This week's focus: ${week.focus.areas.map((area, index) => `${index + 1}. ${area}`).join(" · ")}`);
   if (week.focus?.mode === "balance") lines.push("This week's focus: a balanced mix");
+  if (assumed.includes("focus")) lines.push("This week's focus: a balanced mix for competitive play (default: you haven't named a focus)");
+  if (assumed.includes("rounds")) lines.push("Playing days: not given yet, so every golf day is practice, not a round (default)");
   for (const day of week.days) lines.push(golfDayLine(day));
   for (const note of week.notes) lines.push(`Note: ${note}`);
   return lines;
+}
+
+/**
+ * The plan's optional golf questions, for the answers it assumed. Asked once,
+ * with the first version shown; the plan applies as shown without them.
+ */
+export function formatGolfRefinements(assumed = []) {
+  const questions = ["rounds", "focus"].filter((key) => assumed.includes(key)).map((key) => GOLF_REFINEMENTS[key]);
+  if (questions.length === 0) return [];
+  if (questions.length === 1) return ["One thing you can help me improve:", questions[0]];
+  return ["Two things you can help me improve:", ...questions.map((question, index) => `${index + 1}. ${question}`)];
 }
 
 function golfDayLine(day) {

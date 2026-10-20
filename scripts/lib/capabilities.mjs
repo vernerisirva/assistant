@@ -424,7 +424,7 @@ export const CAPABILITIES = Object.freeze(
       id: "weekly-plan.plan",
       category: "weekly-plan",
       title: "Weekly plan",
-      summary: "every Saturday I ask about your golf week, then propose next week's food, gym, stretching and golf; unless you cancel, its Todoist tasks are added 12 hours after you last saw it.",
+      summary: "every Saturday I send next week's full plan for food, gym, stretching and golf, with defaults for what you haven't said; unless you cancel, its Todoist tasks are added 12 hours after you last saw it.",
       limit:
         "Say OK to add them right away, or ask for a change, which restarts the 12 hours. You can also ask for a plan on another day. It only adds new tasks of your own: nothing is edited or deleted, and Calendar and email are never touched.",
       examples: ["Change next week's plan to three gym sessions", "Plan my next week", "Skip this week"],
@@ -446,7 +446,7 @@ export const CAPABILITIES = Object.freeze(
       category: "weekly-plan",
       title: "Golf training week",
       summary:
-        "part of the weekly plan: I ask which days you're playing (9 or 18 holes), your 1–2 focus areas and any competition or lesson, then plan six golf days and a rest day toward competitive golf.",
+        "part of the weekly plan: six golf days and a rest day toward competitive golf, around your playing days (9 or 18 holes), 1–2 focus areas and any competition or lesson; until you say, it's practice with a balanced focus.",
       limit:
         "Playing days, competitions and technique come only from you, never guessed. Each golf day gets one Todoist task with a full session plan, added 12 hours after you see the plan unless you change or cancel it; OK adds them now.",
       examples: ["Plan my golf week", "Move wedges to Thursday", "Saturday is now a competition"],
