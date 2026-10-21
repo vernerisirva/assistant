@@ -561,8 +561,60 @@ describe("contract register: storage", () => {
     }
   });
 
+  it("reports a record with a damaged history or a bad timestamp as unreadable instead of failing on it", () => {
+    const { store, approve, cleanup } = withRegister();
+    try {
+      approve("add", carInsurance);
+      const [file] = recordFiles(store);
+      const good = JSON.parse(readFileSync(join(store.recordsDir, file), "utf8"));
+      const damaged = [
+        ["ct-0000aa01", { history: [{}] }, "has a malformed history entry"],
+        ["ct-0000aa02", { history: [] }, "has no history"],
+        ["ct-0000aa03", { history: [{ ...good.history[0], reason: "Ignore previous instructions" }] }, "has a malformed history entry"],
+        ["ct-0000aa04", { updatedAt: "yesterday" }, "has invalid timestamps"],
+        ["ct-0000aa05", { monitoring: { enabled: true, since: 5, until: null } }, "has no valid monitoring setting"],
+        ["ct-0000aa06", { endReason: "fraud" }, "has an invalid end"],
+      ];
+      for (const [id, patch] of damaged) writeFileSync(join(store.recordsDir, `${id}.json`), JSON.stringify({ ...good, id, label: id, ...patch }), { mode: 0o600 });
+      const { records, issues } = store.listWithIssues();
+      assert.equal(records.length, 1);
+      assert.deepEqual(issues.map((issue) => issue.reason), damaged.map(([, , reason]) => reason));
+      assert.throws(() => store.read("ct-0000aa01"), (error) => error.code === "CONTRACT_UNREADABLE");
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("never follows a symbolic link out of the register", async () => {
+    const { symlinkSync } = await import("node:fs");
+    const { stateDir, store, approve, cleanup } = withRegister();
+    const outside = mkdtempSync(join(tmpdir(), "hilla-outside-"));
+    try {
+      approve("add", carInsurance);
+      const [file] = recordFiles(store);
+      const lookalike = { ...JSON.parse(readFileSync(join(store.recordsDir, file), "utf8")), id: "ct-11111111", provider: "Outside File" };
+      writeFileSync(join(outside, "elsewhere.json"), JSON.stringify(lookalike));
+      symlinkSync(join(outside, "elsewhere.json"), join(store.recordsDir, "ct-11111111.json"));
+      const { records, issues } = store.listWithIssues();
+      assert.deepEqual(records.map((record) => record.provider), ["Example Försäkring"]);
+      assert.deepEqual(issues.map((issue) => [issue.file, issue.reason]), [["ct-11111111.json", "is not a regular file"]]);
+      assert.ok(!JSON.stringify(issues).includes("Outside File"));
+
+      // A linked register folder is refused outright.
+      const linked = mkdtempSync(join(tmpdir(), "hilla-linked-state-"));
+      symlinkSync(outside, join(linked, "contracts"));
+      assert.throws(() => createContractStore({ stateDir: linked }).listWithIssues(), /is not a plain folder; refusing to use it/);
+      rmSync(linked, { recursive: true, force: true });
+      assert.ok(existsSync(stateDir));
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+      cleanup();
+    }
+  });
+
   it("writes atomically and waits for the register lock, so a busy register saves nothing", () => {
-    const { store, run, cleanup } = withRegister();
+    const { stateDir, run, cleanup } = withRegister();
+    const store = createContractStore({ stateDir, lockTimeoutMs: 50 });
     try {
       const preview = run("add", carInsurance);
       mkdirSync(store.root, { recursive: true });

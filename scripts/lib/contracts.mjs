@@ -26,7 +26,7 @@
  * Nothing in this module cancels, switches, signs, buys or contacts anyone.
  */
 import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { isApprovalMessage } from "./approval-language.mjs";
 import {
@@ -393,14 +393,38 @@ export function changedFields(before, after) {
   }));
 }
 
+const HISTORY_KINDS = new Set(["created", "updated", "renewed", "ended", "monitoring"]);
+const isTimestamp = (value) => typeof value === "string" && Number.isFinite(Date.parse(value));
+const isTimestampOrNull = (value) => value === null || isTimestamp(value);
+
+/** A stored record is checked as strictly as new input, so a damaged or hand-edited file is reported, never half-used. */
 function parseStoredRecord(document, expectedId) {
-  if (!document || typeof document !== "object") throw new Error("is not a JSON object");
+  if (!document || typeof document !== "object" || Array.isArray(document)) throw new Error("is not a JSON object");
   if (document.schemaVersion !== CONTRACT_SCHEMA_VERSION) throw new Error(`has unsupported schema version ${document.schemaVersion}`);
   if (document.id !== expectedId) throw new Error("has an id that does not match its file name");
   if (!["active", "ended"].includes(document.status)) throw new Error("has an unknown status");
   if (!Number.isInteger(document.revision) || document.revision < 1) throw new Error("has no valid revision");
-  if (!Array.isArray(document.history)) throw new Error("has no history");
-  if (!document.monitoring || typeof document.monitoring.enabled !== "boolean") throw new Error("has no monitoring setting");
+  if (!isTimestamp(document.createdAt) || !isTimestamp(document.updatedAt)) throw new Error("has invalid timestamps");
+  const monitoring = document.monitoring;
+  if (!monitoring || typeof monitoring.enabled !== "boolean" || !isTimestampOrNull(monitoring.since) || !(monitoring.until === null || isIsoDate(monitoring.until))) {
+    throw new Error("has no valid monitoring setting");
+  }
+  if (!(document.endedOn === null || isIsoDate(document.endedOn)) || !(document.endReason === null || END_REASONS.includes(document.endReason))) {
+    throw new Error("has an invalid end");
+  }
+  if (!Array.isArray(document.history) || document.history.length === 0) throw new Error("has no history");
+  for (const entry of document.history) {
+    const valid =
+      entry &&
+      typeof entry === "object" &&
+      isTimestamp(entry.at) &&
+      Number.isInteger(entry.revision) &&
+      HISTORY_KINDS.has(entry.kind) &&
+      Array.isArray(entry.changes) &&
+      entry.changes.every((change) => change && typeof change.field === "string") &&
+      (entry.reason === null || !checkContractText(entry.reason, { max: 200 }).problem);
+    if (!valid) throw new Error("has a malformed history entry");
+  }
   const fields = Object.fromEntries(CONTRACT_FIELDS.map((key) => [key, document[key]]));
   const { problems } = normalizeContractFields(fields, { complete: true });
   const consistency = contractConsistencyProblems(fields);
@@ -421,7 +445,7 @@ export function resolveContractsDir(stateDir) {
  * file atomically, and `withLock` serializes read-check-write cycles across
  * processes.
  */
-export function createContractStore({ stateDir }) {
+export function createContractStore({ stateDir, lockTimeoutMs }) {
   const root = resolveContractsDir(stateDir);
   const recordsDir = join(root, "records");
   const recordPath = (id) => join(recordsDir, `${requireContractId(id)}.json`);
@@ -429,17 +453,27 @@ export function createContractStore({ stateDir }) {
   function ensurePrivateDirs() {
     for (const dir of [root, recordsDir]) {
       mkdirSync(dir, { recursive: true, mode: 0o700 });
+      refuseLinkedFolder(dir);
       chmodSync(dir, 0o700);
     }
   }
 
+  // The register reads only its own files: a symbolic link, or anything but a
+  // regular file, is reported instead of followed to somewhere else.
+  function refuseLinkedFolder(dir) {
+    if (existsSync(dir) && !lstatSync(dir).isDirectory()) throw new Error(`The contract register folder ${relative(dirname(root), dir)} is not a plain folder; refusing to use it.`);
+  }
+
   function read(id) {
     const path = recordPath(id);
-    if (!existsSync(path)) {
+    if (!existsSync(path) && !isLink(path)) {
       const missing = new Error(`No contract with id ${id}.`);
       missing.code = "CONTRACT_NOT_FOUND";
       throw missing;
     }
+    refuseLinkedFolder(root);
+    refuseLinkedFolder(recordsDir);
+    if (!lstatSync(path).isFile()) throw unreadableRecord(id, "is not a regular file");
     let document;
     try {
       document = JSON.parse(readFileSync(path, "utf8"));
@@ -455,7 +489,9 @@ export function createContractStore({ stateDir }) {
 
   /** Unreadable files are reported, never allowed to hide the other contracts. */
   function listWithIssues() {
+    refuseLinkedFolder(root);
     if (!existsSync(recordsDir)) return { records: [], issues: [] };
+    refuseLinkedFolder(recordsDir);
     const records = [];
     const issues = [];
     for (const name of readdirSync(recordsDir).filter((entry) => entry.endsWith(".json")).sort()) {
@@ -485,15 +521,15 @@ export function createContractStore({ stateDir }) {
 
   function withLock(fn) {
     ensurePrivateDirs();
-    return withFileLockSync(join(root, "register"), fn);
+    return withFileLockSync(join(root, "register"), fn, lockTimeoutMs === undefined ? {} : { timeoutMs: lockTimeoutMs });
   }
 
   /** Folders or files that someone other than the owner could read. */
   function permissionProblems() {
     const problems = [];
     const check = (path, expected) => {
-      if (!existsSync(path)) return;
-      const mode = statSync(path).mode & 0o777;
+      if (!existsSync(path) && !isLink(path)) return;
+      const mode = lstatSync(path).mode & 0o777;
       if (mode & 0o077) problems.push({ path: relative(dirname(root), path), mode: mode.toString(8).padStart(4, "0"), expected });
     };
     check(root, "0700");
@@ -505,6 +541,14 @@ export function createContractStore({ stateDir }) {
   }
 
   return { root, recordsDir, read, listWithIssues, write, remove, withLock, permissionProblems, exists: (id) => existsSync(recordPath(id)) };
+}
+
+function isLink(path) {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
 }
 
 function requireContractId(id) {
