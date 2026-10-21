@@ -414,6 +414,22 @@ describe("contract register: finding and changing one contract", () => {
     }
   });
 
+  it("adds term changes to the stored terms instead of replacing them", () => {
+    const { store, run, approve, cleanup } = withRegister();
+    try {
+      approve("add", { category: "electricity", provider: "Example Energi", terms: { agreement: "supply", priceModel: "fixed", monthlyFeeSek: 39 } });
+      const change = { target: "the electricity", changes: { terms: { annualConsumptionKwh: 9000 } }, reason: "I use about 9000 kWh a year" };
+      assert.match(run("update", change).telegramText, /- Terms: Agreement supply \(elhandel\), Price model fixed, Monthly fee 39 SEK → Agreement supply \(elhandel\), Price model fixed, Monthly fee 39 SEK, Yearly use 9000 kWh/);
+      const saved = approve("update", change);
+      assert.deepEqual(store.read(saved.contract.id).terms, { agreement: "supply", priceModel: "fixed", monthlyFeeSek: 39, annualConsumptionKwh: 9000 });
+      approve("update", { id: saved.contract.id, changes: { terms: { monthlyFeeSek: null } } });
+      assert.deepEqual(store.read(saved.contract.id).terms, { agreement: "supply", priceModel: "fixed", annualConsumptionKwh: 9000 }, "null removes just that term");
+      assert.equal(run("renew", { id: saved.contract.id, renewalDate: "2027-12-01", currentPrice: null }).problems.join(), "renewalDate: this contract has no renewal date to renew from; use update to set its dates");
+    } finally {
+      cleanup();
+    }
+  });
+
   it("refuses an approval for a preview the contract has since moved past", () => {
     const { run, cleanup } = twoIfContracts();
     try {

@@ -75,7 +75,7 @@ Every change takes `id` (from `list`) or `target`: the user's own words, such as
 
 ## 7. Changes
 
-- `update`: `{"target": "...", "changes": {...only the fields that change...}, "reason": "the user's words"}`.
+- `update`: `{"target": "...", "changes": {...only the fields that change...}, "reason": "the user's words"}`. Terms you send are added to the stored ones; a term set to `null` removes just that term.
 - `renew`, for "I renewed it" or "they extended my discount for another year": `{"target": "...", "renewalDate": "2028-03-01"}` or `"extendBy": {"value": 1, "unit": "years"}`, plus `currentPrice` (the new price, `"unchanged"` only when the user said it stays the same, or `null` when unknown), and any new `discountEndDate`, `nextPrice` or `cancellationDeadline`. The old renewal date becomes the start date, and dates of the old term become unknown unless given. If the user didn't say the new price or whether a discount continues, ask both in one question.
 - An offer the user hasn't accepted yet ("they offered me 15% off for another 12 months") changes nothing: ask whether they took it, and the price it gives.
 - `end`, for "Mark the old broadband as cancelled": `{"target": "...", "endReason": "cancelled", "endedOn": "2026-11-30"}` (`endReason` is `cancelled`, `switched`, `expired` or `other`). It only updates the register, so say they cancel with the provider themselves if they haven't.

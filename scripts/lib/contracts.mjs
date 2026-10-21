@@ -670,7 +670,7 @@ function updateContract(payload, context) {
     return invalid(["changes: must be an object with at least one field to change"]);
   }
   return changeRecord("update", payload, context, (record) => {
-    const { value, problems } = normalizeContractFields(payload.changes, { category: record.category });
+    const { value, problems } = normalizeContractFields(withMergedTerms(payload.changes, record), { category: record.category });
     if (problems.length > 0) return { problems };
     // A new category can make its existing terms invalid; they are checked again below.
     const next = { ...record, ...value };
@@ -680,6 +680,16 @@ function updateContract(payload, context) {
     }
     return { next, kind: "updated" };
   });
+}
+
+/**
+ * Term changes add to the stored terms: `{"terms": {"annualConsumptionKwh": 9000}}`
+ * keeps the price model and fees, and a term set to null removes just that
+ * term. `"terms": null` clears them all.
+ */
+function withMergedTerms(changes, record) {
+  if (!changes.terms || typeof changes.terms !== "object" || Array.isArray(changes.terms)) return changes;
+  return { ...changes, terms: { ...record.terms, ...changes.terms } };
 }
 
 function renewContract(payload, context) {
@@ -707,7 +717,7 @@ function renewContract(payload, context) {
     changes.nextPrice = "nextPrice" in payload ? payload.nextPrice : null;
     if (payload.currentPrice !== "unchanged") changes.currentPrice = payload.currentPrice;
     for (const key of ["noticePeriod", "terms", "autoRenewal"]) if (key in payload) changes[key] = payload[key];
-    const { value, problems } = normalizeContractFields(changes, { category: record.category });
+    const { value, problems } = normalizeContractFields(withMergedTerms(changes, record), { category: record.category });
     if (problems.length > 0) return { problems };
     if (!isIsoDate(value.renewalDate) || value.renewalDate <= record.renewalDate) {
       return { problems: ["renewalDate: the new renewal date must be a date after the current one"] };
