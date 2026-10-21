@@ -279,6 +279,29 @@ describe("weekly plan golf week", () => {
     assert.deepEqual(golfOps(versionEntry(plan(), 5).plan), [], none.telegramText);
   });
 
+  it("titles focus sessions with base-form labels from an inflected reply, and takes the user's own form when a base form isn't in their words", async () => {
+    await run(["propose", "--send"]);
+    const finnish = await revise(1, { golf: { replyText: "Keskity wedgeihin ja puttaamiseen.", focus: ["Wedget", "Puttaus"] } });
+    assert.equal(finnish.version, 2);
+    const titles = golfOps(versionEntry(plan(), 2).plan).map((operation) => operation.payload.content);
+    assert.ok(titles.includes("Golf practice — Wedget") && titles.includes("Golf practice — Puttaus"), titles.join(", "));
+    assert.match(finnish.telegramText, /\nThis week's focus: 1\. Wedget · 2\. Puttaus\n/);
+
+    const swedish = await revise(2, { golf: { replyText: "Fokusera på inspelet istället.", focus: ["Inspel"] } });
+    assert.equal(swedish.version, 3);
+    assert.ok(golfOps(versionEntry(plan(), 3).plan).some((operation) => operation.payload.content === "Golf practice — Inspel"));
+
+    // Consonant gradation changes the start of the word: the base form is refused, the user's own form is not.
+    const before = planFile();
+    const gradated = await revise(3, { golf: { replyText: "Keskity rautoihin.", focus: ["Raudat"] } });
+    assert.equal(gradated.status, "clarify");
+    assert.deepEqual(gradated.problems, ['"Raudat" is not in the user\'s words.']);
+    assert.equal(planFile(), before, "nothing was stored");
+    const own = await revise(3, { golf: { replyText: "Keskity rautoihin.", focus: ["Rautoihin"] } });
+    assert.equal(own.version, 4);
+    assert.ok(versionEntry(plan(), 4).plan.golf.days.some((day) => day.focusIndex === 0 && day.kind === "range"), "irons are long-game practice");
+  });
+
   it('uses last week\'s playing days for "same as last week", from the plan the user saw', async () => {
     await run(["propose", "--send"]);
     await revise(1, { golf: COMPETITION_ANSWER });

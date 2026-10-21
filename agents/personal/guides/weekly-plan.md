@@ -29,7 +29,7 @@ JSON
 - Fields, each only when this message says it:
   - `addRounds`: `[{"day": "friday", "holes": 9, "competition": true}]`. Holes only when said. `competition` only when they call it a competition, tournament, match or similar (`tävling`, `kilpailu`, `kisa`); an important round they name otherwise is an ordinary round.
   - `rounds`: `[]` for `No rounds next week`, or `"same-as-last-week"` for `Same playing days as last week`.
-  - `focus`: one or two areas in the user's own words, main focus first; `"balance"` for `No specific focus, choose the balance`; `"same-as-last-week"`.
+  - `focus`: one or two areas in the user's own words, main focus first; `"balance"` for `No specific focus, choose the balance`; `"same-as-last-week"`. Each area becomes a task title, so write it as a short label in its base form, never with the case ending it has in the sentence: `Keskity wedgeihin ja puttaamiseen` → `["Wedget", "Puttaus"]`, `Fokusera på inspelet` → `["Inspel"]`. If the command refuses a base form as not in the user's words, use the word as they wrote it.
   - `addLessons`: `[{"day": "thursday", "note": "17:00"}]`, only for a lesson they say they have. `technicalPriority`: their coach's priority in their words, such as `Clubface control`; mentioning a coach is not a lesson.
   - `restDay`: the golf-free day they name. `unavailableDays`: days with no golf, such as travel. `minutes`: `{"monday": 30}` for `I only have 30 minutes Monday`. `avoid`: `["range"]` for `No range sessions this week`.
   - `activeDays`: `0` for `No golf next week`, or fewer golf days when they ask. Six is the default; never seven.

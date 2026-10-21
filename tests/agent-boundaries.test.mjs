@@ -407,6 +407,9 @@ describe("agent configuration", () => {
     assert.match(guide, /Sending it starts the 12-hour review window\. If the user doesn't reply, the deterministic apply check creates exactly the shown version's Todoist tasks/);
     assert.match(guide, /Use what a partial answer gives and nothing more\. `Playing Wednesday and Saturday` sets the playing days and keeps the default focus/);
     assert.match(guide, /Never ask again for what the user left out/);
+    // Focus areas become task titles: base forms, with the user's own form as the fallback.
+    assert.match(guide, /Each area becomes a task title, so write it as a short label in its base form, never with the case ending it has in the sentence: `Keskity wedgeihin ja puttaamiseen` → `\["Wedget", "Puttaus"\]`/);
+    assert.match(guide, /If the command refuses a base form as not in the user's words, use the word as they wrote it\./);
     assert.match(guide, /ask one short question, only when the change cannot be made safely or meaningfully without it\. A missing preference is not unclear/);
     // The everyday replies to a pending plan, each with where it goes.
     for (const reply of ["Gym three days instead", "Play 18 holes Saturday", "No salmon", "Make recipes in Finnish", "Move the rest day to Friday", "Looks good", "Skip this week"]) {

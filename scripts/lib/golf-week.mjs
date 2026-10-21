@@ -85,7 +85,7 @@ const FOCUS_KIND_PATTERNS = Object.freeze([
   ["scoring", /\b(scoring|pressure|score\p{L}*|paine\p{L}*)/iu],
   ["on-course", /\b(course management|strategy|strategi\p{L}*|decision\p{L}*|päätök\p{L}*|club selection|mailavalin\p{L}*|target selection|game ?plan|on[- ]course|banspel\p{L}*|kenttäpel\p{L}*)/iu],
   ["process", /\b(mental\p{L}*|mentaal\p{L}*|henkinen|henkis\p{L}*|routine\p{L}*|rutin\p{L}*|rutiin\p{L}*|pre-?shot|commit\p{L}*|confidence|självförtroende|itseluottam\p{L}*|nerves|patience|reset)/iu],
-  ["range", /\b(driv\p{L}*|draiv\p{L}*|tee ?shots?|avauslyön\p{L}*|irons?|rauta\p{L}*|raudo\p{L}*|raudat|long ?game|pitk\p{L}*\s+pel\p{L}*|ball[- ]?striking|full swing|swing\p{L}*|sving\p{L}*|club ?face|strike|contact|osum\p{L}*|hybrids?|woods?|fairway\p{L}*|järn\p{L}*|utslag\p{L}*)/iu],
+  ["range", /\b(driv\p{L}*|draiv\p{L}*|tee ?shots?|avauslyön\p{L}*|irons?|raut\p{L}*|raud\p{L}*|long ?game|pitk\p{L}*\s+pel\p{L}*|ball[- ]?striking|full swing|swing\p{L}*|sving\p{L}*|club ?face|strike|contact|osum\p{L}*|hybrids?|woods?|fairway\p{L}*|järn\p{L}*|utslag\p{L}*)/iu],
 ]);
 
 export function golfFocusKind(text) {
