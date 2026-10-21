@@ -781,6 +781,39 @@ describe("renewal watch: settings and the scheduled job", () => {
       rmSync(stateDir, { recursive: true, force: true });
     }
   });
+
+  it("corrects a new job that the scheduler made best-effort, with the edit flag cron add lacks", async () => {
+    const stateDir = mkdtempSync(join(tmpdir(), "hilla-watch-install-"));
+    const jobs = [];
+    const edits = [];
+    const cron = {
+      redact: (text) => text,
+      list: async () => jobs.map((job) => ({ ...job, delivery: { ...job.delivery } })),
+      add: async (args) => {
+        assert.ok(!args.includes("--no-best-effort-deliver"), "cron add does not take that flag");
+        const value = (flag) => args[args.indexOf(flag) + 1];
+        jobs.push({
+          id: "watch-1",
+          name: value("--name"),
+          enabled: true,
+          schedule: { kind: "cron", expr: value("--cron"), timezone: value("--tz") },
+          payload: { kind: "command", argv: JSON.parse(value("--command-argv")), cwd: value("--command-cwd"), timeoutSeconds: Number(value("--timeout-seconds")) },
+          delivery: { mode: "announce", channel: value("--channel"), to: value("--to"), accountId: value("--account"), bestEffort: true },
+        });
+      },
+      edit: async (id, args) => {
+        edits.push([id, args]);
+        if (args.includes("--no-best-effort-deliver")) jobs.find((job) => job.id === id).delivery.bestEffort = false;
+      },
+    };
+    try {
+      const result = await runContractsCli(["watch-install"], { root: "/repo", env: { TELEGRAM_USER_ID: "123456789" }, stateDir, cron, nodePath: "/usr/bin/node", policy: POLICY, schedules: SCHEDULES });
+      assert.deepEqual(edits, [["watch-1", ["--no-best-effort-deliver"]]]);
+      assert.deepEqual([result.ok, result.mismatches], [true, []]);
+    } finally {
+      rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("renewal watch: CLI and scheduler reads", () => {

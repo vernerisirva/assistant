@@ -354,8 +354,15 @@ async function watchInstall(options, context) {
   if (options.dryRun || plan.action === "unchanged") return { ok: true, dryRun: Boolean(options.dryRun), ...preview };
   if (plan.action === "add") await cron.add(plan.args);
   else await cron.edit(plan.jobId, plan.args);
-  const after = await cron.list();
-  const live = after.filter((candidate) => candidate.name === job.name);
+  let after = await cron.list();
+  let live = after.filter((candidate) => candidate.name === job.name);
+  // `cron add` has no --no-best-effort-deliver; its default is a delivery that fails the run. Should a new job
+  // come back best-effort anyway, the edit that does take the flag corrects it, and the result is read again.
+  if (plan.action === "add" && live.length === 1 && live[0].delivery?.bestEffort) {
+    await cron.edit(live[0].id, ["--no-best-effort-deliver"]);
+    after = await cron.list();
+    live = after.filter((candidate) => candidate.name === job.name);
+  }
   const installed = live.length === 1 ? live[0] : null;
   const mismatches = installed ? contractWatchJobMismatches(installed, job) : ["missing"];
   const unrelated = changedJobs(before, after, { exceptIds: installed ? [installed.id] : [] });
