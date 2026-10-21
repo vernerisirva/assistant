@@ -24,7 +24,10 @@
  *   view.
  * - partOf: the entry describes one part of another entry in more detail,
  *   such as the weekly plan's golf week. It shares that entry's side-effect
- *   profile and live jobs, and the footers count the whole only once.
+ *   profile and live jobs, the footers count the whole only once, and the
+ *   full list names the part without repeating its detail.
+ * - brief: a shorter summary for the full list, which has to fit one Telegram
+ *   message. Narrowed views always show the summary.
  *
  * Two small overlays are cheap and deterministic: whether an integration is
  * configured in .env, and which scheduled jobs the live scheduler has switched
@@ -46,6 +49,7 @@ export const CAPABILITY_CATEGORIES = Object.freeze([
   { id: "health", title: "Food & training" },
   { id: "research", title: "Research" },
   { id: "travel", title: "Travel" },
+  { id: "contracts", title: "Contracts & renewals" },
   { id: "weekly-plan", title: "Weekly plan" },
   { id: "routines", title: "Check-ins & routines" },
   { id: "system", title: "Status & controls" },
@@ -421,10 +425,41 @@ export const CAPABILITIES = Object.freeze(
       tags: ["food"],
     }),
     available({
+      id: "contracts.register",
+      category: "contracts",
+      title: "Track your contracts",
+      summary: "insurance, electricity, broadband, mobile, gym and other subscriptions: price, renewal, discount and notice dates, from your message, a screenshot or the agreement.",
+      brief: "insurance, electricity, broadband and more: prices and key dates.",
+      limit: "Kept in a private register on this computer, saved or changed only after you've seen exactly what I'll store. Never ID, account or card numbers.",
+      examples: ["Track my car insurance: 5 400 SEK a year, renews 1 March", "Here's my electricity agreement", "I renewed the home insurance for another year"],
+      tags: ["planning"],
+      effect: "local",
+      approval: "required",
+    }),
+    available({
+      id: "contracts.overview",
+      category: "contracts",
+      title: "Your contracts at a glance",
+      summary: "what each costs a year and its next important date, such as a discount ending.",
+      brief: "yearly costs and next important dates.",
+      limit: "Read-only, from what's stored: unknown prices and dates stay unknown.",
+      examples: ["Show all my contracts", "Which discounts are expiring soon?", "When does my car insurance renew?"],
+      tags: ["planning"],
+      effect: "none",
+      approval: "none",
+    }),
+    unsupported({
+      id: "contracts.switch",
+      category: "contracts",
+      title: "Cancel, switch or sign contracts",
+      alternative: "I keep the dates and can draft what to say; you contact the provider yourself.",
+    }),
+    available({
       id: "weekly-plan.plan",
       category: "weekly-plan",
       title: "Weekly plan",
       summary: "every Saturday I send next week's full plan for food, gym, stretching and golf, with defaults for what you haven't said; unless you cancel, its Todoist tasks are added 12 hours after you last saw it.",
+      brief: "every Saturday I send next week's plan for food, gym, stretching and golf; unless you cancel, its Todoist tasks are added 12 hours after you last saw it.",
       limit:
         "Say OK to add them right away, or ask for a change, which restarts the 12 hours. You can also ask for a plan on another day. It only adds new tasks of your own: nothing is edited or deleted, and Calendar and email are never touched.",
       examples: ["Change next week's plan to three gym sessions", "Plan my next week", "Skip this week"],
@@ -660,6 +695,8 @@ export function buildCapabilityView({ filters = {}, setup = {}, schedule = {}, r
       title: entry.title,
       status: entry.status,
       summary: entry.summary ?? null,
+      brief: entry.brief ?? null,
+      partOf: entry.partOf ? lowerFirst(registry.find((whole) => whole.id === entry.partOf)?.title ?? entry.partOf) : null,
       limit: entry.limit ?? null,
       alternative: entry.alternative ?? null,
       examples: [...entry.examples],
@@ -767,9 +804,12 @@ function entryLines(entry, { detailed, filters }) {
     entry.approval === "required" && !filters.requiresApproval ? " (needs your OK)" : entry.automatic && !filters.automatic ? " (automatic)" : "";
   const notes = [
     entry.setup === "missing" ? `Needs ${CAPABILITY_SETUP[entry.requires]?.title ?? entry.requires}, which isn't set up here.` : null,
-    entry.schedule ? describeSchedule(entry.schedule) : null,
+    entry.schedule ? describeSchedule(entry.schedule, { brief: !detailed }) : null,
   ].filter(Boolean);
-  if (!detailed) return [`- ${entry.title}${label} — ${[entry.summary, ...notes].join(" ")}`];
+  // The full list fits one Telegram message: a part points to its whole,
+  // whose line says what is switched on, and a brief stands in for a long summary.
+  if (!detailed && entry.partOf) return [`- ${entry.title}${label} — part of the ${entry.partOf}.`];
+  if (!detailed) return [`- ${entry.title}${label} — ${[entry.brief ?? entry.summary, ...notes].join(" ")}`];
 
   const lines = [`- ${entry.title}${label} — ${entry.summary}`];
   const detail = [entry.limit, ...notes].filter(Boolean).join(" ");
@@ -778,8 +818,8 @@ function entryLines(entry, { detailed, filters }) {
   return lines;
 }
 
-/** What the live scheduler has switched on, in one sentence. */
-export function describeSchedule(schedule) {
+/** What the live scheduler has switched on, in one sentence. `brief` names only what is on. */
+export function describeSchedule(schedule, { brief = false } = {}) {
   if (schedule.state === "unchecked") return "I couldn't check what's switched on right now.";
   if (schedule.schedulerOff) return "The scheduler is switched off, so none of this runs right now.";
 
@@ -801,6 +841,7 @@ export function describeSchedule(schedule) {
     return `${on.length === 0 ? "Not running right now" : "Only partly on right now"}: ${parts.join(", and ")}.`;
   }
 
+  if (brief) return on.length > 0 ? `On now: ${joinWords(on)}.` : "None are on right now.";
   return [
     on.length > 0 ? `On now: ${joinWords(on)}.` : "None are on right now.",
     off.length > 0 ? `Off: ${joinWords(off)}.` : null,

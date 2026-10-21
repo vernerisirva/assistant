@@ -24,6 +24,7 @@ describe("approval policy", () => {
       "files",
       "sensitive-local-data",
       "purchases-and-finance",
+      "contracts",
     ]);
   });
 

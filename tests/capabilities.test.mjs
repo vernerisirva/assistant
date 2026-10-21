@@ -200,6 +200,8 @@ describe("capability registry", () => {
       "system.feedback": "feedback",
       "travel.research": "travel",
       "travel.itinerary": "travel",
+      "contracts.register": "contracts",
+      "contracts.overview": "contracts",
     };
     for (const [id, script] of Object.entries(scripts)) {
       assert.equal(capabilityById(id)?.status, "available", id);
@@ -249,6 +251,26 @@ describe("capability boundaries", () => {
     assert.match(capabilityById("email.summary").limit, /I don't send, archive, label or delete email/);
     for (const id of ["email.send", "golf.payment", "research.purchases"]) assert.equal(capabilityById(id).status, "not_available", id);
     assert.match(capabilityById("golf.booking").limit, /You log in yourself\. I stop before any payment, BankID, redirect or changed terms/);
+  });
+
+  it("keeps contract details behind an OK and never claims cancelling, switching or signing", () => {
+    const register = capabilityById("contracts.register");
+    assert.equal(register.effect, "local");
+    assert.equal(register.approval, "required");
+    assert.equal(policy.contractRegister.writesRequire, "approval-of-the-shown-preview-in-the-users-own-words");
+    assert.match(register.limit, /saved or changed only after you've seen exactly what I'll store/);
+    assert.match(register.limit, /Never ID, account or card numbers/);
+    const overview = capabilityById("contracts.overview");
+    assert.deepEqual([overview.effect, overview.approval, overview.automatic], ["none", "none", false]);
+    assert.equal(capabilityById("contracts.switch").status, "not_available");
+    for (const entry of CAPABILITIES.filter((candidate) => candidate.category === "contracts")) {
+      assert.equal(entry.automatic, false, entry.id);
+      assert.notEqual(entry.effect, "external", entry.id);
+    }
+    const text = formatCapabilityView(viewFor({ category: "contracts" }));
+    assert.match(text, /^Contracts & renewals: what I can do\n/);
+    assert.match(text, /- Not supported: cancel, switch or sign contracts\. I keep the dates and can draft what to say; you contact the provider yourself\./);
+    assert.doesNotMatch(text, /\b(alert|automatic|remind|monitor)/i, "nothing claims a renewal watch before one runs");
   });
 
   it("keeps the pending view read-only, matching the policy", () => {
@@ -338,7 +360,8 @@ describe("capability boundaries", () => {
 
   it("marks approval-gated actions the same way the policy gates them", () => {
     const gated = ids(availableEntries.filter((entry) => entry.approval === "required"));
-    assert.deepEqual(gated, ["memory.sensitive", "todoist.delete", "golf.booking", "routines.skip", "system.schedule-change"]);
+    assert.deepEqual(gated, ["memory.sensitive", "todoist.delete", "golf.booking", "contracts.register", "routines.skip", "system.schedule-change"]);
+    assert.deepEqual(policy.approvalRequired.find((rule) => rule.domain === "contracts").actions, ["save-contract", "change-contract", "renew-contract", "end-contract", "remove-contract"]);
     assert.ok(policy.lowRiskTodoistTaskChanges.approvalStillRequiredWhen.includes("delete-reopen-or-move-task"));
     assert.ok(policy.approvalRequired.find((rule) => rule.domain === "memory").actions.includes("remember-sensitive-preference"));
     assert.ok(policy.approvalRequired.find((rule) => rule.domain === "min-golf").actions.includes("book-tee-time"));
@@ -371,6 +394,25 @@ describe("capability views", () => {
     assert.match(text, /Not supported directly: .*create or change Calendar events.*send, archive or delete email/);
     assert.match(text, /Try: “I have 45 minutes\. What should I do\?” · “Coach me before my round” · “Anything waiting on me\?”/);
     assert.doesNotMatch(text, /\n  Try:/, "the full list leaves examples to the narrowed views");
+  });
+
+  it("keeps the full list to one message: a part points to its whole, and a brief stands in for a long summary", () => {
+    const text = formatCapabilityView(viewFor({}));
+    assert.match(text, /\n- Golf training week \(automatic\) — part of the weekly plan\.\n/);
+    assert.match(
+      text,
+      /- Weekly plan \(automatic\) — every Saturday I send next week's plan for food, gym, stretching and golf; unless you cancel, its Todoist tasks are added 12 hours after you last saw it\. Switched on\./,
+    );
+    assert.match(text, /- Scheduled check-ins \(automatic\) — check-in messages at set times; they change nothing\. On now: midday check-in, workout window and Sunday weekly review\.\n/);
+    // Every narrowed view still shows the whole summary and the whole schedule.
+    const weekly = formatCapabilityView(viewFor({ category: "weekly-plan" }));
+    assert.ok(weekly.includes(capabilityById("weekly-plan.plan").summary));
+    assert.ok(weekly.includes(capabilityById("weekly-plan.golf").summary));
+    assert.match(formatCapabilityView(viewFor({ automatic: true })), /Off: morning brief and evening review\./);
+    for (const entry of CAPABILITIES.filter((candidate) => candidate.brief)) {
+      assert.ok(entry.brief.length < entry.summary.length, entry.id);
+      assert.ok(!entry.partOf, `${entry.id}: a part needs no brief`);
+    }
   });
 
   it("filters by category", () => {
