@@ -99,7 +99,7 @@ Every change takes `id` (from `list`) or `target`: the user's own words, such as
 
 Alerts come from the scheduled check, so this conversation may not show them. When a message could answer one ("I've renewed it", "Keep it", "I don't want to switch this year", "Remind me again in two weeks", "Check again next month", "Stop reminding me about this", "Show me the alternatives", "Add a task"), first run `npm run --silent contracts -- alerts` and match the reply to the alert it answers. Ask if more than one could fit.
 
-- `ack` records the answer in the watch's own notes, with the user's words. It changes no contract details:
+- `ack` records the answer in the watch's own notes, with the user's words when they pass the register's text checks (`replyTextStored` says whether they did). It changes no contract details:
 
 ```
 npm run --silent contracts -- ack --json-stdin <<'JSON'

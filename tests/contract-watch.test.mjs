@@ -306,7 +306,13 @@ describe("renewal watch: the user's answers", () => {
     try {
       const id = h.add(carInsurance, morning("2026-11-01"));
       await h.watchAt("2026-12-01");
-      assert.match(h.ack({ target: "car insurance", decision: "keep", replyText: "I want to stay with this insurer" }, "2026-12-02").telegramText, /you're keeping Car insurance/);
+      const kept = h.ack({ target: "car insurance", decision: "keep", replyText: "I want to stay with this insurer" }, "2026-12-02");
+      assert.match(kept.telegramText, /you're keeping Car insurance/);
+      assert.equal(kept.replyTextStored, true);
+      // Words the register won't store are left out, and the result says so; the answer itself still counts.
+      const withLink = h.ack({ id, decision: "keep", replyText: "Keeping it, see https://example.com/offer" }, "2026-12-02");
+      assert.deepEqual([withLink.ok, withLink.replyTextStored, withLink.replyTextProblem], [true, false, "the words were not stored: they leave links out; the register keeps no links"]);
+      assert.equal(h.ack({ id, decision: "keep", replyText: 42 }, "2026-12-02").status, "invalid");
       quiet(await h.watchAt("2026-12-31"));
       assert.equal(h.store.read(id).monitoring.enabled, true);
     } finally {
@@ -490,6 +496,20 @@ describe("renewal watch: failures and bounds", () => {
     assert.equal(state.outbox[0].status, "printed");
     assert.deepEqual(reconcileOutbox(state, [], { now: new Date("2026-12-02T12:00:00Z"), maxAttempts: 3 }), { changed: true, resend: [] });
     assert.equal(state.outbox[0].status, "unconfirmed");
+  });
+
+  it("matches an alert only with the run whose time span covers it, never an older or open-ended run", () => {
+    const printed = () => ({ outbox: [{ id: "al-1", printedAt: "2026-12-02T08:30:00.000Z", attempts: 1, status: "printed", text: "x" }] });
+    const older = { runAtMs: Date.parse("2026-12-01T08:30:00Z"), durationMs: 4000, status: "ok", delivered: true, deliveryStatus: "delivered" };
+    const unknownLength = { runAtMs: Date.parse("2026-12-02T08:29:00Z"), durationMs: null, status: "ok", delivered: true, deliveryStatus: "delivered" };
+    for (const runs of [[older], [unknownLength, older]]) {
+      const state = printed();
+      reconcileOutbox(state, runs, { now: new Date("2026-12-02T12:00:00Z"), maxAttempts: 3 });
+      assert.equal(state.outbox[0].status, "printed", JSON.stringify(runs));
+    }
+    const matching = printed();
+    reconcileOutbox(matching, [{ ...unknownLength, durationMs: 90_000 }, older], { now: new Date("2026-12-02T12:00:00Z"), maxAttempts: 3 });
+    assert.equal(matching.outbox[0].status, "delivered");
   });
 
   it("keeps checking the other contracts when a record or its watch notes are damaged, and says so once", async () => {

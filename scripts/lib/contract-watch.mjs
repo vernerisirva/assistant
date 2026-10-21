@@ -607,10 +607,11 @@ export function submitResearch({ store, watchStore, input, now, today }) {
 // --- Delivery --------------------------------------------------------------------------
 
 /**
- * Matches each printed alert with the scheduler run that printed it (the
- * latest run that started before it was printed) and records the outcome.
- * Failed ones still under `maxAttempts` come back to be printed again. An
- * alert whose run can't be found for a day stays unconfirmed, never resent.
+ * Matches each printed alert with the scheduler run that printed it: the
+ * latest run that started before it was printed and whose duration covers the
+ * moment it was printed. A run of unknown duration proves nothing. Failed ones
+ * still under `maxAttempts` come back to be printed again. An alert whose run
+ * can't be found for a day stays unconfirmed, never resent.
  */
 export function reconcileOutbox(state, runs, { now, maxAttempts }) {
   const resend = [];
@@ -618,8 +619,9 @@ export function reconcileOutbox(state, runs, { now, maxAttempts }) {
   for (const entry of state.outbox) {
     if (entry.status !== "printed") continue;
     const printedMs = Date.parse(entry.printedAt);
-    const run = runs.find((candidate) => candidate.runAtMs !== null && candidate.runAtMs <= printedMs);
-    if (!run || (run.durationMs !== null && run.runAtMs + run.durationMs + 120_000 < printedMs)) {
+    const latest = runs.find((candidate) => candidate.runAtMs !== null && candidate.runAtMs <= printedMs);
+    const run = latest && latest.durationMs !== null && printedMs <= latest.runAtMs + latest.durationMs + 120_000 ? latest : null;
+    if (!run) {
       if (now.getTime() - printedMs > UNCONFIRMED_AFTER_MS) {
         entry.status = "unconfirmed";
         changed = true;
@@ -860,6 +862,11 @@ export function acknowledgeAlert({ store, watchStore, input, today }) {
   if (needsDate && (!isIsoDate(input.until) || input.until <= today || input.until > deadline.date)) {
     return { ok: false, status: "invalid", problems: [`until: a date after today and no later than the deadline, ${deadline.date}`] };
   }
+  if (input.replyText !== undefined && input.replyText !== null && typeof input.replyText !== "string") {
+    return { ok: false, status: "invalid", problems: ["replyText: must be the user's words as text"] };
+  }
+  // The user's words are kept for the record when they pass the register's text checks; an answer is
+  // never refused for its wording, but the result says when the words were left out, and why.
   const reply = typeof input.replyText === "string" ? checkContractText(input.replyText, { max: 200 }) : { value: null };
   const key = `${deadline.kind}:${deadline.date}`;
   watchStore.mutate(record.id, (state) => {
@@ -878,7 +885,15 @@ export function acknowledgeAlert({ store, watchStore, input, today }) {
     snooze: () => `OK, I'll remind you about ${name} on ${formatContractDate(input.until, { today })}.`,
     recheck: () => `OK, I'll check offers for ${name} again on ${formatContractDate(input.until, { today })}.`,
   }[input.decision]();
-  return { ok: true, status: "saved", decision: input.decision, contractId: record.id, telegramText };
+  return {
+    ok: true,
+    status: "saved",
+    decision: input.decision,
+    contractId: record.id,
+    replyTextStored: Boolean(reply.value),
+    ...(reply.problem ? { replyTextProblem: `the words were not stored: they ${reply.problem}` } : {}),
+    telegramText,
+  };
 }
 
 /** Recent alerts, newest first, so a reply such as "I've renewed it" can be matched to what was sent. */
