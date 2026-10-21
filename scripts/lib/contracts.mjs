@@ -45,8 +45,6 @@ import { withFileLockSync, writeFileAtomicSync } from "./state-file.mjs";
 export const CONTRACT_SCHEMA_VERSION = 1;
 export const CONTRACT_ID_PATTERN = /^ct-[0-9a-f]{8}$/;
 export const CONTRACT_ACTIONS = Object.freeze(["add", "update", "renew", "end", "remove", "monitor"]);
-/** True once the daily renewal watch exists; until then a watched contract only records the wish. */
-export const RENEWAL_WATCH_LIVE = false;
 
 const INSURANCE = ["car_insurance", "home_insurance", "pet_insurance", "other_insurance"];
 const INSURANCE_WORDS = ["insurance", "försäkring", "vakuutus"];
@@ -451,18 +449,10 @@ export function createContractStore({ stateDir, lockTimeoutMs }) {
   const recordPath = (id) => join(recordsDir, `${requireContractId(id)}.json`);
 
   function ensurePrivateDirs() {
-    for (const dir of [root, recordsDir]) {
-      mkdirSync(dir, { recursive: true, mode: 0o700 });
-      refuseLinkedFolder(dir);
-      chmodSync(dir, 0o700);
-    }
+    for (const dir of [root, recordsDir]) ensurePrivateDir(dir, { base: dirname(root) });
   }
 
-  // The register reads only its own files: a symbolic link, or anything but a
-  // regular file, is reported instead of followed to somewhere else.
-  function refuseLinkedFolder(dir) {
-    if (existsSync(dir) && !lstatSync(dir).isDirectory()) throw new Error(`The contract register folder ${relative(dirname(root), dir)} is not a plain folder; refusing to use it.`);
-  }
+  const refuseLinkedFolder = (dir) => assertPlainDir(dir, { base: dirname(root) });
 
   function read(id) {
     const path = recordPath(id);
@@ -543,11 +533,28 @@ export function createContractStore({ stateDir, lockTimeoutMs }) {
   return { root, recordsDir, read, listWithIssues, write, remove, withLock, permissionProblems, exists: (id) => existsSync(recordPath(id)) };
 }
 
-function isLink(path) {
+export function isLink(path) {
   try {
     return lstatSync(path).isSymbolicLink();
   } catch {
     return false;
+  }
+}
+
+/**
+ * Creates an owner-only (0700) folder, or re-applies that mode to an existing
+ * one. The register reads and writes only its own files: a symbolic link or
+ * anything but a plain folder in its place is refused, never followed.
+ */
+export function ensurePrivateDir(dir, { base }) {
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  assertPlainDir(dir, { base });
+  chmodSync(dir, 0o700);
+}
+
+export function assertPlainDir(dir, { base }) {
+  if ((existsSync(dir) || isLink(dir)) && !lstatSync(dir).isDirectory()) {
+    throw new Error(`The contract register folder ${relative(base, dir)} is not a plain folder; refusing to use it.`);
   }
 }
 
@@ -620,12 +627,16 @@ export function findDuplicates(records, fields) {
  * change is committed when the digest still matches and the reply is a plain
  * approval. `monitor` needs no approval.
  */
-export function runContractAction(action, input, { store, now = new Date(), today, random = randomBytes }) {
+/**
+ * `watchRunning` says whether the daily renewal watch has really run lately,
+ * so saved and watched contracts are promised alerts only when they will get them.
+ */
+export function runContractAction(action, input, { store, now = new Date(), today, random = randomBytes, watchRunning = false }) {
   if (!CONTRACT_ACTIONS.includes(action)) throw new Error(`Unknown contract action: ${action}`);
   if (!input || typeof input !== "object" || Array.isArray(input)) return invalid(["the input must be a JSON object"]);
   const { approval, ...payload } = input;
   if (approval !== undefined && action === "monitor") return invalid(["approval: monitor runs on the user's request and takes no approval"]);
-  const context = { store, now, today, random, approval };
+  const context = { store, now, today, random, approval, watchRunning };
   switch (action) {
     case "add":
       return addContract(payload, context);
@@ -1100,25 +1111,29 @@ function unknownsLine(fields) {
   return unknown.length > 0 ? `Not known yet: ${unknown.join(", ")}.` : null;
 }
 
-function watchLine(monitoring) {
+function watchLine(monitoring, { watchRunning = false } = {}) {
   if (!monitoring.enabled) return "Renewal watch: off";
-  return RENEWAL_WATCH_LIVE ? "Renewal watch: on" : "Renewal watch: on (alerts start once the renewal watch is switched on)";
+  return watchRunning ? "Renewal watch: on" : "Renewal watch: on (alerts start once the daily renewal check is running)";
 }
 
-function formatAddPreview(draft, { today }) {
-  const lines = ["Here's what I'd save to your contract register:", "", ...formatContractLines(draft, { today }), watchLine(draft.monitoring)];
+function formatAddPreview(draft, { today, watchRunning }) {
+  const lines = ["Here's what I'd save to your contract register:", "", ...formatContractLines(draft, { today }), watchLine(draft.monitoring, { watchRunning })];
   const unknown = unknownsLine(draft);
   if (unknown) lines.push("", unknown);
   lines.push("", "Save it? It stays in a private register on this computer and is used only for your renewals. Reply yes to save, or tell me what to change.");
   return lines.join("\n");
 }
 
-function formatSaved(record, { today }) {
+function formatSaved(record, { today, watchRunning }) {
   const next = nextKeyDate(record, { today });
   const lines = [`Saved to your private contract register: ${describeContractName(record)}.`];
   if (next) lines.push(`Next: ${describeKeyDate(next, { record, today })}.`);
   else if (!isIsoDate(record.renewalDate)) lines.push("It has no upcoming dates yet; tell me when it renews or ends and I'll add it.");
-  if (record.monitoring.enabled && !RENEWAL_WATCH_LIVE) lines.push("Renewal alerts aren't switched on yet. Until then, ask me any time what's coming up.");
+  if (record.monitoring.enabled) {
+    lines.push(watchRunning
+      ? "I'll watch its dates and message you before the deadline, with current offers compared."
+      : "Renewal alerts aren't running yet. Until they are, ask me any time what's coming up.");
+  }
   return lines.join("\n");
 }
 
@@ -1164,11 +1179,11 @@ function formatChangeSaved(action, record, { today }) {
   return [`Saved: ${describeContractName(record)} is updated.`, next ? `Next: ${describeKeyDate(next, { record, today })}.` : null].filter(Boolean).join("\n");
 }
 
-function formatMonitoring(record) {
+function formatMonitoring(record, { watchRunning = false } = {}) {
   if (!record.monitoring.enabled) return `Renewal watch is off for ${describeContractName(record)}. Its details stay in your register.`;
-  return RENEWAL_WATCH_LIVE
-    ? `Renewal watch is on for ${describeContractName(record)}.`
-    : `Noted: watch ${describeContractName(record)}. Renewal alerts aren't switched on yet; until then, ask me any time what's coming up.`;
+  return watchRunning
+    ? `Renewal watch is on for ${describeContractName(record)}: I'll message you before its deadline, with current offers compared.`
+    : `Noted: watch ${describeContractName(record)}. Renewal alerts aren't running yet; until they are, ask me any time what's coming up.`;
 }
 
 /** What a list or another command may hand back about one contract. */
@@ -1223,9 +1238,9 @@ function issueSentence(issues) {
   return `${issues.length === 1 ? "One contract record" : `${issues.length} contract records`} couldn't be read, so ${issues.length === 1 ? "it isn't" : "they aren't"} shown. Ask me to check the contract register.`;
 }
 
-export function formatContractDetail(record, { today }) {
+export function formatContractDetail(record, { today, watchRunning = false }) {
   const lines = formatContractLines(record, { today });
-  lines.push(record.status === "ended" ? `Status: ended (${record.endReason}${record.endedOn ? `, ${formatContractDate(record.endedOn, { today })}` : ""})` : watchLine(record.monitoring));
+  lines.push(record.status === "ended" ? `Status: ended (${record.endReason}${record.endedOn ? `, ${formatContractDate(record.endedOn, { today })}` : ""})` : watchLine(record.monitoring, { watchRunning }));
   const upcoming = contractKeyDates(record).filter((entry) => entry.date >= today);
   if (record.status === "active" && upcoming.length > 0) lines.push(`Coming up: ${upcoming.map((entry) => describeKeyDate(entry, { record, today })).join("; ")}.`);
   const unknown = record.status === "active" ? unknownsLine(record) : null;
@@ -1279,7 +1294,7 @@ export function registerStatus(store) {
   };
 }
 
-export function formatRegisterStatus(status) {
+export function formatRegisterStatus(status, { watchRunning = false } = {}) {
   const lines = [
     status.contracts === 0
       ? "Contract register: empty."
@@ -1289,6 +1304,6 @@ export function formatRegisterStatus(status) {
   if (status.unreadable.length > 0) {
     lines.push(`Unreadable: ${status.unreadable.map((issue) => `${issue.file} (${issue.reason})`).join("; ")}. Remove it with the user's OK, or fix the file.`);
   }
-  if (!RENEWAL_WATCH_LIVE) lines.push("Renewal alerts: not switched on yet.");
+  lines.push(watchRunning ? "Renewal alerts: the daily check is running." : "Renewal alerts: not running yet.");
   return lines.join("\n");
 }

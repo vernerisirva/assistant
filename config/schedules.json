@@ -48,5 +48,49 @@
     "applyCheckEveryMinutes": 15,
     "reviewWindowHours": 12,
     "purpose": "Propose next week's complete food, shopping, gym, stretching and golf plan, with labelled defaults for golf answers not given (they are optional changes); create the displayed plan's Todoist tasks after a 12-hour review window unless it is changed or cancelled."
+  },
+  "contractWatch": {
+    "id": "contract-watch",
+    "time": "09:30",
+    "milestones": [
+      {
+        "id": "prepare-90",
+        "kind": "prepare",
+        "daysBefore": 90
+      },
+      {
+        "id": "research-60",
+        "kind": "research",
+        "daysBefore": 60
+      },
+      {
+        "id": "remind-30",
+        "kind": "remind",
+        "daysBefore": 30
+      },
+      {
+        "id": "remind-14",
+        "kind": "remind",
+        "daysBefore": 14
+      },
+      {
+        "id": "urgent-7",
+        "kind": "urgent",
+        "daysBefore": 7
+      }
+    ],
+    "research": {
+      "maxPerRun": 1,
+      "maxAttempts": 2,
+      "cooldownDays": 30,
+      "agentTimeoutSeconds": 900,
+      "minDaysLeft": 3,
+      "retryUnlessDaysLeft": 14
+    },
+    "delivery": {
+      "maxAttempts": 3
+    },
+    "jobTimeoutSeconds": 1800,
+    "purpose": "Every morning, check the contracts the user asked Hilla to watch and message them before the earliest action deadline (a notice deadline, a discount or price guarantee ending, a binding period or the renewal), once with current public offers compared. No model unless research is due; it never changes a contract."
   }
 }

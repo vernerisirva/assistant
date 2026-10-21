@@ -11,6 +11,9 @@
     "research-and-compare-travel-options-read-only",
     "read-contract-register",
     "change-contract-renewal-watch-on-request",
+    "send-contract-renewal-alerts-for-watched-contracts",
+    "research-public-contract-offers-read-only",
+    "record-contract-alert-replies-on-request",
     "read-local-memory",
     "capture-explicit-local-feedback",
     "manage-local-focus-session-state",
@@ -179,6 +182,44 @@
       "sign-in-to-provider-accounts",
       "contact-providers",
       "send-personal-details-to-providers"
+    ]
+  },
+  "contractRenewalWatch": {
+    "enabled": true,
+    "authorizedBy": "explicit-user-request-2026-10-21",
+    "job": "Assistant contracts: renewal watch",
+    "scope": "contracts-the-user-asked-to-watch",
+    "deterministicDailyCheck": true,
+    "modelOnlyAtResearchPoints": true,
+    "research": {
+      "maxTurnsPerRun": 1,
+      "maxAttemptsPerDeadline": 2,
+      "cooldownDays": 30,
+      "agentTimeoutSeconds": 900,
+      "searchBudgetPerTurn": "about-10-searches-and-10-page-opens",
+      "sources": ["web-search", "public-pages"],
+      "paidServices": false
+    },
+    "priceEvidence": ["personalized_quote", "published", "indicative", "estimate", "unavailable"],
+    "personalizedQuotesOnlyFrom": "the-user-in-chat",
+    "insurancePublicPricesAre": "indicative-at-most",
+    "recommendationsAre": "fixed-rules-over-checked-evidence",
+    "messages": "run-output-announced-by-cron-to-the-allowlisted-telegram-user",
+    "deliveryConfirmedBy": "scheduler-run-history",
+    "repliesAre": "watch-notes-only-on-request",
+    "todoistTasks": "offered-only-normal-todoist-rules-apply",
+    "pause": ["watch-off-for-one-contract", "job-disabled-through-quiet-ops", "enabled-false-here"],
+    "neverDoes": [
+      "change-contract-records",
+      "cancel-renew-switch-or-sign-contracts",
+      "purchase-or-pay",
+      "submit-forms-or-quote-requests",
+      "use-bankid",
+      "sign-in-to-provider-accounts",
+      "contact-providers",
+      "send-personal-details-to-providers",
+      "create-todoist-tasks",
+      "message-anyone-but-the-user"
     ]
   },
   "personalPlaybooks": {

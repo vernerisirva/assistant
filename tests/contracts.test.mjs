@@ -157,7 +157,7 @@ describe("contract register: saving", () => {
     try {
       const saved = approve("add", carInsurance, "ja");
       assert.equal(saved.status, "saved");
-      assert.equal(saved.telegramText, "Saved to your private contract register: Car insurance (Example Försäkring).\nNext: discount ends 1 Mar 2027.\nRenewal alerts aren't switched on yet. Until then, ask me any time what's coming up.");
+      assert.equal(saved.telegramText, "Saved to your private contract register: Car insurance (Example Försäkring).\nNext: discount ends 1 Mar 2027.\nRenewal alerts aren't running yet. Until they are, ask me any time what's coming up.");
       const [file] = recordFiles(store);
       assert.match(file, /^ct-[0-9a-f]{8}\.json$/);
       assert.equal(statSync(join(store.recordsDir, file)).mode & 0o777, 0o600);
@@ -515,12 +515,15 @@ describe("contract register: finding and changing one contract", () => {
       assert.equal(run("monitor", { target: "car insurance", enabled: true, approval: { digest: "x", replyText: "yes" } }).status, "invalid");
       const on = run("monitor", { target: "car insurance", enabled: true });
       assert.equal(on.status, "saved");
-      assert.match(on.telegramText, /Renewal alerts aren't switched on yet/);
+      assert.match(on.telegramText, /Renewal alerts aren't running yet/);
+      // Once the daily check has really run, the same request promises the alerts.
+      assert.equal(run("monitor", { target: "car insurance", enabled: false }).status, "saved");
+      assert.match(run("monitor", { target: "car insurance", enabled: true }, { watchRunning: true }).telegramText, /^Renewal watch is on for Car insurance \(Example Försäkring\): I'll message you before its deadline, with current offers compared\.$/);
       assert.equal(run("monitor", { target: "car insurance", enabled: true }).status, "unchanged");
       const off = run("monitor", { target: "car insurance", enabled: false });
       assert.equal(off.telegramText, "Renewal watch is off for Car insurance (Example Försäkring). Its details stay in your register.");
       const record = store.read(on.contract.id);
-      assert.deepEqual(record.history.map((entry) => entry.kind), ["created", "monitoring", "monitoring"]);
+      assert.deepEqual(record.history.map((entry) => entry.kind), ["created", "monitoring", "monitoring", "monitoring", "monitoring"]);
       assert.equal(record.currentPrice.amount, 5400);
     } finally {
       cleanup();
@@ -660,7 +663,7 @@ describe("contracts CLI", () => {
       assert.equal(list.contracts.length, 1);
       assert.match(list.telegramText, /^Your contracts \(1\)\n- Car insurance · Example Försäkring: 5 400 SEK a year · discount ends 1 Mar 2027$/);
       const shown = await run(["show", "--id", saved.contract.id]);
-      assert.match(shown.telegramText, /Renewal watch: on \(alerts start once the renewal watch is switched on\)/);
+      assert.match(shown.telegramText, /Renewal watch: on \(alerts start once the daily renewal check is running\)/);
       assert.match(shown.telegramText, /Coming up: discount ends 1 Mar 2027; renews or ends 1 Mar 2027 \(notice period unknown, so the real deadline may be earlier\)\./);
       const found = await run(["find", "--json-stdin"], stdinOf({ target: "car" }));
       assert.deepEqual([found.status, found.contract.id], ["resolved", saved.contract.id]);

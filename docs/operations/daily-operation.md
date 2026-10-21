@@ -164,6 +164,16 @@ npm run --silent contracts -- upcoming   # contract dates in the next 120 days
 
 An unreadable record is listed by file name under `status` and skipped everywhere else. Delete it only with the user's OK (`remove` with its id), or fix the file by hand.
 
+The renewal watch is the command job `Assistant contracts: renewal watch` (09:30 daily). It researches offers only at a contract's review point, at most one isolated agent turn per run:
+
+```bash
+npm run --silent contracts -- watch-status    # the job, the last check, open deadlines, research and deliveries (no contract details)
+npm run --silent contracts -- watch           # preview today's alerts without research or state changes
+npm run --silent contracts -- alerts          # recent alerts, to match a reply to what was sent
+```
+
+A failed delivery is printed again by the next runs, at most three times; `watch-status` counts failed and unconfirmed alerts. A failed research turn is retried once the next morning. Set up or repair the job with `npm run --silent contracts -- watch-install --dry-run` first, then without `--dry-run`.
+
 ## Personal Playbooks
 
 Saved routines live in the memory store. Reading them is safe; saving or changing one needs the user's exact words and goes through the guide's quoted-heredoc commands.
