@@ -39,7 +39,7 @@ import {
   formatPrice,
   normalizeContractFields,
 } from "./contracts.mjs";
-import { NOTICE_UNITS, describeNoticeLength, formatContractDate, isIsoDate } from "./contract-dates.mjs";
+import { NOTICE_UNITS, describeNoticePeriod, formatContractDate, isIsoDate } from "./contract-dates.mjs";
 
 export const EVIDENCE_LEVELS = Object.freeze(["personalized_quote", "published", "indicative", "estimate", "unavailable"]);
 export const RECOMMENDATIONS = Object.freeze(["keep", "negotiate", "request_quote", "consider_switching", "insufficient_information"]);
@@ -513,7 +513,7 @@ export function recommend(contract, current, offers) {
   const best = [...priced].sort((left, right) => right.difference - left.difference)[0];
   if (best.difference < threshold) {
     return risesMaterially
-      ? { kind: "negotiate", offer: best.id, reason: "no alternative is clearly cheaper, but your price is about to rise" }
+      ? { kind: "negotiate", offer: best.difference > 0 ? best.id : null, reason: "no alternative is clearly cheaper, but your price is about to rise" }
       : { kind: "keep", offer: null, reason: "no alternative is clearly better for the same cover" };
   }
   const switchable = priced
@@ -579,7 +579,8 @@ function differenceText(offer, comparison) {
   const amount = formatMoney({ amount: Math.abs(offer.difference), currency: comparison.currency });
   const versus = comparison.current.basis === "charges" ? "your supplier's charges" : "staying";
   const text = Math.abs(offer.difference) < 50 ? `about the same as ${versus}` : `about ${amount} ${offer.difference > 0 ? "less" : "more"} than ${versus}`;
-  return ["published", "personalized_quote"].includes(offer.evidence) ? `${capitalize(text)}.` : `If a quote matches it: ${text}.`;
+  const plain = ["published", "personalized_quote"].includes(offer.evidence) || offer.difference <= 0;
+  return plain ? `${capitalize(text)}.` : `If a quote matches it: ${text}.`;
 }
 
 /** One line per offer, as the user reads it. */
@@ -591,7 +592,7 @@ export function formatOfferLine(offer, comparison) {
   const notes = [...offer.gaps];
   if (offer.binding?.months > 0) notes.push(`${offer.binding.months}-month binding period`);
   if (offer.eligibility === "new_customers_only") notes.push("for new customers");
-  if (offer.noticePeriod) notes.push(`${describeNoticeLength(offer.noticePeriod)} notice`);
+  if (offer.noticePeriod) notes.push(describeNoticePeriod(offer.noticePeriod));
   notes.push(...offer.differences);
   if (comparison.category === "electricity" && offer.illustration && comparison.spotPrice) {
     notes.push(`with ${String(comparison.spotPrice.orePerKwh).replace(".", ",")} öre/kWh spot (${comparison.spotPrice.basis}) about ${formatMoney({ amount: offer.illustration.amount, currency: comparison.currency })} a year in all, an illustration, not a forecast`);
@@ -663,7 +664,7 @@ export function formatComparisonLines(contract, comparison, { today }) {
     lines.push("Grid fees and energy tax are paid to your grid operator whichever supplier you pick, so they're left out.");
   }
   lines.push("", formatRecommendation(contract, comparison));
-  if (comparison.limitations.length > 0) lines.push(`Limits: ${comparison.limitations.join("; ")}`);
+  if (comparison.limitations.length > 0) lines.push(`Limits: ${comparison.limitations.map((limitation) => limitation.replace(/[\s.;,:!?\u2026]+$/u, "")).join("; ")}.`);
   const extra = comparison.sources.filter((source) => !comparison.offers.some((offer) => offer.source === source.url));
   if (extra.length > 0) lines.push(`Also checked: ${extra.map((source) => sourceLink(source.url)).join(", ")}`);
   return lines;
