@@ -215,6 +215,19 @@ describe("contract offers: like for like", () => {
     assert.doesNotMatch(indicative, /consider switching/);
   });
 
+  it("never offers a dearer plan as the one to negotiate with, and words the self-test's alert cleanly", () => {
+    // From the live self-test: the only like-for-like offer cost more than staying after the discount.
+    const dearer = offer({ evidence: "indicative", price: sek(649, "month"), terms: fastLine, eligibility: "new_customers_only", noticePeriod: { value: 1, unit: "months" } });
+    const comparison = ok(compare(broadband, [dearer], { extra: { limitations: ["Availability depends on the address.", "Prices need an address;", "Is an address required?", "Check the speed!"] } }));
+    assert.deepEqual(comparison.recommendation, { kind: "negotiate", offer: null, reason: "no alternative is clearly cheaper, but your price is about to rise" });
+    const reply = text(broadband, comparison);
+    assert.match(reply, /My recommendation: ask Example Fiber to extend your discount or lower the new price before you decide./);
+    assert.match(reply, /\(indicative, not a quote\)\. About 1 200 SEK more than staying\. For new customers; 1 month's notice\./);
+    assert.match(reply, /Limits: Availability depends on the address; Prices need an address; Is an address required; Check the speed\.$/m);
+    // A cheaper offer below the material threshold is still the reference.
+    assert.equal(ok(compare(broadband, [offer({ price: sek(540, "month"), terms: fastLine })])).recommendation.offer, "A");
+  });
+
   it("keeps the current contract when nothing is clearly better, and suggests negotiating when the price rises", () => {
     const flat = { ...broadband, nextPrice: null, discountEndDate: null };
     assert.equal(ok(compare(flat, [offer({ price: sek(440, "month"), terms: fastLine })], { deadline: null })).recommendation.kind, "keep");
