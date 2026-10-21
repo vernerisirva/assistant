@@ -152,6 +152,18 @@ npm run --silent capabilities -- guide               # the help guide the agent 
 
 It checks which integrations are configured in `.env` and, only for views that show a scheduled capability, lists the live scheduler's jobs to say which are on. Configured is not the same as working: use `assistant:status` or a read-only Todoist query for that. If the scheduler cannot be read, scheduled entries say so instead of claiming on or off.
 
+## Contracts
+
+The contract register lives at `.openclaw/state/contracts/`, one owner-only file per contract. Reading it is safe; every write is a preview until the user's yes comes back with the preview's digest (see `docs/setup/contracts.md`).
+
+```bash
+npm run --silent contracts -- status     # counts, unreadable records, permissions; no contract details
+npm run --silent contracts -- list       # active contracts with price and next important date
+npm run --silent contracts -- upcoming   # contract dates in the next 120 days
+```
+
+An unreadable record is listed by file name under `status` and skipped everywhere else. Delete it only with the user's OK (`remove` with its id), or fix the file by hand.
+
 ## Personal Playbooks
 
 Saved routines live in the memory store. Reading them is safe; saving or changing one needs the user's exact words and goes through the guide's quoted-heredoc commands.
