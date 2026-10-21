@@ -4,6 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { CONTRACT_SKILL_PATH, parseContractsArgs } from "../scripts/contracts.mjs";
+import { EVIDENCE_LEVELS } from "../scripts/lib/contract-offers.mjs";
+import { CONTRACT_WATCH_JOB, contractWatchSettings } from "../scripts/lib/contract-watch.mjs";
 import { CONTRACT_FIELDS, TERM_FIELDS, checkContractText } from "../scripts/lib/contracts.mjs";
 import { copyAgentSkills } from "../scripts/render-openclaw-config.mjs";
 
@@ -29,7 +31,7 @@ describe("contract-renewals SKILL.md", () => {
     assert.equal(fields.name, "contract-renewals");
     const description = JSON.parse(fields.description);
     assert.ok(description.length > 40 && description.length < 200, `description is ${description.length} characters`);
-    for (const word of ["insurance", "electricity", "broadband", "mobile", "gym", "renewal", "discount", "notice", "Never cancels, switches, signs or buys"]) {
+    for (const word of ["insurance", "electricity", "broadband", "mobile", "gym", "renewal", "discount", "notice", "compare offers", "Never cancels, switches, signs or buys"]) {
       assert.match(description, new RegExp(word, "i"), word);
     }
     assert.deepEqual(JSON.parse(fields.metadata), { openclaw: { emoji: "📑" } });
@@ -89,9 +91,40 @@ describe("contract-renewals SKILL.md", () => {
     for (const term of Object.keys(TERM_FIELDS)) assert.ok(skill.includes(`\`${term}\``), `the skill names the term ${term}`);
   });
 
-  it("does not promise renewal alerts before the watch exists", () => {
-    assert.match(skill, /Renewal alerts aren't switched on yet/);
+  it("promises renewal alerts only when the daily check is really running, and never watches on its own", () => {
+    assert.match(skill, /Whether alerts are running: `npm run --silent contracts -- watch-status`\. If its job isn't set up, is off, or hasn't run lately, say alerts aren't running yet; never promise one\./);
+    assert.match(skill, /No watching of your own: never create cron jobs, reminders or follow-up checks for contracts/);
     assert.doesNotMatch(skill, /I'll (?:message|remind|alert) you/);
+  });
+
+  it("matches replies to the alert they answer and records them in the watch's notes only", () => {
+    assert.match(skill, /Alerts come from the scheduled check, so this conversation may not show them\./);
+    assert.match(skill, /first run `npm run --silent contracts -- alerts` and match the reply to the alert it answers\. Ask if more than one could fit\./);
+    for (const decision of ["keep", "dismiss", "renewed", "snooze", "recheck"]) assert.ok(skill.includes(`\`${decision}\``), decision);
+    assert.match(skill, /It changes no contract details/);
+    assert.match(skill, /save them with `renew` \(section 7\)\. Don't ask again for what the register already has\./);
+  });
+
+  it("researches public offers within a budget and leaves every number and the recommendation to the helper", () => {
+    assert.match(skill, /Public pages only: the provider's own price page first, then credible independent comparison sites/);
+    assert.match(skill, /At most about 10 web searches and 10 page opens/);
+    assert.match(skill, /No forms, quote requests, sign-ins, chats with providers or paid services, and no personal details in searches or links\./);
+    assert.match(skill, /`published` \(a standard public price list or tariff, never for insurance\)/);
+    assert.match(skill, /`personalized_quote` only for a quote the user got for their own details and sent you in chat/);
+    assert.match(skill, /electricity: supply \(elhandel\) offers only/);
+    assert.match(skill, /Never assume a discount applies/);
+    assert.match(skill, /Never write prices, savings or a recommendation yourself: send its `telegramText` unchanged\./);
+    assert.match(skill, /The amounts and links in that example are placeholders, never prices\./);
+  });
+
+  it("offers a Todoist follow-up once and never from the scheduled check", () => {
+    assert.match(skill, /Offer a task once per alert/);
+    assert.match(skill, /Create it only after a clear yes, or "Add a task" after an alert, under the normal Todoist rules/);
+    assert.match(skill, /Never more than one task for the same deadline, and never from the scheduled check\./);
+  });
+
+  it("keeps a scheduled research turn silent and inside its request", () => {
+    assert.match(skill, /then reply exactly `NO_REPLY`\. Never message the user, create tasks, change a contract or contact anyone: the watch sends the alert\./);
   });
 
   it("is copied into the personal workspace by render:config", () => {
@@ -114,7 +147,7 @@ describe("contracts prompt pointer", () => {
 
   it("points contract requests at the skill with a short line, before the approval rules", () => {
     assert.ok(from >= 0, "Contracts: section");
-    assert.match(pointer, /For insurance, electricity, broadband, mobile, gym or other contracts and renewals, first read the `contract-renewals` skill and follow it\./);
+    assert.match(pointer, /For insurance, electricity, broadband, mobile, gym or other contracts, renewals and replies to renewal alerts, first read the `contract-renewals` skill and follow it\./);
     assert.ok(Buffer.byteLength(pointer) < 260, `contracts pointer is ${Buffer.byteLength(pointer)} bytes`);
     assert.ok(personalPrompt.indexOf("Contracts:\n") < personalPrompt.indexOf("\nConfirm-before-action:\n"));
   });
@@ -173,8 +206,33 @@ describe("contract register policy", () => {
     assert.match(readFileSync("docs/security/approval-model.md", "utf8"), /## Contract Register\n\nThe contract register keeps the user's recurring contracts/);
     const setup = readFileSync("docs/setup/contracts.md", "utf8");
     assert.match(setup, /Folders are owner-only \(`0700`\) and files owner-only \(`0600`\)/);
-    assert.match(setup, /Renewal alerts are not switched on yet/);
+    assert.match(setup, /One command job, `Assistant contracts: renewal watch`, runs `node scripts\/contracts\.mjs watch --scheduled` every morning at 09:30 Europe\/Stockholm\. It is deterministic and runs no model unless research is due\./);
+    assert.match(setup, /Why this design: OpenClaw 2026\.7 also has cron event triggers/);
+    assert.match(readFileSync("docs/security/approval-model.md", "utf8"), /## Standing Authorization: Renewal Watch\n\nThe user asked on 2026-10-21 for proactive renewal monitoring\./);
     assert.match(readFileSync("README.md", "utf8"), /Contracts & renewals: `docs\/setup\/contracts\.md`/);
     assert.ok(existsSync("docs/setup/contracts.md"));
+  });
+
+  it("bounds the renewal watch exactly as the code does, and grants it nothing beyond messages and public research", () => {
+    const watch = policy.contractRenewalWatch;
+    const settings = contractWatchSettings(JSON.parse(readFileSync("config/schedules.json", "utf8")));
+    assert.equal(watch.enabled, true);
+    assert.equal(watch.authorizedBy, "explicit-user-request-2026-10-21");
+    assert.equal(watch.job, CONTRACT_WATCH_JOB);
+    assert.equal(watch.scope, "contracts-the-user-asked-to-watch");
+    assert.deepEqual(
+      [watch.research.maxTurnsPerRun, watch.research.maxAttemptsPerDeadline, watch.research.cooldownDays, watch.research.agentTimeoutSeconds],
+      [settings.research.maxPerRun, settings.research.maxAttempts, settings.research.cooldownDays, settings.research.agentTimeoutSeconds],
+    );
+    assert.equal(watch.research.paidServices, false);
+    assert.deepEqual(watch.priceEvidence, [...EVIDENCE_LEVELS]);
+    for (const never of ["change-contract-records", "cancel-renew-switch-or-sign-contracts", "purchase-or-pay", "submit-forms-or-quote-requests", "use-bankid", "contact-providers", "create-todoist-tasks", "message-anyone-but-the-user"]) {
+      assert.ok(watch.neverDoes.includes(never), never);
+    }
+    for (const allowed of ["send-contract-renewal-alerts-for-watched-contracts", "research-public-contract-offers-read-only", "record-contract-alert-replies-on-request"]) {
+      assert.ok(policy.allowedWithoutExtraApproval.includes(allowed), allowed);
+    }
+    // Messages and read-only research only: never a trusted routine that writes on its own.
+    assert.deepEqual(policy.trustedRoutines.map((routine) => routine.id), ["weekly-plan"]);
   });
 });

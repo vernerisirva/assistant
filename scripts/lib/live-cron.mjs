@@ -94,6 +94,18 @@ export function createLiveCron({ run, redact = (text) => text }) {
     return normalizeCronJob(await runJson(["cron", "get", id], "cron get"));
   }
 
+  /**
+   * A job's recent runs, newest first: when each started, how it ended and
+   * whether its output reached the chat. The output itself is never returned.
+   */
+  async function runs(id, { limit = 20 } = {}) {
+    assertJobId(id);
+    const parsed = await runJson(["cron", "runs", "--id", id, "--limit", String(limit)], "cron runs");
+    const entries = Array.isArray(parsed?.entries) ? parsed.entries : Array.isArray(parsed) ? parsed : null;
+    if (!entries) throw new LiveCronError("openclaw cron runs returned no entries list.");
+    return entries.map(normalizeCronRun).sort((left, right) => (right.runAtMs ?? 0) - (left.runAtMs ?? 0));
+  }
+
   async function schedulerStatus() {
     const parsed = await runJson(["cron", "status", "--json"], "cron status");
     return {
@@ -108,6 +120,7 @@ export function createLiveCron({ run, redact = (text) => text }) {
     redact,
     list,
     get,
+    runs,
     schedulerStatus,
     enable: (id) => mutate(id, ["cron", "enable", id], "cron enable"),
     disable: (id) => mutate(id, ["cron", "disable", id], "cron disable"),
@@ -281,6 +294,19 @@ export function normalizeCronJob(raw) {
   };
   rawDefinitions.set(job, rawJobDefinition(source));
   return job;
+}
+
+/** One run from `openclaw cron runs`: timing, outcome and delivery only, never its output or diagnostics. */
+export function normalizeCronRun(raw) {
+  const source = raw && typeof raw === "object" ? raw : {};
+  const number = (value) => (Number.isFinite(value) ? value : null);
+  return {
+    runAtMs: number(source.runAtMs) ?? number(source.ts),
+    durationMs: number(source.durationMs),
+    status: stringOrNull(source.status),
+    delivered: typeof source.delivered === "boolean" ? source.delivered : null,
+    deliveryStatus: stringOrNull(source.deliveryStatus),
+  };
 }
 
 /**

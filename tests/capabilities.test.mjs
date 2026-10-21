@@ -24,6 +24,7 @@ import {
 import { buildInboxClassifierDebug } from "../scripts/lib/inbox-classifier-debug.mjs";
 import { routineJobName } from "../scripts/lib/routine-cron.mjs";
 import { WEEKLY_PLAN_APPLY_JOB, WEEKLY_PLAN_PROPOSE_JOB } from "../scripts/lib/weekly-plan-cron.mjs";
+import { CONTRACT_WATCH_JOB } from "../scripts/lib/contract-watch.mjs";
 import { CAPABILITIES_GUIDE_PATH, parseCapabilitiesArgs, runCapabilitiesCli } from "../scripts/capabilities.mjs";
 
 const policy = JSON.parse(readFileSync("config/approval-policy.json", "utf8"));
@@ -202,6 +203,7 @@ describe("capability registry", () => {
       "travel.itinerary": "travel",
       "contracts.register": "contracts",
       "contracts.overview": "contracts",
+      "contracts.renewal-watch": "contracts",
     };
     for (const [id, script] of Object.entries(scripts)) {
       assert.equal(capabilityById(id)?.status, "available", id);
@@ -231,6 +233,7 @@ describe("capability registry", () => {
     assert.deepEqual(CHECK_IN_ROUTINES.map((routine) => routine.routineId), configured);
     assert.deepEqual(capabilityById("routines.check-ins").schedule.jobs.map((job) => job.job), configured.map(routineJobName));
     assert.deepEqual(capabilityById("weekly-plan.plan").schedule.jobs.map((job) => job.job), [WEEKLY_PLAN_PROPOSE_JOB, WEEKLY_PLAN_APPLY_JOB]);
+    assert.deepEqual(capabilityById("contracts.renewal-watch").schedule.jobs.map((job) => job.job), [CONTRACT_WATCH_JOB]);
   });
 });
 
@@ -262,15 +265,24 @@ describe("capability boundaries", () => {
     assert.match(register.limit, /Never ID, account or card numbers/);
     const overview = capabilityById("contracts.overview");
     assert.deepEqual([overview.effect, overview.approval, overview.automatic], ["none", "none", false]);
+    assert.match(overview.limit, /Every price is labelled your quote, published, indicative or estimate; public prices aren't personal quotes, and I never fill in quote forms/);
     assert.equal(capabilityById("contracts.switch").status, "not_available");
-    for (const entry of CAPABILITIES.filter((candidate) => candidate.category === "contracts")) {
-      assert.equal(entry.automatic, false, entry.id);
-      assert.notEqual(entry.effect, "external", entry.id);
-    }
-    const text = formatCapabilityView(viewFor({ category: "contracts" }));
-    assert.match(text, /^Contracts & renewals: what I can do\n/);
-    assert.match(text, /- Not supported: cancel, switch or sign contracts\. I keep the dates and can draft what to say; you contact the provider yourself\./);
-    assert.doesNotMatch(text, /\b(alert|automatic|remind|monitor)/i, "nothing claims a renewal watch before one runs");
+    for (const entry of CAPABILITIES.filter((candidate) => candidate.category === "contracts")) assert.notEqual(entry.effect, "external", entry.id);
+
+    // The renewal watch runs on its own but only messages: no OK to give, nothing changed.
+    const watch = capabilityById("contracts.renewal-watch");
+    assert.deepEqual([watch.automatic, watch.effect, watch.approval], [true, "none", "none"]);
+    assert.equal(policy.contractRenewalWatch.enabled, true);
+    assert.match(watch.limit, /Messages only: it never cancels, switches, signs, buys or contacts anyone/);
+    // It is only called switched on when the live scheduler has its job on.
+    const missing = formatCapabilityView(viewFor({ category: "contracts" }));
+    assert.match(missing, /^Contracts & renewals: what I can do\n/);
+    assert.match(missing, /- Renewal watch \(automatic\) — for contracts you ask me to watch, I check the dates every morning .*\n  Messages only: .* Not set up here\./);
+    assert.match(missing, /- Not supported: cancel, switch or sign contracts\. I keep the dates and can draft what to say; you contact the provider yourself\./);
+    const on = formatCapabilityView(viewFor({ category: "contracts" }, { jobs: [...liveJobs, { name: CONTRACT_WATCH_JOB, enabled: true }] }));
+    assert.match(on, /Say “stop watching it”, “I've renewed it” or “remind me in two weeks” any time\. Switched on\./);
+    const off = formatCapabilityView(viewFor({ category: "contracts" }, { jobs: [...liveJobs, { name: CONTRACT_WATCH_JOB, enabled: false }] }));
+    assert.match(off, /Switched off right now\./);
   });
 
   it("keeps the pending view read-only, matching the policy", () => {
@@ -453,7 +465,7 @@ describe("capability views", () => {
 
   it("lists only what runs on its own, with what is switched on", () => {
     const view = viewFor({ automatic: true });
-    assert.deepEqual(ids(view.capabilities), ["weekly-plan.plan", "weekly-plan.golf", "routines.check-ins"]);
+    assert.deepEqual(ids(view.capabilities), ["contracts.renewal-watch", "weekly-plan.plan", "weekly-plan.golf", "routines.check-ins"]);
     assert.deepEqual(ids(viewFor({ tag: "golf", automatic: true }).capabilities), ["weekly-plan.plan", "weekly-plan.golf"]);
     const text = formatCapabilityView(view);
     assert.match(text, /^What I do automatically\n/);

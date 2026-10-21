@@ -233,6 +233,10 @@ npm run --silent weekly-plan -- status --jobs     # plan status plus installed j
 
 The two jobs are installed through the Gateway cron CLI, `openclaw cron add/edit`, like every other scheduled job (see "Where scheduled jobs live" above).
 
+## Renewal Watch
+
+`Assistant contracts: renewal watch` is one command job at 09:30 every day. It checks the dates of the contracts the user asked Hilla to watch and prints an alert, announced to Telegram, only when a contract reaches a milestone before its earliest action deadline. A model runs only at a contract's research point, as one isolated personal-agent turn the job starts and waits for. It never changes a contract and never creates Todoist tasks. Install it with `npm run --silent contracts -- watch-install` (after `--dry-run`); `docs/setup/contracts.md` has the design, the bounds and the self-test.
+
 ## Telegram Use
 
 The personal agent should use the routine output as a briefing template, then gather live context from configured tools where appropriate: Calendar, Gmail, Todoist, memory, food planning, and health context. Scheduled cron jobs should return the final Telegram text only; they must not call Telegram or message-sending tools themselves because cron delivery sends the final answer.

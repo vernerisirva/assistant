@@ -36,6 +36,7 @@
 import { todoistTokenStatus } from "./todoist.mjs";
 import { routineJobName } from "./routine-cron.mjs";
 import { WEEKLY_PLAN_APPLY_JOB, WEEKLY_PLAN_PROPOSE_JOB } from "./weekly-plan-cron.mjs";
+import { CONTRACT_WATCH_JOB } from "./contract-watch.mjs";
 
 export const CAPABILITY_CATEGORIES = Object.freeze([
   { id: "planning", title: "Planning & focus" },
@@ -429,7 +430,7 @@ export const CAPABILITIES = Object.freeze(
       category: "contracts",
       title: "Track your contracts",
       summary: "insurance, electricity, broadband, mobile, gym and other subscriptions: price, renewal, discount and notice dates, from your message, a screenshot or the agreement.",
-      brief: "insurance, electricity, broadband and more: prices and key dates.",
+      brief: "insurance, electricity, broadband and more.",
       limit: "Kept in a private register on this computer, saved or changed only after you've seen exactly what I'll store. Never ID, account or card numbers.",
       examples: ["Track my car insurance: 5 400 SEK a year, renews 1 March", "Here's my electricity agreement", "I renewed the home insurance for another year"],
       tags: ["planning"],
@@ -439,14 +440,30 @@ export const CAPABILITIES = Object.freeze(
     available({
       id: "contracts.overview",
       category: "contracts",
-      title: "Your contracts at a glance",
-      summary: "what each costs a year and its next important date, such as a discount ending.",
-      brief: "yearly costs and next important dates.",
-      limit: "Read-only, from what's stored: unknown prices and dates stay unknown.",
-      examples: ["Show all my contracts", "Which discounts are expiring soon?", "When does my car insurance renew?"],
+      title: "Your contracts and better offers",
+      summary: "what each costs a year and its next important date, and on request current public offers compared over the same 12 months.",
+      brief: "costs, dates and offers compared.",
+      limit:
+        "Read-only. Every price is labelled your quote, published, indicative or estimate; public prices aren't personal quotes, and I never fill in quote forms. Unknown prices and dates stay unknown.",
+      examples: ["Show all my contracts", "Which discounts are expiring soon?", "Can you find cheaper electricity?"],
       tags: ["planning"],
       effect: "none",
       approval: "none",
+    }),
+    available({
+      id: "contracts.renewal-watch",
+      category: "contracts",
+      title: "Renewal watch",
+      summary:
+        "for contracts you ask me to watch, I check the dates every morning and message you before a discount ends or a deadline passes, once with current public offers compared.",
+      brief: "alerts before deadlines, offers compared.",
+      limit: "Messages only: it never cancels, switches, signs, buys or contacts anyone. Say “stop watching it”, “I've renewed it” or “remind me in two weeks” any time.",
+      examples: ["Do you automatically check insurance renewals?", "Stop watching my gym membership"],
+      tags: ["planning"],
+      automatic: true,
+      effect: "none",
+      approval: "none",
+      schedule: { mode: "all", jobs: [{ job: CONTRACT_WATCH_JOB, label: "the daily renewal check" }] },
     }),
     unsupported({
       id: "contracts.switch",
