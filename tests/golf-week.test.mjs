@@ -365,6 +365,20 @@ describe("golf week planning", () => {
     assert.equal(golfFocusKind("Course management"), "on-course");
     assert.equal(golfFocusKind("Commitment"), "process");
     assert.equal(golfFocusKind("Something new"), "general");
+    // Finnish and Swedish areas, in base form or as the user wrote them.
+    for (const [area, kind] of [
+      ["Wedget", "wedges"],
+      ["Puttaus", "putting"],
+      ["Puttaamiseen", "putting"],
+      ["Lähipeli", "short-game"],
+      ["Inspel", "wedges"],
+      ["Rauta", "range"],
+      ["Raudat", "range"],
+      ["Rautoihin", "range"],
+      ["Draivi", "range"],
+    ]) {
+      assert.equal(golfFocusKind(area), kind, area);
+    }
     const week = weekFor(answered(GOLF_ANSWER));
     assert.ok(practice(week).some((day) => day.label === "Wedges 50–100 m" && day.kind === "wedges"));
   });
