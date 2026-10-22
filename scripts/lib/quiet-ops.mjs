@@ -48,6 +48,7 @@ export function classifyQuietJob(job) {
   if (name.startsWith("Assistant routine:")) return "assistant-routine";
   if (name.startsWith("Assistant weekly plan:")) return "weekly-plan";
   if (name.startsWith("Assistant contracts:")) return "contract-watch";
+  if (name.startsWith("Assistant stocks:")) return "stock-watch";
   if (job?.schedule?.kind === "at" || name.startsWith("Reminder:")) return "reminder";
   if (lowerName.includes("golf") || description.includes("golf")) return "golf";
   return "unknown";

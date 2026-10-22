@@ -204,6 +204,9 @@ describe("capability registry", () => {
       "contracts.register": "contracts",
       "contracts.overview": "contracts",
       "contracts.renewal-watch": "contracts",
+      "stocks.watchlist": "stocks",
+      "stocks.news": "stocks",
+      "stocks.monitor": "stocks",
     };
     for (const [id, script] of Object.entries(scripts)) {
       assert.equal(capabilityById(id)?.status, "available", id);
@@ -372,7 +375,7 @@ describe("capability boundaries", () => {
 
   it("marks approval-gated actions the same way the policy gates them", () => {
     const gated = ids(availableEntries.filter((entry) => entry.approval === "required"));
-    assert.deepEqual(gated, ["memory.sensitive", "todoist.delete", "golf.booking", "contracts.register", "routines.skip", "system.schedule-change"]);
+    assert.deepEqual(gated, ["memory.sensitive", "todoist.delete", "golf.booking", "contracts.register", "stocks.watchlist", "routines.skip", "system.schedule-change"]);
     assert.deepEqual(policy.approvalRequired.find((rule) => rule.domain === "contracts").actions, ["save-contract", "change-contract", "renew-contract", "end-contract", "remove-contract"]);
     assert.ok(policy.lowRiskTodoistTaskChanges.approvalStillRequiredWhen.includes("delete-reopen-or-move-task"));
     assert.ok(policy.approvalRequired.find((rule) => rule.domain === "memory").actions.includes("remember-sensitive-preference"));
@@ -465,7 +468,7 @@ describe("capability views", () => {
 
   it("lists only what runs on its own, with what is switched on", () => {
     const view = viewFor({ automatic: true });
-    assert.deepEqual(ids(view.capabilities), ["contracts.renewal-watch", "weekly-plan.plan", "weekly-plan.golf", "routines.check-ins"]);
+    assert.deepEqual(ids(view.capabilities), ["contracts.renewal-watch", "stocks.monitor", "weekly-plan.plan", "weekly-plan.golf", "routines.check-ins"]);
     assert.deepEqual(ids(viewFor({ tag: "golf", automatic: true }).capabilities), ["weekly-plan.plan", "weekly-plan.golf"]);
     const text = formatCapabilityView(view);
     assert.match(text, /^What I do automatically\n/);

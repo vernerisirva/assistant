@@ -33,6 +33,7 @@ npm run inbox:debug -- "Can you book golf tomorrow morning?"
 - Routines and the weekly plan: `docs/setup/routines.md`
 - Travel & Deals skill: `docs/setup/travel-deals.md`
 - Contracts & renewals: `docs/setup/contracts.md`
+- Stock watch: `docs/setup/stocks.md`
 
 ## Safety
 

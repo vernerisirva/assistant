@@ -134,7 +134,7 @@ describe("contract-renewals SKILL.md", () => {
       writeFileSync(join(root, "skills/contract-renewals/SKILL.md"), skill);
       assert.deepEqual(copyAgentSkills(join(root, "skills"), join(root, "out")), ["contract-renewals"]);
       assert.equal(readFileSync(join(root, "out/contract-renewals/SKILL.md"), "utf8"), skill);
-      assert.deepEqual(copyAgentSkills("agents/personal/skills", join(root, "deployed")).sort(), ["contract-renewals", "travel-deals"]);
+      assert.deepEqual(copyAgentSkills("agents/personal/skills", join(root, "deployed")).sort(), ["contract-renewals", "stock-watch", "travel-deals"]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

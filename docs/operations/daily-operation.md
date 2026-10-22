@@ -174,6 +174,19 @@ npm run --silent contracts -- alerts          # recent alerts, to match a reply 
 
 A failed delivery is printed again by the next runs, at most three times; `watch-status` counts failed and unconfirmed alerts. A failed research turn is retried once the next morning. Set up or repair the job with `npm run --silent contracts -- watch-install --dry-run` first, then without `--dry-run`.
 
+## Stocks
+
+The stock watchlist lives at `.openclaw/state/stock-watch/`, one owner-only file per security, with the monitor's notes in `monitor/`. Reading it is safe; following a stock, a thesis, ownership and removal are previews until the user's yes (see `docs/setup/stocks.md`).
+
+```bash
+npm run --silent stocks -- status           # counts, unreadable records, permissions; no company names
+npm run --silent stocks -- list             # followed and paused stocks
+npm run --silent stocks -- monitor-status   # the hourly job, the last run, and each source's health in counts
+npm run --silent stocks -- events --days 1  # what the monitor found today
+```
+
+The monitor is the command job `Assistant stocks: watch monitor` (minute 7 of every hour). It runs no model and sends nothing; a failing source shows as failing under `monitor-status` and `show`, never as "nothing new". Set up or repair the job with `npm run --silent stocks -- monitor-install --dry-run` first, then without `--dry-run`. Pause it with Quiet Ops like any job.
+
 ## Personal Playbooks
 
 Saved routines live in the memory store. Reading them is safe; saving or changing one needs the user's exact words and goes through the guide's quoted-heredoc commands.
