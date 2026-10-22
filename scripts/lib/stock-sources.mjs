@@ -51,6 +51,8 @@ const NORDIC_EXCHANGES = new Set(["XSTO", "SSME", "FNSE", "XHEL", "FNFI", "XCSE"
 const available = { status: "available", note: null };
 const unsupported = (note) => ({ status: "unsupported", note });
 const notConfigured = (note) => ({ status: "not_configured", note });
+// A source for another market: not a gap in coverage, so previews and health views leave it out.
+const notApplicable = (note) => ({ status: "not_applicable", note });
 const disclosuresOn = (monitoring) => monitoring.reports || monitoring.companyNews;
 
 /** An item's link only when it is an https page on the source's own hosts; anything else is dropped, never followed. */
@@ -119,7 +121,7 @@ function nasdaqNoticesSource() {
     label: "Nasdaq exchange notices (trading halts, observation status, delistings)",
     evidence: "official_disclosure",
     enabledFor: disclosuresOn,
-    coverage: (security) => (NORDIC_EXCHANGES.has(security.exchange) ? available : unsupported("they cover Nasdaq's Nordic markets")),
+    coverage: (security) => (NORDIC_EXCHANGES.has(security.exchange) ? available : notApplicable("they cover Nasdaq's Nordic markets")),
     async check(security, { fetcher }) {
       const items = [];
       for (const feedUrl of NASDAQ_NOTICE_FEEDS) {
@@ -219,7 +221,7 @@ function nasdaqCompanyNewsSource() {
     documentHosts: ["attachment.news.eu.nasdaq.com"],
     enabledFor: disclosuresOn,
     coverage: (security) => {
-      if (!NORDIC_EXCHANGES.has(security.exchange)) return unsupported("it covers Nasdaq's Nordic markets");
+      if (!NORDIC_EXCHANGES.has(security.exchange)) return notApplicable("it covers Nasdaq's Nordic markets");
       return security.identifiers?.nasdaqCompany ? available : unsupported("the company's name on Nasdaq isn't known");
     },
     async check(security, { fetcher }) {
@@ -523,7 +525,7 @@ function globeNewswireSource() {
     evidence: "company_release",
     enabledFor: disclosuresOn,
     coverage: (security) => {
-      if (!GLOBENEWSWIRE_COUNTRY_FEEDS[security.country]) return unsupported("GlobeNewswire's country feeds don't cover this country");
+      if (!GLOBENEWSWIRE_COUNTRY_FEEDS[security.country]) return notApplicable("GlobeNewswire's country feeds don't cover this country");
       return security.isin ? available : unsupported("it needs the ISIN");
     },
     async check(security, { fetcher }) {
@@ -736,7 +738,7 @@ function edgarSource({ env }) {
     userAgent,
     enabledFor: disclosuresOn,
     coverage: (security) => {
-      if (EXCHANGES[security.exchange]?.region !== "us") return unsupported("EDGAR covers US-listed companies");
+      if (EXCHANGES[security.exchange]?.region !== "us") return notApplicable("EDGAR covers US-listed companies");
       if (!security.identifiers?.secCik) return unsupported("the company's SEC CIK isn't known");
       return userAgent ? available : notConfigured("EDGAR needs SEC_EDGAR_USER_AGENT with a contact address in .env");
     },
@@ -905,7 +907,7 @@ export function createStockSources({ env = {}, enabled = {} } = {}) {
 
 /**
  * Which sources can follow a security with the given monitoring settings:
- * `[{ key, label, kind, status: available | not_configured | unsupported, note }]`,
+ * `[{ key, label, kind, status: available | not_configured | unsupported | not_applicable, note }]`,
  * only for sources the settings switch on.
  */
 export function sourceCoverage(security, monitoring, sources) {
@@ -919,7 +921,7 @@ export function sourceCoverage(security, monitoring, sources) {
 
 // --- Text for people ----------------------------------------------------------------------------------
 
-const TYPE_TEXT = {
+export const TYPE_TEXT = {
   report: "report",
   report_notice: "report date notice",
   report_date_changed: "report date moved",
@@ -950,7 +952,7 @@ const TYPE_TEXT = {
   forum_discussion: "forum talk",
 };
 
-const EVIDENCE_TEXT = {
+export const EVIDENCE_TEXT = {
   official_disclosure: "official",
   company_release: "company release",
   news: "news report, not confirmed by the company",

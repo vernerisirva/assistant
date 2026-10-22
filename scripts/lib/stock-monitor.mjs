@@ -422,14 +422,15 @@ export function nextReportDate(calendar, { today, events = [] }) {
 // --- The run -----------------------------------------------------------------------------------
 
 /**
- * One scheduled run. Returns the text to print (NO_REPLY: this monitor only
- * records; it sends nothing) and a report in counts and outcomes.
- * `sources` are the adapters (see stock-sources.mjs); `fetcher` comes from
- * createSourceFetcher.
+ * The checking phase of one scheduled run. Returns NO_REPLY and a report in
+ * counts and outcomes: this phase only records, and the alert phase
+ * (stock-alerts.mjs) decides what to send. `sources` are the adapters (see
+ * stock-sources.mjs); `fetcher` comes from createSourceFetcher.
+ * `reserveSeconds` keeps that much of the job's time for the alert phase.
  */
-export async function runStockMonitor({ watchlistStore, monitorStore, settings, policy, sources, fetcher, now = new Date(), scheduled = true, only = null, force = false, clock = Date.now }) {
-  // Checks stop starting two minutes before the job's own timeout; what is left is deferred to the next run.
-  const deadline = clock() + (settings.jobTimeoutSeconds - 120) * 1000;
+export async function runStockMonitor({ watchlistStore, monitorStore, settings, policy, sources, fetcher, now = new Date(), scheduled = true, only = null, force = false, clock = Date.now, reserveSeconds = 0 }) {
+  // Checks stop starting two minutes (plus the reserve) before the job's own timeout; what is left is deferred to the next run.
+  const deadline = clock() + (settings.jobTimeoutSeconds - 120 - reserveSeconds) * 1000;
   const today = localDate(now, settings.timezone);
   const report = { today, scheduled, authorized: true, followed: 0, due: 0, checked: 0, deferred: 0, added: 0, merged: 0, baseline: 0, catchUp: 0, missed: 0, failures: [], requests: 0, issues: [] };
   const authorization = monitorAuthorization(policy, { today });
@@ -574,6 +575,7 @@ export function sourceHealthLines(record, state, sources, { timezone = DEFAULT_T
   for (const source of sources) {
     if (!source.enabledFor(record.monitoring)) continue;
     const coverage = source.coverage(record.security);
+    if (coverage.status === "not_applicable") continue;
     if (coverage.status !== "available") {
       lines.push(`${source.label}: ${coverage.note}.`);
       continue;
@@ -640,8 +642,10 @@ export function monitorStatusView({ watchlistStore, monitorStore, jobs, sources,
     }
     for (const source of sources) {
       if (!source.enabledFor(record.monitoring)) continue;
+      const coverage = source.coverage(record.security).status;
+      if (coverage === "not_applicable") continue;
       const tally = (view.sources[source.key] ??= { label: source.label, ok: 0, failing: 0, notChecked: 0, unavailable: 0, lastSuccessAt: null });
-      if (source.coverage(record.security).status !== "available") {
+      if (coverage !== "available") {
         tally.unavailable += 1;
         continue;
       }
@@ -679,14 +683,14 @@ export function formatMonitorStatus(view, { timezone = DEFAULT_TIMEZONE } = {}) 
 
 // --- The scheduled job -------------------------------------------------------------------------
 
-/** The one hourly command job. It runs no model and, in this version, prints NO_REPLY: it only records. */
+/** The one hourly command job. Its stdout is the alerts, announced to the allowlisted Telegram user; NO_REPLY sends nothing. */
 export function buildStockMonitorJob(schedules, { telegramUserId, projectRoot, nodePath }) {
   if (!telegramUserId || !/^\d{5,}$/.test(String(telegramUserId))) throw new Error("TELEGRAM_USER_ID is required to install the stock monitor.");
   if (!projectRoot || !nodePath) throw new Error("The project root and a node path are required to install the stock monitor.");
   const settings = stockMonitorSettings(schedules);
   return {
     name: STOCK_MONITOR_JOB,
-    description: "Hourly: checks public sources for the stocks you asked Hilla to follow and records new reports, announcements and news. No model; it never trades or changes the watchlist.",
+    description: "Hourly: checks public sources for the stocks you asked Hilla to follow, records what is new and messages you about what matters. A model runs only to analyse important official releases, a few a day; it never trades or changes the watchlist.",
     argv: [nodePath, "scripts/stocks.mjs", "monitor", "--scheduled"],
     cwd: projectRoot,
     schedule: { expr: `${settings.minute} * * * *`, tz: settings.timezone },

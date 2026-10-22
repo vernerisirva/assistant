@@ -217,7 +217,7 @@ export function noticeDate(title, { publishedAt = null } = {}) {
 }
 
 /** "January–September 2026" or "1 januari–30 september" → { from: 1, to: 9 }; null without a clear range. */
-function monthRange(text) {
+export function monthRange(text) {
   for (const match of text.toLowerCase().matchAll(/(?<!\p{L})(\p{L}{3,10})\.?\s*(?:[-–—]|to|till|until)\s*(?:\d{1,2}\.?\s*)?(\p{L}{3,10})(?!\p{L})/gu)) {
     const from = MONTH_BY_WORD.get(match[1]);
     const to = MONTH_BY_WORD.get(match[2]);
@@ -516,9 +516,11 @@ function findCorrected(events, candidate) {
 
 /** Adds the candidate's source to an event. `as`: original (another source of the same item), language, repeat or coverage. */
 function absorb(event, candidate, { as } = {}) {
+  const official = (entry) => entry.evidence === "official_disclosure" || entry.evidence === "company_release";
+  // The exchange's notice and the company's own release of the same item are both sources of it; only news or talk about it is coverage.
   const role =
     as ??
-    (candidate.evidence !== event.evidence
+    (candidate.evidence !== event.evidence && !(official(candidate) && official(event))
       ? "coverage"
       : candidate.language && event.language && candidate.language !== event.language
         ? "language_version"
