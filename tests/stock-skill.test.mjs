@@ -92,6 +92,7 @@ describe("stock-watch SKILL.md", () => {
     assert.match(skill, /open only the pages in the brief's `allowedSources`, at most 6, with no web searches, sign-ins or forms/);
     assert.match(skill, /Give each figure exactly as the cited page writes it \(same scale and sign\)/);
     assert.match(skill, /Figures, numbers in the outlook and deadlines count only from a page marked `checkable`/);
+    assert.match(skill, /otherwise the comparison it gives, or none: a key figure needs no prior/);
     assert.match(skill, /never infer expectations from a share-price move/);
     assert.match(skill, /prefer `insufficient_evidence` to overclaiming/);
     assert.match(skill, /never assume the user owns shares/);

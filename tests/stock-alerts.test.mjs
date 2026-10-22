@@ -9,6 +9,7 @@ import { createWatchlistStore, runStockAction } from "../scripts/lib/stock-watch
 import {
   acknowledgeAlerts,
   alertStatusView,
+  analysisBrief,
   analysisHandoffMessage,
   createAnalysisAgentRunner,
   briefFor,
@@ -234,6 +235,15 @@ describe("stock alerts: importance from rules and context", () => {
     assert.ok(!calls[0].argv.includes("--deliver"), "the turn's own reply goes nowhere");
     const failing = createAnalysisAgentRunner({ runOpenClaw: async () => { throw new Error("gateway timed out"); } });
     assert.deepEqual(await failing({ requestId: "rq-0a1b2c3d", message, timeoutSeconds: 600 }), { ok: false, error: "gateway timed out" });
+  });
+
+  it("asks the analysis for the key figures even without a comparison, in words the user can read", () => {
+    const record = { status: "watching", notificationLevel: "important", ownership: "unknown", focusAreas: [], thesis: null, security: { companyName: "Example AB", ticker: "EXAM B", exchange: "XSTO", isin: EXAMPLE.isin, currency: "SEK" } };
+    const event = { id: "ev-0123456789ab", type: "report", evidence: "official_disclosure", title: "Interim report January–September 2026", report: { kind: "interim", period: "Q3", fiscalYear: 2026 }, publishedAt: "2026-10-22T06:00:00.000Z", sources: [{ key: "exchange", name: "Exchange", url: releaseUrl("q3"), documents: [], role: "original" }] };
+    const brief = analysisBrief({ record, event, lifecycle: null, requestId: "rq-0a1b2c3d" });
+    assert.ok(brief.rules.some((rule) => /Give the key figures the release states even when it gives no comparison/.test(rule) && /or null/.test(rule)));
+    assert.ok(brief.rules.some((rule) => /plain words, never the brief's own terms such as allowedSources or checkable/.test(rule)));
+    assert.ok(brief.example.metrics.some((metric) => metric.prior === null), "the example shows a figure without a prior");
   });
 
   it("knows quiet hours and digest periods in Stockholm time", () => {
