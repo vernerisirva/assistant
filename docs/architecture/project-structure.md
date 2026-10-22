@@ -18,7 +18,7 @@ This repo is the source of truth for Hilla's prompts, config templates, safety p
 - `.openclaw/openclaw.json`: rendered config.
 - `.openclaw/workspace-*`: generated per-agent workspaces.
 - `.openclaw/agents/*`: generated OpenClaw agent directories.
-- `.openclaw/state`: runtime state, including the Gateway's SQLite database (cron jobs and their run history), memories, weekly plans (`weekly-plan/`), the disposable focus session record (`focus/`), the private contract register (`contracts/`, owner-only, one file per contract, with the renewal watch's notes in `contracts/watch/`), the private stock watchlist (`stock-watch/`, owner-only: `watchlist/` records, the monitor's events, source health and report dates in `monitor/`, public listing caches in `cache/`), and Telegram state.
+- `.openclaw/state`: runtime state, including the Gateway's SQLite database (cron jobs and their run history), memories, weekly plans (`weekly-plan/`), the disposable focus session record (`focus/`), the private contract register (`contracts/`, owner-only, one file per contract, with the renewal watch's notes in `contracts/watch/`), the private stock watchlist (`stock-watch/`, owner-only: `watchlist/` records, the monitor's events, source health and report dates in `monitor/`, each event's importance, analysis, alert and answer plus the outbox in `alerts/`, the alert preferences in `preferences.json`, public listing caches in `cache/`), and Telegram state.
 
 ## Scheduled Jobs
 

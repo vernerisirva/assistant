@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { STOCK_SKILL_PATH, parseStocksArgs } from "../scripts/stocks.mjs";
 import { STOCK_MONITOR_JOB, stockMonitorSettings } from "../scripts/lib/stock-monitor.mjs";
+import { stockAlertSettings } from "../scripts/lib/stock-alerts.mjs";
 import { MONITORING_KEYS, NOTIFICATION_LEVELS, OWNERSHIP, checkStockText } from "../scripts/lib/stock-watchlist.mjs";
 import { copyAgentSkills } from "../scripts/render-openclaw-config.mjs";
 
@@ -76,11 +77,32 @@ describe("stock-watch SKILL.md", () => {
     assert.match(skill, /If its job isn't set up, is off or hasn't run lately, say so; never promise monitoring/);
   });
 
+  it("leaves alerts to the monitor and says only what the scheduler confirmed", () => {
+    assert.match(skill, /The hourly monitor messages the user on its own; you never send stock alerts yourself\./);
+    assert.match(skill, /News reports and forum talk never alert on their own\./);
+    assert.match(skill, /Never ack what the user didn't answer\./);
+    assert.match(skill, /Never say an alert arrived unless it is `delivered`\./);
+    assert.match(skill, /`\{"alertsPaused": true\}`/);
+    assert.match(skill, /`\{"digest": "weekly"\}`/);
+  });
+
+  it("analyses only official releases, with figures as the page writes them, and never rewrites the thesis", () => {
+    assert.match(skill, /never change one on your own, also not after an alert says a report weakens it/);
+    assert.match(skill, /A message that starts "Scheduled stock analysis rq-…" is the monitor's analysis turn: do exactly what it says \(brief, read, submit, then reply exactly NO_REPLY\) and nothing else\./);
+    assert.match(skill, /open only the pages in the brief's `allowedSources`, at most 6, with no web searches, sign-ins or forms/);
+    assert.match(skill, /Give each figure exactly as the cited page writes it \(same scale and sign\)/);
+    assert.match(skill, /Figures, numbers in the outlook and deadlines count only from a page marked `checkable`/);
+    assert.match(skill, /never infer expectations from a share-price move/);
+    assert.match(skill, /prefer `insufficient_evidence` to overclaiming/);
+    assert.match(skill, /never assume the user owns shares/);
+    assert.match(skill, /If the release can't be read, say so in `limitations` and submit no figures/);
+  });
+
   it("documents only commands the helper accepts, and every setting it takes", () => {
     const commands = [...skill.matchAll(/npm run --silent stocks -- ([^\n`<]+?)(?= <<|`|\n|,|$)/g)].map((match) => match[1].trim());
     assert.ok(commands.length >= 6, commands.join(" | "));
     for (const command of commands) {
-      assert.doesNotThrow(() => parseStocksArgs(command.replace(/sw-…/g, "sw-1a2b3c4d").split(/\s+/)), command);
+      assert.doesNotThrow(() => parseStocksArgs(command.replace(/sw-…/g, "sw-1a2b3c4d").replace(/ev-…/g, "ev-0123456789ab").replace(/rq-…/g, "rq-1a2b3c4d").split(/\s+/)), command);
     }
     for (const key of MONITORING_KEYS) assert.ok(skill.includes(`\`${key}\``), key);
     for (const level of NOTIFICATION_LEVELS) assert.ok(skill.includes(`\`${level}\``), level);
@@ -147,18 +169,29 @@ describe("stock watch policy", () => {
     }
   });
 
-  it("bounds monitoring exactly as the code does", () => {
+  it("bounds monitoring and its analysis exactly as the code does", () => {
     const monitoring = policy.stockMonitoring;
-    const settings = stockMonitorSettings(JSON.parse(readFileSync("config/schedules.json", "utf8")));
+    const schedules = JSON.parse(readFileSync("config/schedules.json", "utf8"));
+    const settings = stockMonitorSettings(schedules);
+    const alerts = stockAlertSettings(schedules);
     assert.equal(monitoring.enabled, true);
     assert.equal(monitoring.job, STOCK_MONITOR_JOB);
-    assert.equal(monitoring.modelCalls, "none");
-    assert.equal(monitoring.messages, "none-in-this-version");
+    assert.equal(monitoring.modelCalls, "bounded-analysis-of-important-official-releases");
+    for (const key of ["maxTurnsPerRun", "maxTurnsPerDay", "maxAttemptsPerEvent", "agentTimeoutSeconds", "maxEventAgeHours"]) assert.equal(monitoring.analysis[key], alerts.analysis[key], key);
+    assert.equal(monitoring.analysis.webSearch, false);
+    assert.equal(monitoring.analysis.handoffCarries, "a-request-id-only");
+    assert.ok(monitoring.analysis.briefNeverCarries.includes("ownership"));
+    assert.equal(monitoring.messages, "run-output-announced-by-cron-to-the-allowlisted-telegram-user");
+    assert.equal(monitoring.deliveryConfirmedBy, "scheduler-run-history");
+    assert.equal(monitoring.deliveryAttempts, alerts.delivery.maxAttempts);
+    assert.equal(monitoring.quietHours, `${alerts.quietHours.start}-${alerts.quietHours.end}-all-but-critical-held`);
     assert.equal(monitoring.checksAtMostEvery, "60-minutes");
     assert.ok(Object.values(settings.checkEveryMinutes).every((minutes) => minutes >= 60));
-    for (const never of ["change-watchlist-records", "trade-or-place-orders", "sign-in-to-any-site", "bypass-captchas-logins-paywalls-or-blocks", "use-paid-data-services", "store-whole-articles"]) {
+    assert.ok(settings.jobTimeoutSeconds >= alerts.analysis.agentTimeoutSeconds * alerts.analysis.maxTurnsPerRun + 300, "the job leaves room for its analysis turn");
+    for (const never of ["change-watchlist-records", "trade-or-place-orders", "sign-in-to-any-site", "bypass-captchas-logins-paywalls-or-blocks", "use-paid-data-services", "store-whole-articles", "change-the-users-thesis", "give-buy-or-sell-advice-or-price-forecasts"]) {
       assert.ok(monitoring.neverDoes.includes(never), never);
     }
+    for (const allowed of ["change-stock-alert-preferences-on-request", "acknowledge-stock-alerts-on-request", "analyse-official-stock-releases-on-request"]) assert.ok(policy.allowedWithoutExtraApproval.includes(allowed), allowed);
   });
 
   it("is documented where the approval model, the setup notes and the README say", () => {

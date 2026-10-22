@@ -168,12 +168,14 @@ Hilla never buys or sells securities, places or prepares orders, connects to a b
 The user asked on 2026-10-22 for autonomous monitoring of the stocks they follow. It is recorded as `stockMonitoring` in `config/approval-policy.json`, and it covers exactly this:
 
 - only securities the user asked Hilla to follow, after their yes, and never one they paused or removed;
-- one deterministic hourly check of public sources (feeds and APIs that robots.txt and the provider's terms allow), within the request limits in `config/schedules.json`, with no model call;
-- recording what it finds in the monitor's own notes: events, source health and report dates.
+- one deterministic hourly check of public sources (feeds and APIs that robots.txt and the provider's terms allow), within the request limits in `config/schedules.json`;
+- recording what it finds in the monitor's own notes: events, source health and report dates;
+- messaging the user, through the run's output that cron announces to the allowlisted Telegram user, about what matters at each stock's notification level: alerts only from official releases, news and forum talk at most in an opt-in summary, non-urgent alerts held during quiet hours (22–07), each event at most once, and delivery counted only when the scheduler's run history confirms it;
+- a bounded analysis of important official releases: one isolated personal-agent turn per run and six per day, two attempts per event, nothing older than 72 hours, handed only a request id, reading only the release's own official pages and documents without web search, and storing only an analysis whose every figure the helper found on the cited page. The brief carries public company identifiers and the user's own stated thesis and focus, never ownership, positions or prices.
 
-It does not cover trading, account access, sign-ins, paid data services, bypassing captchas, logins, paywalls or blocks, storing whole articles, or changing the watchlist. In this version the monitor sends no messages; the user asks for what it found.
+It does not cover trading, account access, sign-ins, paid data services, bypassing captchas, logins, paywalls or blocks, storing whole articles, changing the watchlist or a thesis, buy or sell advice, price forecasts, or messaging anyone but the user. Changing alert preferences (pausing all alerts, the summary) and recording the user's answer to an alert run on the user's request and change only Hilla's own notes.
 
-Monitoring stops when the user pauses or removes a security, when its job is disabled through Quiet Ops, or when `stockMonitoring.enabled` is false or its optional `authorizedUntil` date has passed.
+Monitoring and its messages stop when the user pauses or removes a security or sets its notifications to off, when they pause all stock alerts, when its job is disabled through Quiet Ops, or when `stockMonitoring.enabled` is false or its optional `authorizedUntil` date has passed.
 
 ## Personal Playbooks
 

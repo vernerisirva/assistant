@@ -176,16 +176,17 @@ A failed delivery is printed again by the next runs, at most three times; `watch
 
 ## Stocks
 
-The stock watchlist lives at `.openclaw/state/stock-watch/`, one owner-only file per security, with the monitor's notes in `monitor/`. Reading it is safe; following a stock, a thesis, ownership and removal are previews until the user's yes (see `docs/setup/stocks.md`).
+The stock watchlist lives at `.openclaw/state/stock-watch/`, one owner-only file per security, with the monitor's notes in `monitor/` and the alert notes in `alerts/`. Reading it is safe; following a stock, a thesis, ownership and removal are previews until the user's yes (see `docs/setup/stocks.md`).
 
 ```bash
 npm run --silent stocks -- status           # counts, unreadable records, permissions; no company names
 npm run --silent stocks -- list             # followed and paused stocks
-npm run --silent stocks -- monitor-status   # the hourly job, the last run, and each source's health in counts
-npm run --silent stocks -- events --days 1  # what the monitor found today
+npm run --silent stocks -- monitor-status   # the hourly job, the last run, each source's health, alerts, deliveries and model turns in counts
+npm run --silent stocks -- events --days 1  # what the monitor found today, with importance
+npm run --silent stocks -- alerts           # recent stock messages and whether each was delivered
 ```
 
-The monitor is the command job `Assistant stocks: watch monitor` (minute 7 of every hour). It runs no model and sends nothing; a failing source shows as failing under `monitor-status` and `show`, never as "nothing new". Set up or repair the job with `npm run --silent stocks -- monitor-install --dry-run` first, then without `--dry-run`. Pause it with Quiet Ops like any job.
+The monitor is the command job `Assistant stocks: watch monitor` (minute 7 of every hour, 30-minute timeout). It checks sources without a model, then messages the user about what matters; a model runs only to analyse an important official release, at most once per run and six times a day. A failing source shows as failing under `monitor-status` and `show`, never as "nothing new". A failed delivery is printed again by the next runs, at most three times; `monitor-status` counts failed and unconfirmed messages. Set up or repair the job with `npm run --silent stocks -- monitor-install --dry-run` first, then without `--dry-run`. Pause it with Quiet Ops like any job, or all its messages with `preferences` on the user's request.
 
 ## Personal Playbooks
 

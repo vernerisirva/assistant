@@ -115,10 +115,35 @@
       "minHostIntervalMs": 1000,
       "documentChecksPerRun": 3
     },
-    "jobTimeoutSeconds": 900,
+    "alerts": {
+      "quietHours": {
+        "start": "22:00",
+        "end": "07:00"
+      },
+      "maxAlertsPerRun": 3,
+      "digest": {
+        "time": "18:00",
+        "weeklyDay": "Friday",
+        "maxItemsPerSecurity": 5,
+        "maxSecurities": 10
+      },
+      "delivery": {
+        "maxAttempts": 3
+      }
+    },
+    "analysis": {
+      "maxTurnsPerRun": 1,
+      "maxTurnsPerDay": 6,
+      "maxAttemptsPerEvent": 2,
+      "agentTimeoutSeconds": 600,
+      "maxEventAgeHours": 72,
+      "maxWaitHours": 6,
+      "pageChecksPerSubmit": 4
+    },
+    "jobTimeoutSeconds": 1800,
     "sources": {
       "nasdaq-company-news": false
     },
-    "purpose": "Every hour, check the public sources of the stocks the user asked Hilla to follow (company announcements hourly, the report calendar daily, news every four hours, forums twice a day) and record new reports, announcements and news. No model; it never trades or changes the watchlist."
+    "purpose": "Every hour, check the public sources of the stocks the user asked Hilla to follow (company announcements hourly, the report calendar daily, news every four hours, forums twice a day), record what is new, and message the user about what matters at each stock's notification level: critical releases at once, important ones with a checked analysis (one model turn per run, at most six a day, only for official releases), the rest in an opt-in daily or weekly summary. Quiet hours hold non-urgent messages until morning. It never trades or changes the watchlist."
   }
 }

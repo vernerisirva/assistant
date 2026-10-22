@@ -152,7 +152,7 @@ describe("SEC EDGAR", () => {
     assert.equal(edgar.coverage(microsoft).status, "not_configured");
     const [configured] = createStockSources({ env: { SEC_EDGAR_USER_AGENT: "Hilla personal research someone@example.com" } }).filter((source) => source.key === "sec-edgar");
     assert.equal(configured.coverage(microsoft).status, "available");
-    assert.equal(configured.coverage({ ...microsoft, exchange: "XSTO" }).status, "unsupported");
+    assert.equal(configured.coverage({ ...microsoft, exchange: "XSTO" }).status, "not_applicable", "another market is not a gap in coverage");
   });
 
   it("turns SEC's ticker list into listings with exchange and CIK, skipping OTC and unknown venues", () => {
@@ -171,7 +171,7 @@ describe("source coverage", () => {
       ["mfn", "unsupported"],
       ["cision", "unsupported"],
       ["globenewswire", "available"],
-      ["sec-edgar", "unsupported"],
+      ["sec-edgar", "not_applicable"],
       ["euroland-calendar", "unsupported"],
       ["mfn-calendar", "unsupported"],
       ["bing-news", "available"],
