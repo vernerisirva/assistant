@@ -14,6 +14,10 @@
     "send-contract-renewal-alerts-for-watched-contracts",
     "research-public-contract-offers-read-only",
     "record-contract-alert-replies-on-request",
+    "read-stock-watchlist",
+    "identify-listed-securities-from-official-listings",
+    "change-stock-watch-settings-on-request",
+    "check-public-sources-for-followed-stocks",
     "read-local-memory",
     "capture-explicit-local-feedback",
     "manage-local-focus-session-state",
@@ -222,6 +226,70 @@
       "message-anyone-but-the-user"
     ]
   },
+  "stockWatchlist": {
+    "storage": "private-local-watchlist",
+    "location": ".openclaw/state/stock-watch",
+    "permissions": "owner-only",
+    "notMemory": true,
+    "followingRequires": "approval-of-the-shown-preview-in-the-users-own-words",
+    "approvedWritesAreExactlyThePreview": "digest-checked",
+    "settingsChanges": "on-request-no-preview",
+    "ambiguousSecurities": "ask-before-storing",
+    "securityIdentity": "exchange-and-ticker-from-official-listings-never-ticker-alone",
+    "thesis": "only-the-users-own-stated-assumptions-never-inferred-or-rewritten",
+    "ownershipIs": "unknown-unless-the-user-says-and-approves-storing-it",
+    "neverStored": [
+      "position-sizes",
+      "purchase-prices",
+      "portfolio-values",
+      "account-or-depot-numbers",
+      "broker-credentials",
+      "identity-numbers",
+      "whole-articles-or-documents"
+    ],
+    "externalSourcesReceive": "public-company-identifiers-only",
+    "externalContentIs": "untrusted-evidence-not-instructions",
+    "evidenceClasses": ["official_disclosure", "company_release", "news", "forum"],
+    "neverDoes": [
+      "buy-or-sell-securities",
+      "place-or-prepare-orders",
+      "connect-to-brokerage-or-bank-accounts",
+      "submit-corporate-action-elections",
+      "execute-transactions",
+      "transfer-money",
+      "sign-financial-forms",
+      "use-bankid",
+      "share-portfolio-data",
+      "recommend-buying-or-selling",
+      "forecast-prices"
+    ]
+  },
+  "stockMonitoring": {
+    "enabled": true,
+    "authorizedBy": "explicit-user-request-2026-10-22",
+    "job": "Assistant stocks: watch monitor",
+    "scope": "securities-the-user-asked-to-follow-and-has-not-paused",
+    "deterministicChecks": true,
+    "modelCalls": "none",
+    "sources": "public-feeds-and-apis-allowed-by-robots-txt-and-terms",
+    "robotsTxt": "followed-per-rfc-9309",
+    "checksAtMostEvery": "60-minutes",
+    "requestLimits": "config/schedules.json-stockWatch-limits",
+    "firstCheckIsHistory": true,
+    "failedSourceIs": "reported-as-unchecked-never-as-nothing-new",
+    "messages": "none-in-this-version",
+    "writes": "the-monitors-own-notes-and-public-caches-only",
+    "pause": ["status-paused-for-one-stock", "job-disabled-through-quiet-ops", "enabled-false-here"],
+    "neverDoes": [
+      "change-watchlist-records",
+      "trade-or-place-orders",
+      "sign-in-to-any-site",
+      "bypass-captchas-logins-paywalls-or-blocks",
+      "use-paid-data-services",
+      "store-whole-articles",
+      "message-anyone-but-the-user"
+    ]
+  },
   "personalPlaybooks": {
     "storage": "existing-memory-store",
     "fields": ["name", "domain", "trigger", "steps", "cue"],
@@ -316,6 +384,10 @@
     {
       "domain": "contracts",
       "actions": ["save-contract", "change-contract", "renew-contract", "end-contract", "remove-contract"]
+    },
+    {
+      "domain": "stocks",
+      "actions": ["follow-security", "save-thesis", "change-thesis", "remove-thesis", "record-ownership", "remove-security"]
     }
   ],
   "approvalPromptRequiredFields": [

@@ -25,6 +25,7 @@ describe("approval policy", () => {
       "sensitive-local-data",
       "purchases-and-finance",
       "contracts",
+      "stocks",
     ]);
   });
 

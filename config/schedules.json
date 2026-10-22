@@ -92,5 +92,33 @@
     },
     "jobTimeoutSeconds": 1800,
     "purpose": "Every morning, check the contracts the user asked Hilla to watch and message them before the earliest action deadline (a notice deadline, a discount or price guarantee ending, a binding period or the renewal), once with current public offers compared. No model unless research is due; it never changes a contract."
+  },
+  "stockWatch": {
+    "id": "stock-watch",
+    "minute": 7,
+    "checkEveryMinutes": {
+      "disclosures": 60,
+      "calendar": 1440,
+      "news": 240,
+      "forums": 720
+    },
+    "limits": {
+      "maxSecurities": 25,
+      "maxSourceChecksPerRun": 40,
+      "maxRequestsPerRun": 80,
+      "maxRequestsPerCheck": 3,
+      "maxItemsPerCheck": 50,
+      "catchUpDays": 7,
+      "eventsKeptPerSecurity": 300,
+      "requestTimeoutSeconds": 20,
+      "maxResponseKb": 3000,
+      "minHostIntervalMs": 1000,
+      "documentChecksPerRun": 3
+    },
+    "jobTimeoutSeconds": 900,
+    "sources": {
+      "nasdaq-company-news": false
+    },
+    "purpose": "Every hour, check the public sources of the stocks the user asked Hilla to follow (company announcements hourly, the report calendar daily, news every four hours, forums twice a day) and record new reports, announcements and news. No model; it never trades or changes the watchlist."
   }
 }

@@ -146,8 +146,4 @@ When an approval prompt is needed, include agent, action, target, expected effec
 
 ## Helpful Starting Points
 
-- Product brief: `docs/codex/project-brief.md`
-- Daily operations: `docs/operations/daily-operation.md`
-- Approval model: `docs/security/approval-model.md`
-- Codex task template: `docs/codex/task-template.md`
-- Review checklist: `docs/codex/review-checklist.md`
+`README.md` maps the docs. Codex task template: `docs/codex/task-template.md`; review checklist: `docs/codex/review-checklist.md`.
