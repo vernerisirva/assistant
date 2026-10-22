@@ -65,7 +65,7 @@ const metric = (overrides = {}) => ({
 const submission = (overrides = {}) => ({
   request: "rq-1a2b3c4d",
   importance: { level: "important", reason: "The quarterly report, with a weaker margin" },
-  sourcesRead: [{ url: RELEASE, read: true }, { url: PDF, read: true }],
+  sourcesRead: [{ url: RELEASE, read: true }],
   metrics: [metric()],
   keyPoints: ["Sales grew while the margin narrowed"],
   review: ["Read the explanation for the margin pressure"],
@@ -183,7 +183,9 @@ describe("analysis: guidance, balance sheet and dilution", () => {
     assert.match(validate(submission({ guidance: { status: "better", source: { url: RELEASE, location: "outlook" } } })).problems.join(" "), /guidance.status/);
     const fromPdf = validate(submission({ guidance: { status: "maintained", text: "Organic growth of 5–7% for 2026", source: { url: PDF, location: "outlook" } } }));
     assert.match(fromPdf.problems.join(" "), /guidance.text: the helper couldn't read the cited page/);
-    assert.equal(validate(submission({ guidance: { status: "maintained", text: "The full-year outlook is unchanged", source: { url: PDF, location: "outlook" } } })).ok, true, "an outlook in words needs no page check");
+    const wordsOnly = { status: "maintained", text: "The full-year outlook is unchanged", source: { url: PDF, location: "outlook" } };
+    assert.match(validate(submission({ guidance: wordsOnly })).problems.join(" "), /limitations: you used a page the helper can't check/, "an outlook in words from an unchecked page needs its limitation");
+    assert.equal(validate(submission({ guidance: wordsOnly, limitations: ["The outlook is from the report PDF, which couldn't be checked"] })).ok, true);
   });
 
   it("compares net debt at the same date a year earlier", () => {
@@ -225,12 +227,15 @@ describe("analysis: missing, unreadable and contradictory evidence", () => {
     const miscited = validate(submission({ metrics: [metric({ id: "order_intake", name: "Order intake", current: { period: "Q3 2026", value: 1402.3 }, prior: null })] }));
     assert.match(miscited.problems.join(" "), /1402.3 does not appear on the cited page/);
     // The PDF itself can't be read by the helper, so its figures can't be checked and are refused.
-    const fromPdf = validate(submission({ metrics: [metric({ id: "order_intake", name: "Order intake", current: { period: "Q3 2026", value: 1402.3 }, prior: null, source: { url: PDF, location: "page 4, order intake" } })] }));
+    const fromPdf = validate(submission({ sourcesRead: [{ url: RELEASE, read: true }, { url: PDF, read: true }], metrics: [metric({ id: "order_intake", name: "Order intake", current: { period: "Q3 2026", value: 1402.3 }, prior: null, source: { url: PDF, location: "page 4, order intake" } })] }));
     assert.equal(fromPdf.ok, false);
     assert.match(fromPdf.problems.join(" "), /couldn't read the cited page \(a PDF, or a site that refuses automated reading\), so nothing from it can be checked/);
     const unreachable = validate(submission(), { pages: new Map([[sourceKey(RELEASE), { status: "unreachable", reason: "Timed out." }]]) });
     assert.match(unreachable.problems.join(" "), /couldn't read the cited page/);
-    const inWords = validate(submission({ metrics: [], keyPoints: ["Order intake grew, by the report document"], limitations: ["Order intake is only in the report PDF, which couldn't be checked"] }));
+    const read = [{ url: RELEASE, read: true }, { url: PDF, read: true }];
+    const silent = validate(submission({ sourcesRead: read, metrics: [], keyPoints: ["Order intake grew, by the report document"] }));
+    assert.match(silent.problems.join(" "), /limitations: you used a page the helper can't check/);
+    const inWords = validate(submission({ sourcesRead: read, metrics: [], keyPoints: ["Order intake grew, by the report document"], limitations: ["Order intake is only in the report PDF, which couldn't be checked"] }));
     assert.equal(inWords.ok, true, "what can't be checked is said in words, with the limitation");
   });
 
@@ -242,7 +247,7 @@ describe("analysis: missing, unreadable and contradictory evidence", () => {
     assert.match(sameSite.problems.join(" "), /sourcesRead\[0\].url: must be one of the official pages or documents the brief lists/);
     const tracked = validate(submission({ sourcesRead: [{ url: `${RELEASE}?utm_source=feed#top`, read: true }] }));
     assert.equal(tracked.ok, true, "a tracking parameter or fragment doesn't make it another page");
-    const unlisted = validate(submission({ sourcesRead: [{ url: PDF, read: true }] }));
+    const unlisted = validate(submission({ sourcesRead: [{ url: PDF, read: true }], limitations: ["Only the report PDF was read"] }));
     assert.match(unlisted.problems.join(" "), /must be one of the sources you list as read/);
   });
 });

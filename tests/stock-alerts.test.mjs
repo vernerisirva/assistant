@@ -10,6 +10,7 @@ import {
   acknowledgeAlerts,
   alertStatusView,
   analysisHandoffMessage,
+  createAnalysisAgentRunner,
   briefFor,
   changePreferences,
   createAlertStore,
@@ -221,6 +222,18 @@ describe("stock alerts: importance from rules and context", () => {
     assert.equal(routeFor("critical", record("important", "paused")), "none");
     assert.equal(routeFor("noise", record("all")), "none");
     assert.equal(routeFor("important", record("important"), { missed: true }), "missed");
+  });
+
+  it("starts the analysis turn as an isolated personal-agent turn whose arguments carry only the request id", async () => {
+    const calls = [];
+    const runner = createAnalysisAgentRunner({ runOpenClaw: async (argv, options) => calls.push({ argv, options }) });
+    const message = analysisHandoffMessage("rq-0a1b2c3d");
+    assert.deepEqual(await runner({ requestId: "rq-0a1b2c3d", message, timeoutSeconds: 600 }), { ok: true, error: null });
+    assert.deepEqual(calls[0].argv, ["agent", "--agent", "personal", "--session-key", "stock-analysis-rq-0a1b2c3d", "--message", message, "--json", "--timeout", "600"]);
+    assert.equal(calls[0].options.timeoutMs, 660_000);
+    assert.ok(!calls[0].argv.includes("--deliver"), "the turn's own reply goes nowhere");
+    const failing = createAnalysisAgentRunner({ runOpenClaw: async () => { throw new Error("gateway timed out"); } });
+    assert.deepEqual(await failing({ requestId: "rq-0a1b2c3d", message, timeoutSeconds: 600 }), { ok: false, error: "gateway timed out" });
   });
 
   it("knows quiet hours and digest periods in Stockholm time", () => {

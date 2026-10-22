@@ -522,6 +522,10 @@ export function validateAnalysis(input, { event, record, sources, pages = new Ma
   const limitations = checkTextList(input.limitations, { field: "limitations", max: LIMITS.limitations, itemMax: 200 });
   if (limitations.problem) problems.push(limitations.problem);
   if (sourcesRead.length > 0 && readUrls.length === 0 && (limitations.value ?? []).length === 0) problems.push("limitations: say that the release or report could not be read");
+  // Words from a page the helper can't check (a PDF, GlobeNewswire) come with a stated limitation.
+  const uncheckable = new Set(sources.filter((source) => !source.checkable).map((source) => sourceKey(source.url)));
+  const unchecked = readUrls.some((url) => uncheckable.has(url)) || Boolean(guidance?.source && !readPage(pages, guidance.source.url));
+  if (unchecked && readUrls.length > 0 && (limitations.value ?? []).length === 0) problems.push("limitations: you used a page the helper can't check (a PDF, or a site that refuses automated reading); say which facts come from it and couldn't be checked");
 
   // The thesis is the user's: impact only when they stated one, never invented.
   let thesisImpact = null;
