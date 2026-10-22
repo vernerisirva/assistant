@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   GUIDANCE_TEXT,
-  analysisAllowedHosts,
+  analysisSources,
   checkAnalysisText,
   compareMetric,
   dateOnPage,
@@ -15,6 +15,7 @@ import {
   periodMatchesReport,
   periodsComparable,
   refineLevel,
+  sourceKey,
   validateAnalysis,
 } from "../scripts/lib/stock-analysis.mjs";
 
@@ -42,11 +43,11 @@ const EVENT = Object.freeze({
 });
 const RECORD = Object.freeze({ id: "sw-0000aaaa", revision: 3, thesis: null, ownership: "unknown", focusAreas: [], security: { companyName: "Example AB", ticker: "EXAM B", currency: "SEK" } });
 const WITH_THESIS = Object.freeze({ ...RECORD, thesis: { statement: "Margins will improve as revenue scales.", metrics: ["Operating margin"], breakers: ["Material dilution"], setAt: "2026-10-01T08:00:00.000Z" } });
-const HOSTS = analysisAllowedHosts(EVENT);
+const SOURCES = analysisSources(EVENT);
 const text = pageText(RELEASE_HTML);
 const PAGES = new Map([
-  [RELEASE, { status: "ok", text, numbers: pageNumbers(text) }],
-  [PDF, { status: "pdf" }],
+  [sourceKey(RELEASE), { status: "ok", text, numbers: pageNumbers(text) }],
+  [sourceKey(PDF), { status: "not_checkable" }],
 ]);
 
 const metric = (overrides = {}) => ({
@@ -70,7 +71,7 @@ const submission = (overrides = {}) => ({
   review: ["Read the explanation for the margin pressure"],
   ...overrides,
 });
-const validate = (input, { record = RECORD, pages = PAGES, event = EVENT } = {}) => validateAnalysis(input, { event, record, allowedHosts: HOSTS, pages });
+const validate = (input, { record = RECORD, pages = PAGES, event = EVENT } = {}) => validateAnalysis(input, { event, record, sources: SOURCES, pages });
 
 describe("analysis: comparisons with earlier periods", () => {
   it("compares a quarter with the same quarter a year earlier, in percent, worked out by the helper", () => {
@@ -79,7 +80,6 @@ describe("analysis: comparisons with earlier periods", () => {
     const [sales] = result.analysis.metrics;
     assert.deepEqual(sales.comparison, { kind: "percent", change: 8, comparable: true, reason: null });
     assert.equal(metricLine(sales), "Net sales, Q3 2026: SEK 1 234.5m (Q3 2025: SEK 1 143m), +8.0%");
-    assert.equal(sales.checked, "on_page");
   });
 
   it("accepts the year to date of the report's own period, and labels a quarter compared with the one before", () => {
@@ -181,6 +181,9 @@ describe("analysis: guidance, balance sheet and dilution", () => {
     const invented = validate(submission({ guidance: { status: "raised", text: "Organic growth of 9–11% for 2026", source: { url: RELEASE, location: "outlook" } } }));
     assert.match(invented.problems.join(" "), /guidance.text: 9, 11 not on the cited page/);
     assert.match(validate(submission({ guidance: { status: "better", source: { url: RELEASE, location: "outlook" } } })).problems.join(" "), /guidance.status/);
+    const fromPdf = validate(submission({ guidance: { status: "maintained", text: "Organic growth of 5–7% for 2026", source: { url: PDF, location: "outlook" } } }));
+    assert.match(fromPdf.problems.join(" "), /guidance.text: the helper couldn't read the cited page/);
+    assert.equal(validate(submission({ guidance: { status: "maintained", text: "The full-year outlook is unchanged", source: { url: PDF, location: "outlook" } } })).ok, true, "an outlook in words needs no page check");
   });
 
   it("compares net debt at the same date a year earlier", () => {
@@ -215,24 +218,32 @@ describe("analysis: missing, unreadable and contradictory evidence", () => {
     assert.equal(honest.ok, true);
   });
 
-  it("keeps one figure per metric, checks a figure against the page it cites, and marks a PDF figure as not re-checked", () => {
+  it("keeps one figure per metric, checks each against the page it cites, and takes nothing from a page the helper can't read", () => {
     const twice = validate(submission({ metrics: [metric(), metric({ current: { period: "Q3 2026", value: 1240 } })] }));
     assert.match(twice.problems.join(" "), /used twice/);
     // A figure from the PDF cited as if the release page showed it: refused.
     const miscited = validate(submission({ metrics: [metric({ id: "order_intake", name: "Order intake", current: { period: "Q3 2026", value: 1402.3 }, prior: null })] }));
     assert.match(miscited.problems.join(" "), /1402.3 does not appear on the cited page/);
+    // The PDF itself can't be read by the helper, so its figures can't be checked and are refused.
     const fromPdf = validate(submission({ metrics: [metric({ id: "order_intake", name: "Order intake", current: { period: "Q3 2026", value: 1402.3 }, prior: null, source: { url: PDF, location: "page 4, order intake" } })] }));
-    assert.equal(fromPdf.ok, true);
-    assert.equal(fromPdf.analysis.metrics[0].checked, "pdf_not_rechecked");
-    assert.match(metricLine(fromPdf.analysis.metrics[0]), /\[from the report document, not re-checked\]$/);
+    assert.equal(fromPdf.ok, false);
+    assert.match(fromPdf.problems.join(" "), /couldn't read the cited page \(a PDF, or a site that refuses automated reading\), so nothing from it can be checked/);
+    const unreachable = validate(submission(), { pages: new Map([[sourceKey(RELEASE), { status: "unreachable", reason: "Timed out." }]]) });
+    assert.match(unreachable.problems.join(" "), /couldn't read the cited page/);
+    const inWords = validate(submission({ metrics: [], keyPoints: ["Order intake grew, by the report document"], limitations: ["Order intake is only in the report PDF, which couldn't be checked"] }));
+    assert.equal(inWords.ok, true, "what can't be checked is said in words, with the limitation");
   });
 
-  it("refuses sources outside the official release, and figures from a page not read", () => {
+  it("takes sources only from the pages the brief listed, not any page on the same sites", () => {
+    assert.deepEqual(SOURCES, [{ url: RELEASE, checkable: true }, { url: PDF, checkable: false }]);
     const outside = validate(submission({ metrics: [metric({ source: { url: "https://evil.example/numbers", location: "table" } })] }));
-    assert.match(outside.problems.join(" "), /source.url: must be an https page or document of the official release/);
+    assert.match(outside.problems.join(" "), /source.url: must be one of the official pages or documents the brief lists/);
+    const sameSite = validate(submission({ sourcesRead: [{ url: "https://mfn.se/a/other-company/other-release", read: true }], metrics: [] }));
+    assert.match(sameSite.problems.join(" "), /sourcesRead\[0\].url: must be one of the official pages or documents the brief lists/);
+    const tracked = validate(submission({ sourcesRead: [{ url: `${RELEASE}?utm_source=feed#top`, read: true }] }));
+    assert.equal(tracked.ok, true, "a tracking parameter or fragment doesn't make it another page");
     const unlisted = validate(submission({ sourcesRead: [{ url: PDF, read: true }] }));
     assert.match(unlisted.problems.join(" "), /must be one of the sources you list as read/);
-    assert.ok(HOSTS.includes("mfn.se") && HOSTS.includes("storage.mfn.se") && !HOSTS.includes("evil.example"));
   });
 });
 
@@ -279,6 +290,8 @@ describe("analysis: deadlines, importance and page reading", () => {
     assert.equal(stated.ok, true, JSON.stringify(stated.problems));
     const guessed = validate(submission({ deadlines: [{ label: "Subscription period ends", date: "2026-11-19", source: { url: RELEASE, location: "timetable" } }] }));
     assert.match(guessed.problems.join(" "), /not stated on the cited page/);
+    const fromPdf = validate(submission({ deadlines: [{ label: "Subscription period ends", date: "2026-11-12", source: { url: PDF, location: "timetable" } }] }));
+    assert.match(fromPdf.problems.join(" "), /deadlines\[0\].source: the helper couldn't read the cited page, so its date can't be checked/);
     assert.equal(dateOnPage("2026-11-12", "päättyy 12.11.2026"), true);
     assert.equal(dateOnPage("2026-11-12", "ends on November 12, 2026"), true);
     assert.equal(dateOnPage("2026-11-02", "ends on 12 November 2026"), false);

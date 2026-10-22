@@ -325,9 +325,11 @@ function createContext(
       const fetcher = context.fetcher({ maxRequests: context.alertSettings().analysis.pageChecksPerSubmit * 2 + 2 });
       return async (url) => {
         const host = new URL(url).host;
-        const userAgent = host === "www.sec.gov" ? edgarUserAgent(resolvedEnv) : null;
-        if (host === "www.sec.gov" && !userAgent) return { status: "error", reason: "SEC pages need SEC_EDGAR_USER_AGENT." };
-        return fetcher.get(url, { hosts: [host], accept: "text/html, application/xhtml+xml;q=0.9, */*;q=0.5", ...(userAgent ? { userAgent } : {}) });
+        // Stored links drop "www.", so a page may redirect to its www host, and only there.
+        const hosts = host.startsWith("www.") ? [host] : [host, `www.${host}`];
+        const userAgent = hosts.includes("www.sec.gov") ? edgarUserAgent(resolvedEnv) : null;
+        if (hosts.includes("www.sec.gov") && !userAgent) return { status: "error", reason: "SEC pages need SEC_EDGAR_USER_AGENT." };
+        return fetcher.get(url, { hosts, accept: "text/html, application/xhtml+xml;q=0.9, */*;q=0.5", ...(userAgent ? { userAgent } : {}) });
       };
     },
     /** Whether the scheduled check really ran lately: a heartbeat, not a promise. */

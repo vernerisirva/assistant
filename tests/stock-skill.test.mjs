@@ -89,8 +89,9 @@ describe("stock-watch SKILL.md", () => {
   it("analyses only official releases, with figures as the page writes them, and never rewrites the thesis", () => {
     assert.match(skill, /never change one on your own, also not after an alert says a report weakens it/);
     assert.match(skill, /A message that starts "Scheduled stock analysis rq-…" is the monitor's analysis turn: do exactly what it says \(brief, read, submit, then reply exactly NO_REPLY\) and nothing else\./);
-    assert.match(skill, /open only the official pages and documents the brief lists, at most 6, with no web searches, sign-ins or forms/);
+    assert.match(skill, /open only the pages in the brief's `allowedSources`, at most 6, with no web searches, sign-ins or forms/);
     assert.match(skill, /Give each figure exactly as the cited page writes it \(same scale and sign\)/);
+    assert.match(skill, /Figures, numbers in the outlook and deadlines count only from a page marked `checkable`/);
     assert.match(skill, /never infer expectations from a share-price move/);
     assert.match(skill, /prefer `insufficient_evidence` to overclaiming/);
     assert.match(skill, /never assume the user owns shares/);

@@ -133,11 +133,13 @@ What the run sends depends on each stock's `notificationLevel`:
 
 ## Analysis
 
-For a critical or important official release that the stock's level would alert, the run starts one isolated personal-agent turn (`openclaw agent --agent personal --session-key stock-analysis-<request>`), no `--deliver`, with a fixed message that names only the request id. The turn runs `analysis-brief --request rq-…`, which gives the security's public identifiers, the event and its official links, the previous report's link, the user's own thesis and focus when stated (never ownership), and the rules; it reads only those official pages and documents (at most 6, no web search) and submits through `analysis-submit`.
+For a critical or important official release that the stock's level would alert, the run starts one isolated personal-agent turn (`openclaw agent --agent personal --session-key stock-analysis-<request>`), no `--deliver`, with a fixed message that names only the request id. The turn runs `analysis-brief --request rq-…`, which gives the security's public identifiers, the event, the exact pages it may open and cite (`allowedSources`: the release's official pages and attached documents, and the previous report's, each marked `checkable` or not), the user's own thesis and focus when stated (never ownership), and the rules; it reads only those pages (at most 6, no web search) and submits through `analysis-submit`.
 
-`analysis-submit` reads each cited page itself (robots.txt respected, the release's own hosts only, nothing stored) and refuses the submission, with every problem listed, when:
+`analysis-submit` reads each cited page itself (robots.txt respected, that page's own host only, nothing stored) and refuses the submission, with every problem listed, when:
 
-- a figure's value doesn't appear on the page it cites (in any of the Nordic and English number formats), or a positive figure appears there only as negative; a figure from a PDF is kept but marked as not re-checked;
+- a source isn't one of the listed pages (a tracking parameter or fragment aside), even on the same site;
+- a figure's value doesn't appear on the page it cites (in any of the Nordic and English number formats), or a positive figure appears there only as negative;
+- a figure, a number in quoted guidance or a deadline cites a page the helper can't read: a PDF (there is no PDF reader), or GlobeNewswire's site, which refuses robots. Those releases are analysed in words, with the limitation stated; their figures are never shown unchecked;
 - a figure lacks its unit, scale, currency or basis (reported, adjusted, organic), or its period isn't the report's own quarter or year to date;
 - quoted guidance has a number its page doesn't show, or a deadline is a date its page doesn't state;
 - free text has a number, a link, instructions, an order or money transfer, buy, sell or hold advice, a price forecast, or a claim about consensus or market expectations;

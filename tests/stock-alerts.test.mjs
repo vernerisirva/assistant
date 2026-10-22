@@ -640,7 +640,8 @@ describe("stock alerts: end-to-end synthetic scenario", () => {
       assert.equal(h.agent.calls.length, 1);
       assert.equal(h.agent.submissions[0].status, "stored", JSON.stringify(h.agent.submissions[0]));
       const lifecycle = h.alerts(id).events[reports[0].id];
-      assert.ok(lifecycle.analysis.result.metrics.every((metric) => metric.checked === "on_page" && metric.comparison.comparable));
+      assert.equal(lifecycle.analysis.result.metrics.length, 2, "both figures were found on the release page");
+      assert.ok(lifecycle.analysis.result.metrics.every((metric) => metric.comparison.comparable), "each against the same quarter a year earlier");
       assert.equal(lifecycle.analysis.result.thesisImpact.outcome, "weakens");
       const handoff = analysisHandoffMessage(lifecycle.analysis.requestId);
       for (const detail of ["Example", "EXAM", EXAMPLE.isin, THESIS.statement, "operating performance", title]) assert.ok(!handoff.includes(detail), `the handoff names the request only, not ${detail}`);

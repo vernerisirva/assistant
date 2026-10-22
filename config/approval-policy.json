@@ -284,6 +284,8 @@
       "webSearch": false,
       "paidServices": false,
       "figuresCheckedAgainst": "the-cited-official-page",
+      "citableSources": "only-the-pages-the-brief-lists",
+      "unreadablePagesYield": "words-and-a-stated-limitation-never-unchecked-figures",
       "handoffCarries": "a-request-id-only",
       "briefCarries": ["public-company-identifiers", "the-event-and-its-official-links", "the-users-own-stated-thesis-and-focus"],
       "briefNeverCarries": ["ownership", "position-sizes", "purchase-prices", "portfolio-values"]

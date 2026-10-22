@@ -9,10 +9,12 @@
  * anything it cannot trace or check:
  *
  * - every figure names its unit, scale and currency, its period, whether it
- *   is reported or adjusted, and the official page and place it came from;
- * - a figure cited from a page the helper could read must appear on that
- *   page, and a positive figure the page shows only as negative is refused;
- *   a figure from a PDF is kept but marked as not re-checked;
+ *   is reported or adjusted, and the official page and place it came from,
+ *   which must be one of the pages the brief listed;
+ * - every figure, every number in quoted guidance and every deadline must
+ *   appear on its cited page as the helper itself read it, and a positive
+ *   figure the page shows only as negative is refused; a PDF or a page the
+ *   helper can't read yields no figures, only words and a stated limitation;
  * - comparisons are worked out here, never taken from the model: a change in
  *   percentage points for margins and other percentages, a percent change for
  *   amounts, and no percent at all across a change of sign;
@@ -28,7 +30,7 @@
  * Nothing here calls a model or trades. Reading pages is the caller's job.
  */
 import { CURRENCIES } from "./stock-identity.mjs";
-import { decodeEntities, monthRange } from "./stock-events.mjs";
+import { canonicalUrl, decodeEntities, monthRange } from "./stock-events.mjs";
 
 export const IMPORTANCE_LEVELS = Object.freeze(["critical", "important", "informational", "noise"]);
 export const THESIS_OUTCOMES = Object.freeze(["supports", "weakens", "mixed", "no_meaningful_change", "insufficient_evidence"]);
@@ -38,19 +40,8 @@ export const METRIC_BASES = Object.freeze(["reported", "adjusted", "organic", "o
 export const SCALES = Object.freeze({ units: 1, thousands: 1e3, millions: 1e6, billions: 1e9 });
 export const LIMITS = Object.freeze({ metrics: 12, keyPoints: 4, review: 3, limitations: 4, deadlines: 4, sourcesRead: 6 });
 
-/** Where official documents of the supported distributors and filers live. */
-export const DOCUMENT_HOSTS = Object.freeze([
-  "mb.cision.com",
-  "news.cision.com",
-  "storage.mfn.se",
-  "feed.mfn.se",
-  "mfn.se",
-  "attachment.news.eu.nasdaq.com",
-  "view.news.eu.nasdaq.com",
-  "www.globenewswire.com",
-  "globenewswire.com",
-  "www.sec.gov",
-]);
+/** Hosts whose pages the helper can never read (GlobeNewswire refuses robots), so figures from them can't be checked. */
+export const UNREADABLE_HOSTS = Object.freeze(["globenewswire.com", "www.globenewswire.com"]);
 
 // --- Free text ----------------------------------------------------------------------
 
@@ -299,26 +290,31 @@ function hostOf(url) {
 
 const isOfficial = (item) => item?.evidence === "official_disclosure" || item?.evidence === "company_release";
 
-/** The pages a figure may come from: the distributors' document hosts and the official pages of the event and related ones. */
-export function analysisAllowedHosts(event, related = []) {
-  const hosts = new Set(DOCUMENT_HOSTS);
+/** A link as it is compared: https only, canonical (no tracking, fragment or trailing slash). */
+export const sourceKey = (url) => (hostOf(url) ? canonicalUrl(url) : null);
+
+/**
+ * The pages an analysis may read and cite: exactly the official pages and
+ * documents of the event, and of related releases such as the previous
+ * report, that the brief lists. News and talk about them never count.
+ */
+export function analysisSources(event, related = []) {
+  const urls = [];
   for (const item of [event, ...related]) {
     if (!isOfficial(item)) continue;
     for (const source of item.sources ?? []) {
       if (source.role === "coverage") continue;
       for (const link of [source.url, ...(source.documents ?? [])]) {
-        const host = hostOf(link);
-        if (host) hosts.add(host);
+        if (hostOf(link) && !urls.some((url) => sourceKey(url) === sourceKey(link))) urls.push(link);
       }
     }
   }
-  return [...hosts].sort();
+  return urls.map((url) => ({ url, checkable: !UNREADABLE_HOSTS.includes(hostOf(url)) && !/\.pdf(?:$|[?#])/i.test(url) }));
 }
 
-function checkSource(raw, { field, allowedHosts }) {
+function checkSource(raw, { field, allowedUrls }) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { problem: `${field}: must be {url, location}` };
-  const host = hostOf(raw.url);
-  if (!host || !allowedHosts.includes(host)) return { problem: `${field}.url: must be an https page or document of the official release (${allowedHosts.join(", ")})` };
+  if (!allowedUrls.includes(sourceKey(raw.url))) return { problem: `${field}.url: must be one of the official pages or documents the brief lists` };
   const location = typeof raw.location === "string" ? raw.location.normalize("NFC").replace(CONTROL, " ").replace(/\s+/g, " ").trim() : "";
   if (!location || location.length > 80 || LINK.test(location) || INSTRUCTIONS.test(location)) return { problem: `${field}.location: say where in it, such as "page 3, income statement" (at most 80 characters)` };
   return { value: { url: String(raw.url), location } };
@@ -333,7 +329,7 @@ function checkPoint(raw, field) {
 }
 
 /** One reported figure, checked. Returns { value } or { problem }. */
-export function normalizeMetric(raw, { allowedHosts, readUrls, report = null }) {
+export function normalizeMetric(raw, { allowedUrls, readUrls, report = null }) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { problem: "must be an object" };
   const allowed = ["id", "name", "unit", "basis", "currency", "scale", "current", "prior", "source"];
   const extra = Object.keys(raw).filter((key) => !allowed.includes(key));
@@ -359,9 +355,9 @@ export function normalizeMetric(raw, { allowedHosts, readUrls, report = null }) 
       if (Math.abs(point.value) > 1000) return { problem: `${raw.unit} values above 1000 are not plausible; check the unit` };
     }
   }
-  const source = checkSource(raw.source, { field: "source", allowedHosts });
+  const source = checkSource(raw.source, { field: "source", allowedUrls });
   if (source.problem) return source;
-  if (!readUrls.includes(source.value.url)) return { problem: "source.url: must be one of the sources you list as read" };
+  if (!readUrls.includes(sourceKey(source.value.url))) return { problem: "source.url: must be one of the sources you list as read" };
   return {
     value: {
       id: raw.id,
@@ -377,21 +373,31 @@ export function normalizeMetric(raw, { allowedHosts, readUrls, report = null }) 
   };
 }
 
+const UNCHECKABLE =
+  "the helper couldn't read the cited page (a PDF, or a site that refuses automated reading), so nothing from it can be checked: cite a release page that shows it, or leave it out and say in limitations which figures are only in the report document";
+
+/** The page the helper read for a cited link, or null when it couldn't read it. */
+function readPage(pages, url) {
+  const page = pages?.get(sourceKey(url));
+  return page?.status === "ok" ? page : null;
+}
+
 /**
- * Checks a figure against the page it cites, when the helper could read that
- * page: both values must appear on it, and a positive value the page shows
- * only as negative is refused. A PDF or an unreadable page leaves it unchecked.
+ * Checks a figure against the page it cites, as the helper read it: both
+ * values must appear on it, and a positive value the page shows only as
+ * negative is refused. A page the helper couldn't read checks nothing, so
+ * its figure is refused.
  */
 export function checkMetricOnPage(metric, pages) {
-  const page = pages?.get(metric.source.url);
-  if (!page || page.status !== "ok") return { checked: page?.status === "pdf" ? "pdf_not_rechecked" : "not_rechecked", problem: null };
+  const page = readPage(pages, metric.source.url);
+  if (!page) return { problem: `source: ${UNCHECKABLE}` };
   for (const [label, point] of [["current", metric.current], ["prior", metric.prior]]) {
     if (!point) continue;
     const found = numberOnPage(point.value, page.numbers);
-    if (!found.found) return { checked: "on_page", problem: `${label}.value: ${point.value} does not appear on the cited page; give it exactly as that page writes it (same scale, such as 1234.5 for "1 234,5"), cite the page that shows it, or leave the figure out` };
-    if (found.signConflict) return { checked: "on_page", problem: `${label}.value: the page shows ${point.value} only as negative; check the sign` };
+    if (!found.found) return { problem: `${label}.value: ${point.value} does not appear on the cited page; give it exactly as that page writes it (same scale, such as 1234.5 for "1 234,5"), cite the page that shows it, or leave the figure out` };
+    if (found.signConflict) return { problem: `${label}.value: the page shows ${point.value} only as negative; check the sign` };
   }
-  return { checked: "on_page", problem: null };
+  return { problem: null };
 }
 
 const round = (value, digits) => Math.round(value * 10 ** digits) / 10 ** digits;
@@ -425,11 +431,13 @@ export function refineLevel(triaged, proposed, { official }) {
 
 /**
  * Checks one analysis submission for an event. `context`: { event, record,
- * allowedHosts, pages }: `pages` maps a cited URL to what the helper read
- * there ({status: "ok", text, numbers}, or "pdf", or "unreachable").
- * Returns { ok, analysis } or { ok: false, problems }.
+ * sources, pages }: `sources` are the pages the brief listed (from
+ * analysisSources), and `pages` maps a cited link's sourceKey to what the
+ * helper read there ({status: "ok", text, numbers}, or another status when
+ * it couldn't). Returns { ok, analysis } or { ok: false, problems }.
  */
-export function validateAnalysis(input, { event, record, allowedHosts, pages = new Map() }) {
+export function validateAnalysis(input, { event, record, sources, pages = new Map() }) {
+  const allowedUrls = sources.map((source) => sourceKey(source.url));
   const problems = [];
   if (!input || typeof input !== "object" || Array.isArray(input)) return { ok: false, problems: ["the analysis must be a JSON object"] };
   const allowed = ["request", "eventId", "importance", "sourcesRead", "metrics", "guidance", "keyPoints", "thesisImpact", "review", "deadlines", "eligibility", "limitations"];
@@ -451,13 +459,12 @@ export function validateAnalysis(input, { event, record, allowedHosts, pages = n
     problems.push(`sourcesRead: list the official pages and documents you opened, at most ${LIMITS.sourcesRead}, each {url, read}`);
   } else {
     for (const [index, entry] of input.sourcesRead.entries()) {
-      const host = hostOf(entry?.url);
-      if (!host || !allowedHosts.includes(host)) problems.push(`sourcesRead[${index}].url: must be an https page or document of the official release`);
+      if (!allowedUrls.includes(sourceKey(entry?.url))) problems.push(`sourcesRead[${index}].url: must be one of the official pages or documents the brief lists`);
       else if (typeof entry.read !== "boolean") problems.push(`sourcesRead[${index}].read: true when you could read it, false when you couldn't`);
       else sourcesRead.push({ url: String(entry.url), read: entry.read });
     }
   }
-  const readUrls = sourcesRead.filter((entry) => entry.read).map((entry) => entry.url);
+  const readUrls = sourcesRead.filter((entry) => entry.read).map((entry) => sourceKey(entry.url));
   const report = event.type === "report" ? event.report : null;
 
   const metrics = [];
@@ -466,7 +473,7 @@ export function validateAnalysis(input, { event, record, allowedHosts, pages = n
     else {
       const ids = new Set();
       for (const [index, raw] of input.metrics.entries()) {
-        const metric = normalizeMetric(raw, { allowedHosts, readUrls, report });
+        const metric = normalizeMetric(raw, { allowedUrls, readUrls, report });
         if (metric.problem) {
           problems.push(`metrics[${index}].${metric.problem}`);
           continue;
@@ -481,7 +488,7 @@ export function validateAnalysis(input, { event, record, allowedHosts, pages = n
           continue;
         }
         ids.add(metric.value.id);
-        metrics.push({ ...metric.value, checked: checked.checked });
+        metrics.push(metric.value);
       }
     }
   }
@@ -493,14 +500,16 @@ export function validateAnalysis(input, { event, record, allowedHosts, pages = n
     if (!GUIDANCE_STATUSES.includes(raw?.status)) problems.push(`guidance.status: must be ${GUIDANCE_STATUSES.join(", ")}`);
     else {
       const text = raw.text === undefined || raw.text === null ? { value: null } : checkAnalysisText(raw.text, { max: 240, numbers: true });
-      const source = raw.status === "none_given" ? { value: null } : checkSource(raw.source, { field: "guidance.source", allowedHosts });
+      const source = raw.status === "none_given" ? { value: null } : checkSource(raw.source, { field: "guidance.source", allowedUrls });
       if (text.problem) problems.push(`guidance.text: ${text.problem}`);
       if (source.problem) problems.push(source.problem);
       if (!text.problem && !source.problem) {
         // Numbers in quoted guidance must be on the page it cites, like any figure.
-        const page = source.value ? pages.get(source.value.url) : null;
-        const missing = page?.status === "ok" ? numbersIn(text.value ?? "").filter((value) => !numberOnPage(value, page.numbers).found) : [];
-        if (missing.length > 0) problems.push(`guidance.text: ${missing.join(", ")} not on the cited page; quote the guidance as the page states it`);
+        const numbers = numbersIn(text.value ?? "");
+        const page = source.value ? readPage(pages, source.value.url) : null;
+        const missing = page ? numbers.filter((value) => !numberOnPage(value, page.numbers).found) : [];
+        if (numbers.length > 0 && !page) problems.push(`guidance.text: ${UNCHECKABLE.replace("which figures are only in the report document", "that the outlook's numbers couldn't be checked")}; or describe the outlook without numbers`);
+        else if (missing.length > 0) problems.push(`guidance.text: ${missing.join(", ")} not on the cited page; quote the guidance as the page states it`);
         else guidance = { status: raw.status, text: text.value, source: source.value };
       }
     }
@@ -539,11 +548,12 @@ export function validateAnalysis(input, { event, record, allowedHosts, pages = n
       for (const [index, raw] of input.deadlines.entries()) {
         const label = checkAnalysisText(raw?.label, { max: 80 });
         const date = typeof raw?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw.date) && Number.isFinite(Date.parse(`${raw.date}T00:00:00Z`)) ? raw.date : null;
-        const source = checkSource(raw?.source, { field: `deadlines[${index}].source`, allowedHosts });
+        const source = checkSource(raw?.source, { field: `deadlines[${index}].source`, allowedUrls });
         if (label.problem) problems.push(`deadlines[${index}].label: ${label.problem}`);
         else if (!date) problems.push(`deadlines[${index}].date: must be YYYY-MM-DD as the release states it`);
         else if (source.problem) problems.push(source.problem);
-        else if (pages.get(source.value.url)?.status === "ok" && !dateOnPage(date, pages.get(source.value.url).text)) problems.push(`deadlines[${index}].date: not stated on the cited page; give only dates the release itself gives`);
+        else if (!readPage(pages, source.value.url)) problems.push(`deadlines[${index}].source: the helper couldn't read the cited page, so its date can't be checked; cite a release page that states it, or leave the deadline out and point to the official release`);
+        else if (!dateOnPage(date, readPage(pages, source.value.url).text)) problems.push(`deadlines[${index}].date: not stated on the cited page; give only dates the release itself gives`);
         else deadlines.push({ label: label.value, date, source: source.value });
       }
     }
@@ -605,8 +615,7 @@ function formatValue(metric, value) {
 export function metricLine(metric) {
   const basis = metric.basis === "reported" ? "" : ` (${metric.basis})`;
   const base = `${metric.name}${basis}, ${metric.current.period}: ${formatValue(metric, metric.current.value)}`;
-  const unchecked = metric.checked === "pdf_not_rechecked" || metric.checked === "not_rechecked" ? " [from the report document, not re-checked]" : "";
-  if (!metric.prior) return `${base}${unchecked}`;
+  if (!metric.prior) return base;
   const prior = ` (${metric.prior.period}: ${formatValue(metric, metric.prior.value)})`;
   const comparison = metric.comparison ?? compareMetric(metric);
   const signed = (change) => `${change > 0 ? "+" : change < 0 ? "−" : "±"}${formatNumber(Math.abs(change), { digits: 1 })}`;
@@ -615,7 +624,7 @@ export function metricLine(metric) {
   else if (comparison.kind === "percent") change = `, ${signed(comparison.change)}%`;
   else if (comparison.kind === "direction") change = comparison.to > comparison.from ? ", up" : comparison.to < comparison.from ? ", down" : ", unchanged";
   const like = comparison.comparable ? "" : ` (${comparison.reason ?? "not like for like"})`;
-  return `${base}${prior}${change}${like}${unchecked}`;
+  return `${base}${prior}${change}${like}`;
 }
 
 export const THESIS_TEXT = Object.freeze({
