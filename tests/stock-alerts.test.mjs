@@ -10,6 +10,7 @@ import {
   acknowledgeAlerts,
   alertStatusView,
   analysisBrief,
+  renderAnalysisAlert,
   analysisHandoffMessage,
   createAnalysisAgentRunner,
   briefFor,
@@ -244,6 +245,21 @@ describe("stock alerts: importance from rules and context", () => {
     assert.ok(brief.rules.some((rule) => /Give the key figures the release states even when it gives no comparison/.test(rule) && /or null/.test(rule)));
     assert.ok(brief.rules.some((rule) => /plain words, never the brief's own terms such as allowedSources or checkable/.test(rule)));
     assert.ok(brief.example.metrics.some((metric) => metric.prior === null), "the example shows a figure without a prior");
+  });
+
+  it("says a release without an outlook in plain words, never as a quote, and sends no one looking for it", () => {
+    const record = { status: "watching", notificationLevel: "important", ownership: "unknown", focusAreas: [], thesis: null, security: { companyName: "Investor AB", ticker: null, exchange: "XSTO", isin: EXAMPLE.isin, currency: "SEK" } };
+    const event = { id: "ev-0123456789ab", type: "report", evidence: "official_disclosure", title: "Interim Management Statement January-September 2026", report: { kind: "interim", period: "Q3", fiscalYear: 2026 }, publishedAt: "2026-10-16T06:15:45.000Z", sources: [{ key: "cision", name: "Cision", url: "https://news.cision.com/investor/r/q3", documents: [], role: "original" }] };
+    const analysis = (guidance) => ({ importance: { level: "important", reason: "The quarterly statement" }, sourcesRead: [{ url: "https://news.cision.com/investor/r/q3", read: true }], metrics: [], guidance, keyPoints: ["Net asset value rose in the quarter"], thesisImpact: null, review: [], deadlines: [], eligibility: null, limitations: [] });
+    const render = (guidance) => renderAnalysisAlert({ record, event, lifecycle: { analysis: { result: analysis(guidance) } }, level: "important" });
+    const none = render({ status: "none_given", text: "The release gives no formal outlook.", source: null });
+    assert.match(none, /\nOutlook: none given in the release\.\n/);
+    assert.doesNotMatch(none, /“The release gives no formal outlook\.”/);
+    assert.match(none, /Next step: Read management's comments on the figures\./);
+    assert.doesNotMatch(none, /outlook section/);
+    const kept = render({ status: "maintained", text: "Organic growth of 5–7% for 2026", source: { url: "https://news.cision.com/investor/r/q3", location: "outlook" } });
+    assert.match(kept, /Outlook: maintained\. “Organic growth of 5–7% for 2026”/, "the company's own words are still quoted");
+    assert.match(kept, /Next step: Read the report's outlook section/);
   });
 
   it("knows quiet hours and digest periods in Stockholm time", () => {
