@@ -347,11 +347,11 @@ describe("capability boundaries", () => {
     assert.match(capabilityById("routines.check-ins").summary, /they change nothing/);
   });
 
-  it("describes the golf week truthfully: defaults until told, never guessed, six golf days, one task each, the same 12-hour review", () => {
+  it("describes the golf week truthfully: defaults until told, never guessed, six golf days unless you ask for every day, one task each, the same 12-hour review", () => {
     const golf = capabilityById("weekly-plan.golf");
     assert.equal(golf.partOf, "weekly-plan.plan");
     assert.match(golf.summary, /around your playing days \(9 or 18 holes\), 1–2 focus areas and any competition or lesson; until you say, it's practice with a balanced focus\./);
-    assert.match(golf.summary, /six golf days and a rest day toward competitive golf/);
+    assert.match(golf.summary, /six golf days and a rest day toward competitive golf, or golf every day when you ask/);
     assert.match(golf.limit, /Playing days, competitions and technique come only from you, never guessed/);
     assert.match(golf.limit, /Each golf day gets one Todoist task with a full session plan/);
     assert.match(golf.limit, /added 12 hours after you see the plan unless you change or cancel it; OK adds them now/);

@@ -4,12 +4,12 @@
  *
  * Each source is a small provider over state that already exists; nothing new
  * is stored. The weekly plan store gives a plan awaiting review with its
- * deadline, one waiting for an explicit OK, or an older one waiting for golf
- * answers, and the focus record gives a
- * running session. Approval prompts and
- * clarifying questions asked in chat are not stored anywhere, so this view
- * cannot list them and says so. Recommendations, Todoist tasks, and memory are
- * not pending actions and are never read here.
+ * deadline, one waiting for an explicit OK, one held for a change the user
+ * asked for (with the plan's question, if any), or an older one waiting for
+ * golf answers, and the focus record gives a running session. Approval
+ * prompts and other clarifying questions asked in chat are not stored
+ * anywhere, so this view cannot list them and says so. Recommendations,
+ * Todoist tasks, and memory are not pending actions and are never read here.
  *
  * Providers fail independently. A source that cannot be read is reported as
  * unchecked, never as "nothing pending". Only short summaries leave a provider,
@@ -43,7 +43,17 @@ export const weeklyPlanPendingProvider = Object.freeze({
 
     for (const plan of plans) {
       const week = formatWeekLabel(plan.weekStart);
-      if (plan.status === "pending" && plan.applyHold?.version === plan.currentVersion) {
+      if (plan.status === "pending" && plan.revisionHold) {
+        items.push({
+          type: "weekly_plan",
+          source: "weekly-plan",
+          summary: `Weekly plan for ${week} (v${plan.currentVersion})`,
+          detail: `You asked for a change at ${formatLocalDateTime(plan.revisionHold.requestedAt, timezone)} that isn't finished${plan.revisionHold.question ? ` (I asked: ${String(plan.revisionHold.question).replace(/\s+/g, " ")})` : ""}, so nothing is created automatically.`,
+          since: plan.revisionHold.requestedAt,
+          deadline: null,
+          requiredAction: "Finish the change, say Keep the plan to keep it as shown, or skip the week.",
+        });
+      } else if (plan.status === "pending" && plan.applyHold?.version === plan.currentVersion) {
         items.push({
           type: "weekly_plan",
           source: "weekly-plan",

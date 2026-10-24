@@ -4,8 +4,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  DEFAULT_GOLF_DAYS,
   GOLF_QUESTIONS,
-  MAX_GOLF_DAYS,
   applyGolfChanges,
   deriveGolfWeek,
   emptyGolfInputs,
@@ -17,6 +17,7 @@ import {
   golfFocusKind,
   golfInputStatus,
   readSavedGolfRoutines,
+  withoutRefusedGolfChanges,
 } from "../scripts/lib/golf-week.mjs";
 import { applyWeeklyPlanChanges, buildInitialPlanInputs, buildWeeklyPlan, formatPlanMessage } from "../scripts/lib/weekly-plan.mjs";
 import { COMPETITION_ANSWER, GOLF_ANSWER } from "./fixtures/golf-answers.mjs";
@@ -227,24 +228,157 @@ describe("golf week input readiness", () => {
     );
   });
 
-  it("asks which day stays golf-free when the named rounds and lessons cover all seven days", () => {
+  it("plans golf every day when the named rounds and lessons cover all seven days", () => {
     const everyDay = {
       replyText: "18 holes Monday, Tuesday, Wednesday, Thursday, Friday and Saturday, and a lesson on Sunday",
       addRounds: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"].map((day) => ({ day, holes: 18 })),
       addLessons: [{ day: "sunday" }],
     };
     const result = applyGolfChanges(emptyGolfInputs(config), everyDay, { weekStart: WEEK });
-    assert.deepEqual(result.problems.map((problem) => problem.reason), ["That would be golf on all seven days."]);
-    assert.equal(formatGolfClarification(result.problems), "That's golf every day next week. Which day should be golf-free?");
+    assert.deepEqual(result.problems, []);
+    assert.deepEqual([result.golf.activeDays, result.golf.activeDaysExplicit], [7, true]);
+    assert.equal(result.summary.at(-1), "Golf: every day, no golf-free day");
+    const week = weekFor(result.golf);
+    assert.deepEqual([week.activeDays, week.restDays], [7, 0]);
+    assert.doesNotMatch(week.notes.join(" "), /golf-free/, "the user's own seven days get no warning");
     const sixDays = { ...everyDay, replyText: everyDay.replyText.replace(", and a lesson on Sunday", ""), addLessons: [] };
     assert.deepEqual(problemsOf(sixDays), []);
+    assert.equal(answered(sixDays).activeDays, 6);
   });
 
-  it("refuses seven golf days and needs the user's words for fewer", () => {
-    assert.deepEqual(problemsOf({ replyText: "Golf every day, 7 days", activeDays: 7 }), ["Seven golf days would leave no golf-free day."]);
+  it("takes seven golf days from the user's say-so, in English, Swedish and Finnish, and needs their words for fewer", () => {
+    for (const replyText of [
+      "I don't need a rest day.",
+      "I don't need a rest day next week :)",
+      "Golf every day next week.",
+      "Seven golf days.",
+      "No rest day this week.",
+      "Golf 7 days",
+      "Ingen vilodag nästa vecka.",
+      "Jag vill träna golf alla sju dagar.",
+      "En tarvitse lepopäivää ensi viikolla.",
+      "Golfia joka päivä.",
+    ]) {
+      const result = applyGolfChanges(emptyGolfInputs(config), { replyText, activeDays: 7 }, { weekStart: WEEK });
+      assert.deepEqual(result.problems, [], replyText);
+      assert.deepEqual([result.golf.activeDays, result.golf.activeDaysExplicit, result.golf.restDays], [7, true, []], replyText);
+      assert.deepEqual(result.summary, ["Golf days 6 → 7"], replyText);
+    }
+    // Seven is the user's call, never a guess: a reply that doesn't say so is asked about.
+    const unsaid = applyGolfChanges(emptyGolfInputs(config), { replyText: "Golf practice on Monday and Tuesday", activeDays: 7 }, { weekStart: WEEK });
+    assert.deepEqual(unsaid.problems.map((problem) => problem.reason), ["The user did not ask for golf every day."]);
+    assert.equal(formatGolfClarification(unsaid.problems), "Golf on all seven days next week, with no golf-free day?");
     assert.deepEqual(problemsOf({ replyText: "Fewer golf days please", activeDays: 4 }), ["The user did not ask for 4 golf days."]);
     assert.deepEqual(problemsOf({ replyText: "Only four golf days this week", activeDays: 4 }), []);
     assert.deepEqual(problemsOf({ replyText: "Make it lighter", activeDays: 0 }), ["The user did not say no golf."]);
+    assert.throws(() => applyGolfChanges(emptyGolfInputs(config), { replyText: "Golf eight days", activeDays: 8 }, { weekStart: WEEK }), /from 0 to 7/);
+  });
+
+  it("reads named practice days, ranges and weekdays as the user's own golf days", () => {
+    const ranges = [
+      ["Golf practice on mon-friday", ["mon", "tue", "wed", "thu", "fri"]],
+      ["Practice Monday to Thursday", ["mon", "tue", "wed", "thu"]],
+      ["Träning måndag till fredag", ["mon", "tue", "wed", "thu", "fri"]],
+      ["Harjoittelen maanantaista perjantaihin", ["mon", "tue", "wed", "thu", "fri"]],
+      ["Harjoittelu ma–pe", ["mon", "tue", "wed", "thu", "fri"]],
+      ["Practice on weekdays", ["mon", "tue", "wed", "thu", "fri"]],
+      ["Golf practice every day", ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]],
+    ];
+    for (const [replyText, days] of ranges) {
+      const result = applyGolfChanges(emptyGolfInputs(config), { replyText, practiceDays: days }, { weekStart: WEEK });
+      assert.deepEqual(result.problems, [], replyText);
+      assert.deepEqual(result.golf.practiceDays, days.map((day) => DAY[day]), replyText);
+    }
+    // A day outside the range is not in the user's words, and "to" alone is no range.
+    assert.deepEqual(
+      problemsOf({ replyText: "Golf practice on mon-wed", practiceDays: ["monday", "thursday"] }),
+      ["Thursday is not in the user's words."],
+    );
+    assert.deepEqual(problemsOf({ replyText: "I want to practise", practiceDays: ["thursday"] }), ["Thursday is not in the user's words."]);
+    const week = weekFor(answered({ replyText: "Practice Monday to Friday", practiceDays: ["monday", "tuesday", "wednesday", "thursday", "friday"] }));
+    for (const day of ["mon", "tue", "wed", "thu", "fri"]) assert.equal(dayOf(week, DAY[day]).role, "practice", day);
+    assert.deepEqual([week.activeDays, week.restDays], [6, 1], "the default still fills the sixth day and keeps one free");
+  });
+
+  it("keeps a round the user only might play as a possibility on its day, never a booking", () => {
+    const answer = {
+      replyText: "Maybe 9 holes on friday, 18 on saturday and sunday. Golf practice on mon-friday and gym on tuesday and thursday",
+      // The mapping forgot the "maybe": the user's words decide.
+      addRounds: [{ day: "friday", holes: 9 }, { day: "saturday", holes: 18 }, { day: "sunday", holes: 18 }],
+      practiceDays: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+    };
+    const result = applyGolfChanges(emptyGolfInputs(config), answer, { weekStart: WEEK });
+    assert.deepEqual(result.problems, []);
+    assert.deepEqual(result.golf.rounds.map((round) => [round.date, round.holes]), [[DAY.sat, 18], [DAY.sun, 18]]);
+    assert.deepEqual(result.golf.tentativeRounds, [{ date: DAY.fri, holes: 9, competition: false }]);
+    assert.deepEqual(result.summary, [
+      "Golf: + maybe 9 holes Fri",
+      "Golf: + 18 holes Sat",
+      "Golf: + 18 holes Sun",
+      "Golf: practice Mon–Fri",
+      "Golf: every day, no golf-free day",
+    ]);
+    const week = weekFor(result.golf);
+    assert.deepEqual(roles(week), ["practice", "practice", "practice", "practice", "practice", "round", "round"]);
+    assert.deepEqual(dayOf(week, DAY.fri).possibleRound, { holes: 9 });
+    assert.deepEqual([dayOf(week, DAY.sat).holes, dayOf(week, DAY.sun).holes], [18, 18]);
+    assert.match(week.notes.join("\n"), /Friday's 9-hole round is only a possibility, so Friday keeps its practice\. If it's on, tell me and I'll make Friday the round\./);
+    // One golf task on Friday, which says what to do if the round is on.
+    const ops = golfOps(planWith(result.golf).plan).filter((operation) => operation.date === DAY.fri);
+    assert.equal(ops.length, 1);
+    assert.match(ops[0].payload.content, /^Golf practice — /);
+    assert.match(ops[0].payload.description, /\n\nPossible round\nIf the 9-hole round is on, play it instead of this session\.\n/);
+    assert.match(formatGolfSection(week).join("\n"), /\nFri — .+ · possible 9 holes\n/);
+
+    // Confirming it later makes Friday the round and keeps its hole count.
+    const confirmed = applyGolfChanges(result.golf, { replyText: "Friday's round is on", addRounds: [{ day: "friday" }] }, { weekStart: WEEK });
+    assert.deepEqual(confirmed.problems, []);
+    assert.deepEqual(confirmed.golf.rounds.find((round) => round.date === DAY.fri), { date: DAY.fri, holes: 9, competition: false });
+    assert.equal(confirmed.golf.tentativeRounds, undefined);
+    assert.equal(dayOf(weekFor(confirmed.golf), DAY.fri).role, "round");
+    // The hedge is read per clause, in each language; the other days stay rounds.
+    for (const replyText of ["Friday: maybe 9 holes. Saturday: 18 holes", "Kanske 9 hål på fredag, 18 hål lördag", "Ehkä 9 reikää perjantaina, 18 reikää lauantaina"]) {
+      const hedged = applyGolfChanges(emptyGolfInputs(config), { replyText, addRounds: [{ day: "friday", holes: 9 }, { day: "saturday", holes: 18 }] }, { weekStart: WEEK });
+      assert.deepEqual(hedged.problems, [], replyText);
+      assert.deepEqual([hedged.golf.tentativeRounds.map((round) => round.date), hedged.golf.rounds.map((round) => round.date)], [[DAY.fri], [DAY.sat]], replyText);
+    }
+    // A possible round without named practice that day can stay golf-free.
+    const alone = weekFor(answered({ replyText: "Maybe 9 holes Sunday", addRounds: [{ day: "sunday", holes: 9, tentative: true }] }));
+    assert.equal(dayOf(alone, DAY.sun).role, "rest");
+    assert.deepEqual(dayOf(alone, DAY.sun).possibleRound, { holes: 9 });
+    assert.match(alone.notes.join("\n"), /Sunday's 9-hole round is only a possibility, so Sunday stays golf-free\. If it's on, tell me and I'll add it\./);
+    assert.equal(golfInputStatus(answered({ replyText: "Maybe 9 holes Sunday", addRounds: [{ day: "sunday", holes: 9, tentative: true }] })).missing.includes("rounds"), false);
+  });
+
+  it("leaves out only what the user's words don't support, with a question for each", () => {
+    const changes = {
+      replyText: "18 holes Saturday, practice Monday",
+      addRounds: [{ day: "saturday", holes: 18, competition: true }, { day: "wednesday", holes: 9 }],
+      practiceDays: ["monday", "tuesday"],
+      activeDays: 7,
+    };
+    const { problems } = applyGolfChanges(emptyGolfInputs(config), changes, { weekStart: WEEK });
+    assert.deepEqual(
+      problems.map((problem) => problem.reason).sort(),
+      [
+        "The user did not ask for golf every day.",
+        "A competition on Saturday is not in the user's words.",
+        "Wednesday is not in the user's words.",
+        "9 holes is not in the user's words.",
+        "Tuesday is not in the user's words.",
+      ].sort(),
+    );
+    assert.ok(problems.every((problem) => problem.question), "every refusal has a question");
+    const kept = withoutRefusedGolfChanges(changes, problems);
+    assert.deepEqual(kept, {
+      replyText: "18 holes Saturday, practice Monday",
+      addRounds: [{ day: "saturday", holes: 18 }],
+      practiceDays: ["monday"],
+    });
+    assert.deepEqual(applyGolfChanges(emptyGolfInputs(config), kept, { weekStart: WEEK }).problems, []);
+    // A full list of playing days is left out whole: part of it would say there are no others.
+    const list = { replyText: "18 holes Saturday", rounds: [{ day: "saturday", holes: 18 }, { day: "wednesday" }] };
+    assert.equal(withoutRefusedGolfChanges(list, applyGolfChanges(emptyGolfInputs(config), list, { weekStart: WEEK }).problems), null);
   });
 });
 
@@ -256,7 +390,43 @@ describe("golf week planning", () => {
       assert.equal(week.restDays, 1, answer.replyText);
       assert.equal(roles(week).filter((role) => role === "rest").length, 1);
     }
-    assert.equal(config.golf.activeDays, MAX_GOLF_DAYS);
+    assert.equal(config.golf.activeDays, DEFAULT_GOLF_DAYS);
+  });
+
+  it("keeps a week of golf every day manageable: never full practice, light next to a full round and at least every third day", () => {
+    const week = weekFor(
+      answered({
+        replyText: "Maybe 9 holes on friday, 18 on saturday and sunday. Golf practice on mon-friday and gym on tuesday and thursday",
+        addRounds: [{ day: "friday", holes: 9, tentative: true }, { day: "saturday", holes: 18 }, { day: "sunday", holes: 18 }],
+        practiceDays: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+      }),
+    );
+    assert.deepEqual([week.activeDays, week.restDays], [7, 0]);
+    assert.deepEqual(practice(week).map((day) => day.intensity), ["moderate", "moderate", "light", "moderate", "light"]);
+    assert.deepEqual([dayOf(week, DAY.sat).holes, dayOf(week, DAY.sun).holes], [18, 18], "the rounds keep their hole counts");
+    assert.match(week.notes.join("\n"), /^Golf every day, as you asked: practice stays moderate, and Wed and Fri are light\.$/m);
+    assert.doesNotMatch(week.notes.join("\n"), /rest day|golf-free/i, "no lecture about a rest day");
+
+    const everyDay = weekFor(answered({ replyText: "Golf every day next week", activeDays: 7 }));
+    assert.deepEqual(everyDay.days.map((day) => day.intensity), ["moderate", "moderate", "light", "moderate", "moderate", "light", "moderate"]);
+    // A started week plans golf on every day left, without catching up.
+    const started = weekFor(answered({ replyText: "No rest day this week", activeDays: 7 }), { today: DAY.thu });
+    assert.deepEqual(roles(started), ["off", "off", "off", "practice", "practice", "practice", "practice"]);
+    assert.match(started.notes.join(" "), /The week has already started, so golf is planned on the 4 days left; missed golf days aren't caught up\./);
+    // The default week is untouched: one golf-free day, and full sessions where they fit.
+    const normal = weekFor(emptyGolfInputs(config));
+    assert.deepEqual([normal.activeDays, normal.restDays], [6, 1]);
+    assert.ok(practice(normal).some((day) => day.intensity === "full"));
+    assert.ok(!normal.notes.some((note) => /every day/.test(note)));
+  });
+
+  it("goes back to a golf-free day when the user names one in a week of golf every day", () => {
+    const sevenDays = answered({ replyText: "Golf every day next week", activeDays: 7 });
+    const result = applyGolfChanges(sevenDays, { replyText: "Actually, make Wednesday the rest day", restDay: "wednesday" }, { weekStart: WEEK });
+    assert.deepEqual(result.problems, []);
+    assert.deepEqual(result.summary, ["Golf days 7 → 6", "Golf: rest day Wed"]);
+    const week = weekFor(result.golf);
+    assert.deepEqual([week.activeDays, week.restDays, dayOf(week, DAY.wed).role], [6, 1, "rest"]);
   });
 
   it("never adds a seventh golf day, and never plans a round the user did not name", () => {

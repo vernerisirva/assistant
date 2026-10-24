@@ -19,6 +19,7 @@ import { buildTodoistCreatePlan } from "./todoist-create.mjs";
 import { localDateInTimeZone } from "./routine-skips.mjs";
 import {
   DEFAULT_RECIPE_LANGUAGE,
+  RecipeInputError,
   buildShoppingList,
   cookingTask,
   englishFoodWords,
@@ -45,6 +46,7 @@ import {
   formatGolfSection,
   golfTask,
   keepCurrentGolfWeek,
+  withoutRefusedGolfChanges,
 } from "./golf-week.mjs";
 import {
   MONTHS,
@@ -830,6 +832,7 @@ function buildOperations({ inputs, config, placements, golf, golfDays, recipes, 
 const CHANGE_KEYS = Object.freeze([
   "targets",
   "moves",
+  "activityDays",
   "skipDays",
   "unskipDays",
   "dayLoads",
@@ -867,11 +870,7 @@ export function applyWeeklyPlanChanges(previousInputs, previousPlan, rawChanges,
   rejectUnknownKeys(changes, CHANGE_KEYS, "weekly plan changes");
   const substantive = Object.keys(changes).filter((key) => key !== "note");
   if (substantive.length === 0) throw new Error("A weekly plan revision needs at least one change.");
-  if (previousInputs.golf === undefined && LEGACY_GOLF_TARGETS.some((key) => previousInputs.targets?.[key] > 0)) {
-    throw new Error(
-      "This plan was made before the golf week planner, so it can still be accepted or cancelled but not changed. Cancel it and ask for a new plan to change it.",
-    );
-  }
+  assertRevisable(previousInputs);
 
   if (!food?.weeklyMealPlan) throw new Error("The food config is required to change a weekly plan.");
 
@@ -938,6 +937,28 @@ export function applyWeeklyPlanChanges(previousInputs, previousPlan, rawChanges,
     pin.explicit = true;
     inputs.skipDays = inputs.skipDays.filter((date) => date !== to);
     summary.push(`${SCHEDULE_LABELS[activity]} ${shortWeekday(from)} → ${shortWeekday(to)}`);
+  }
+
+  // "Gym on Tuesday and Thursday": that activity's sessions go exactly on the
+  // named days, whatever the planner chose, and a session already in Todoist
+  // on another day still counts.
+  if (changes.activityDays !== undefined) {
+    for (const [key, refs] of Object.entries(requireObject(changes.activityDays, "activityDays"))) {
+      if (key === "golf" || LEGACY_GOLF_TARGETS.includes(key)) throw new Error(GOLF_CHANGE_HINT);
+      const activity = requireTargetKey(key);
+      const dates = [...new Set(normalizeTextList(refs, `activityDays.${key}`, { max: 7 }).map((ref) => resolvePlanDay(ref, weekStart)))].sort();
+      if (dates.length === 0) throw new Error(`activityDays.${key} needs at least one day; set the count to 0 with targets for none.`);
+      const existingDates = inputs.existing.filter((entry) => entry.activity === activity).map((entry) => entry.date);
+      const next = requireTargetCount(dates.length + existingDates.filter((date) => !dates.includes(date)).length, key, config);
+      const kept = new Map(pins.filter((pin) => pin.activity === activity).map((pin) => [pin.date, pin]));
+      pins = [
+        ...pins.filter((pin) => pin.activity !== activity),
+        ...dates.filter((date) => !existingDates.includes(date)).map((date) => ({ ...kept.get(date), activity, date, explicit: true })),
+      ];
+      inputs.skipDays = inputs.skipDays.filter((date) => !dates.includes(date));
+      inputs.targets[activity] = next;
+      summary.push(`${TARGET_LABELS[activity]} ${dates.map(shortWeekday).join(", ")}`);
+    }
   }
 
   for (const ref of changes.skipDays ?? []) {
@@ -1080,6 +1101,50 @@ export function applyWeeklyPlanChanges(previousInputs, previousPlan, rawChanges,
   };
 }
 
+/** A plan made before the golf week planner can be accepted or cancelled, never changed. */
+export function assertRevisable(inputs) {
+  if (inputs.golf === undefined && LEGACY_GOLF_TARGETS.some((key) => inputs.targets?.[key] > 0)) {
+    throw new Error(
+      "This plan was made before the golf week planner, so it can still be accepted or cancelled but not changed. Cancel it and ask for a new plan to change it.",
+    );
+  }
+}
+
+/**
+ * applyWeeklyPlanChanges for a change that may be partly unclear. A golf value
+ * the user's words don't support doesn't stop the rest: it is left out and
+ * comes back in `refused`, each with the question to ask, while everything the
+ * user did say is applied. An incomplete recipe is left out the same way and
+ * comes back as `recipe`. Nothing is guessed: what is left out stays as it was.
+ *
+ * @returns `{ inputs, summary, note, refused, recipe }`; with nothing clear
+ *   left, the previous inputs unchanged
+ */
+export function applyClearWeeklyPlanChanges(previousInputs, previousPlan, rawChanges, options) {
+  let changes = rawChanges;
+  const refused = [];
+  let recipe = null;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if (!Object.keys(changes).some((key) => key !== "note")) return { inputs: previousInputs, summary: [], note: null, refused, recipe };
+    try {
+      return { ...applyWeeklyPlanChanges(previousInputs, previousPlan, changes, options), refused, recipe };
+    } catch (error) {
+      if (error instanceof RecipeInputError && !recipe && changes.addMeals !== undefined) {
+        recipe = error;
+        const { addMeals, ...rest } = changes;
+        changes = rest;
+        continue;
+      }
+      if (!(error instanceof GolfInputError)) throw error;
+      refused.push(...error.problems);
+      const { golf, ...rest } = changes;
+      const clear = withoutRefusedGolfChanges(golf, error.problems);
+      changes = clear ? { ...rest, golf: clear } : rest;
+    }
+  }
+  throw new GolfInputError(refused);
+}
+
 /**
  * Dishes the user added need a session each. Free sessions are used first;
  * when there are none, meal prep grows by the missing number. When the same
@@ -1217,8 +1282,9 @@ export function isWeeklyPlanAcceptance(message) {
  * assumed answers to, once; every version says when its tasks are created if
  * the user does nothing, and how to change, accept or cancel it.
  * @param today the local date it is shown on: a week that has started is "This week's plan"
+ * @param held true while a change the user asked for is open: then nothing applies on its own
  */
-export function formatPlanMessage(document, { version, deadline, changeSummary = [], timezone = WEEKLY_PLAN_TIMEZONE, today = null }) {
+export function formatPlanMessage(document, { version, deadline, changeSummary = [], timezone = WEEKLY_PLAN_TIMEZONE, today = null, held = false }) {
   const entry = document.versions.find((candidate) => candidate.version === version);
   if (!entry) throw new Error(`Plan ${document.planId} has no version ${version}.`);
   const plan = entry.plan;
@@ -1287,6 +1353,10 @@ export function formatPlanMessage(document, { version, deadline, changeSummary =
   if (version === 1 && !revised && plan.golf?.assumed?.length > 0) lines.push("", ...formatGolfRefinements(plan.golf.assumed));
 
   const count = plan.operations.length;
+  if (held) {
+    lines.push("", "Nothing is created on its own while the change you asked for is open. Answer my question, say Keep the plan to keep this version, or Skip this week.");
+    return lines.join("\n");
+  }
   const when = formatLocalDateTime(deadline, timezone);
   lines.push(
     "",
@@ -1319,6 +1389,29 @@ function sessionNames(operations) {
     if (name) names.set(`${operation.activity}:${operation.date}`, name);
   }
   return names;
+}
+
+/**
+ * The reply when a change needs the user's answer: what is already clear, the
+ * one question, and that nothing applies meanwhile.
+ */
+export function formatRevisionQuestion({ question, understood = [] }) {
+  const lines = [];
+  if (understood.length > 0) lines.push(`Got it: ${understood.join(" · ")}.`, "");
+  lines.push(question, "", "Until you answer, your plan is on hold and nothing is created. Say Keep the plan to leave it as it was, or Skip this week.");
+  return lines.join("\n");
+}
+
+/** The one message when a change the user asked for kept the shown version from applying at its deadline. */
+export function formatRevisionHold(document, { timezone = WEEKLY_PLAN_TIMEZONE } = {}) {
+  const hold = document.revisionHold;
+  const question = hold.question ? hold.question.replace(/\s+/g, " ").trim() : null;
+  const quoted = question && question.length > 160 ? `${question.slice(0, 157)}…` : question;
+  return [
+    `Weekly plan · ${formatWeekLabel(document.weekStart)} · v${document.currentVersion}: nothing created yet`,
+    `You asked to change this plan at ${formatLocalDateTime(hold.requestedAt, timezone)}, and that change isn't finished${quoted ? `: I still need your answer to “${quoted}”` : ""}. So its tasks weren't created at ${formatLocalDateTime(document.reviewDeadline, timezone)}.`,
+    "Answer, tell me the change again, say Keep the plan to create it as shown, or Skip this week to cancel.",
+  ].join("\n");
 }
 
 const HELD_LABELS = Object.freeze({ shopping: "groceries", mealPrep: "cooking", gym: "gym", golf: "golf", stretch: "stretching" });

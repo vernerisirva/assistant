@@ -552,7 +552,7 @@ export const CAPABILITIES = Object.freeze(
       category: "weekly-plan",
       title: "Golf training week",
       summary:
-        "part of the weekly plan: six golf days and a rest day toward competitive golf, around your playing days (9 or 18 holes), 1–2 focus areas and any competition or lesson; until you say, it's practice with a balanced focus.",
+        "part of the weekly plan: six golf days and a rest day toward competitive golf, or golf every day when you ask, around your playing days (9 or 18 holes), 1–2 focus areas and any competition or lesson; until you say, it's practice with a balanced focus.",
       limit:
         "Playing days, competitions and technique come only from you, never guessed. Each golf day gets one Todoist task with a full session plan, added 12 hours after you see the plan unless you change or cancel it; OK adds them now.",
       examples: ["Plan my golf week", "Move wedges to Thursday", "Saturday is now a competition"],

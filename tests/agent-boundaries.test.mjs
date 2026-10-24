@@ -368,8 +368,11 @@ describe("agent configuration", () => {
     // The golf boundary is in the standing orders themselves, not only in the guide.
     assert.match(
       section,
-      /Golf answers and changes carry the user's exact words\. Never fill in playing days, holes, competitions, lessons, focus areas or practice time from memory or habit; unsaid ones stay the planner's defaults\. Plan practice, never swing mechanics, and never seven golf days\./,
+      /Golf answers and changes carry the user's exact words\. Never fill in playing days, holes, competitions, lessons, focus areas or practice time from memory or habit; unsaid ones stay the planner's defaults, said ones override them\. Plan practice, never swing mechanics\./,
     );
+    // A default is not a rule, and a change is recorded before anything is asked.
+    assert.doesNotMatch(prompt, /never seven|rest day/i);
+    assert.match(section, /where N is the version the user saw, before asking about the change, and reply with the returned `telegramText` exactly/);
     assert.match(section, /Send every weekly-plan `telegramText` word for word, never shortened or reworded: the shown plan is what applies/);
     assert.ok(Buffer.byteLength(section) < 2700, `weekly plan section is ${Buffer.byteLength(section)} bytes`);
     for (const detail of ["addRounds", "same-as-last-week", '"golf":', "changes-json-stdin <<"]) {
@@ -410,7 +413,29 @@ describe("agent configuration", () => {
     // Focus areas become task titles: base forms, with the user's own form as the fallback.
     assert.match(guide, /Each area becomes a task title, so write it as a short label in its base form, never with the case ending it has in the sentence: `Keskity wedgeihin ja puttaamiseen` → `\["Wedget", "Puttaus"\]`/);
     assert.match(guide, /If the command refuses a base form as not in the user's words, use the word as they wrote it\./);
-    assert.match(guide, /ask one short question, only when the change cannot be made safely or meaningfully without it\. A missing preference is not unclear/);
+    assert.match(guide, /a change with a part you can't map: still `revise`, with what is clear and your one question as `"ask"` \(below\)\. A missing preference is not unclear/);
+    // The user's choices beat the planner's defaults; a change holds the shown version before anything is asked.
+    assert.match(guide, /The user's choices beat the planner's defaults\. Six golf days with one rest day, two gym sessions, which days things land on: all defaults, never rules\./);
+    assert.match(guide, /refuse only a real conflict/);
+    assert.match(guide, /run first, before you ask anything about the change\. It holds the shown version at once, so that version can't apply while the change is worked out or asked about/);
+    assert.match(guide, /Never ask about a change before running `revise`, and never refuse what the user asks for because it differs from a default\./);
+    assert.doesNotMatch(guide, /never seven/i);
+    for (const phrase of ["`I don't need a rest day`", "`Ingen vilodag`", "`Golfia joka päivä`", "`En tarvitse lepopäivää`", "`Golf every day`", "`Seven golf days`"]) {
+      assert.ok(guide.includes(phrase), phrase);
+    }
+    assert.match(guide, /Never ask them to pick a rest day they didn't ask for\./);
+    assert.match(guide, /A round they only might play \(`Maybe 9 holes on Friday`, `kanske`, `ehkä`\) is `"tentative": true`: it is never planned as a round/);
+    assert.match(guide, /`practiceDays`: the days they name for practice/);
+    assert.match(guide, /`Gym on Tuesday and Thursday` → `\{"activityDays":\{"gym":\["tuesday","thursday"\]\}\}`/);
+    // An open change: the answer, keep, or the rest; an OK is not acceptance.
+    assert.match(guide, /If `revise` returns `clarify` with `held: true`, the change isn't finished and the shown version is on hold/);
+    assert.match(guide, /`Keep the plan` or `Forget the change`: `npm run --silent weekly-plan -- keep --version N`/);
+    assert.match(guide, /An `OK` now answers your question, so `accept` refuses it\. After `keep`, an OK applies the shown version\./);
+    assert.match(guide, /If `revise` reports an error, the change is still open and the plan stays on hold/);
+    // After a plan was applied: honest, reuse what fits, one approval for the whole proposal, no new authorization.
+    assert.match(guide, /## After A Plan Was Applied\n\n- A change or golf answer after the plan was applied cannot go through `revise`: its tasks already exist, and nothing is undone\./);
+    assert.match(guide, /Keep every task that already fits, never create the week again, and never add a duplicate\./);
+    assert.match(guide, /Each change follows the normal Todoist rules, not this routine's authorization/);
     // The everyday replies to a pending plan, each with where it goes.
     for (const reply of ["Gym three days instead", "Play 18 holes Saturday", "No salmon", "Make recipes in Finnish", "Move the rest day to Friday", "Looks good", "Skip this week"]) {
       assert.ok(guide.includes(`\`${reply}\``), reply);

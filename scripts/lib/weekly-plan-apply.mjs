@@ -56,7 +56,10 @@ export function createWeeklyPlanTodoistGateway(client) {
 /**
  * @param trigger "deadline" (review window elapsed) or "accepted" (explicit OK
  *   for `expectedVersion`). A plan left in `applying` by a crash is resumed by
- *   either trigger.
+ *   either trigger. While a change the user asked for is open (`revisionHold`)
+ *   neither applies the shown version: an OK then most likely answers the
+ *   open question, so it comes back as `change-open`.
+ * @param lockWaitMs how long an OK in chat waits for a check that holds the plan
  * @returns `{ applied, reason, document, summary }`
  */
 export async function applyWeeklyPlan({
@@ -70,6 +73,7 @@ export async function applyWeeklyPlan({
   retryDelaysMs = DEFAULT_RETRY_DELAYS_MS,
   maxDeferrals = MAX_APPLY_DEFERRALS,
   timezone = WEEKLY_PLAN_TIMEZONE,
+  lockWaitMs = 0,
 }) {
   if (!["deadline", "accepted"].includes(trigger)) throw new Error(`Unknown apply trigger: ${trigger}`);
 
@@ -87,6 +91,7 @@ export async function applyWeeklyPlan({
         if (document.status !== "pending") {
           throw new Error(`Weekly plan ${planId} has not been shown yet, so it cannot be accepted.`);
         }
+        if (document.revisionHold) return { applied: false, reason: "change-open", document, summary: null };
         if (expectedVersion !== document.currentVersion || document.displayedVersion !== document.currentVersion) {
           throw new Error(
             `The accepted version v${expectedVersion} is not the current displayed version v${document.displayedVersion ?? "none"}; nothing was created.`,
@@ -219,7 +224,7 @@ export async function applyWeeklyPlan({
 
     document = store.writePlan(finishApply(document, now()));
     return { applied: true, reason: null, document, summary: formatApplySummary(document) };
-  });
+  }, { waitMs: lockWaitMs });
 }
 
 /**

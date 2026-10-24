@@ -83,6 +83,7 @@ Hilla may create the user's own Todoist tasks from the latest weekly planning pr
 
 - the proposal was displayed to the user;
 - the full 12-hour review window elapsed after its latest substantive revision, or the user explicitly accepted that displayed version (`OK`, `Looks good`, `Create it`, `Yes`, `Go ahead`);
+- no change the user asked for is still unfinished;
 - the proposal was not cancelled;
 - execution is exactly the stored, displayed version, verified by digest;
 - the actions only create the user's own Todoist tasks;
@@ -94,7 +95,13 @@ The digest check catches a plan file that changed after it was shown, such as an
 
 Golf answers are optional. The Saturday plan is complete without them: until the user says otherwise, every golf day is practice, never an invented round, and the focus is a balanced mix for competitive play, both labelled as defaults in the message. A golf answer is an ordinary revision: it stores a new version, shows it, and restarts the review window. Golf answers and golf changes carry the user's exact words, and the helper refuses a playing day, hole count, competition, lesson, focus area, technical priority or time limit it cannot find in them, so nothing in the plan is invented from memory or habit. The golf tasks are ordinary own tasks under this same authorization: one per golf day, created only from the displayed version.
 
+A change the user asks for holds the version they saw. `revise` records it on the plan file before it works the change out, so the apply check, which reads only that file, never applies the old version while the change is being made, waits for the user's answer, or was stopped by an error, a crash or a restart. Whatever the user's words make clear is kept with the hold, and only the open part is asked. The hold ends when the finished change is shown as a new version (which restarts the 12-hour window), when the user keeps the plan as shown (`Keep the plan`), or when the plan is cancelled. An OK while a change is open answers the question, not the plan, so it is not taken as acceptance. A hold never expires into the old version: if it holds up a deadline for more than an hour, the apply check says once that nothing was created, and a plan still held when its week is over is closed. A question about the plan is not a change and holds nothing.
+
+Six golf days with one golf-free day is the planner's default, not a limit. The user's own choices replace defaults: seven golf days when they ask for golf every day or name golf on all seven days, gym on the days they name. A round the user only might play is noted on its day, never planned as a round.
+
 A plan counts as displayed only when a Telegram send succeeded or it was the chat reply. A draft whose send failed never applies; the apply check may send that stored draft again, which only displays it and starts its window. A plan built while Todoist could not be read is applied at its deadline only if Todoist then shows no task in that week the plan would have counted; otherwise it waits for an explicit OK. None of this widens the authorization: the same create-only gateway, operation guard and digest check apply.
+
+A change the user asks for after the plan was applied is not covered either: its created tasks are corrected only as ordinary Todoist changes, proposed in full and made after the user's explicit approval, reusing every task that already fits. The plan is never created a second time.
 
 This authorization does not permit deleting, completing, moving or editing existing Todoist tasks. It does not permit Calendar writes, Gmail writes, bookings, purchases, browser submissions, memory writes, arbitrary shell mutations, or creating anything that was not in the displayed proposal. The apply step never calls a model and never regenerates the plan. Everything else stays confirm-before-action.
 

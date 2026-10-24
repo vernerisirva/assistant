@@ -194,17 +194,20 @@ describe("weekly plan golf week", () => {
     assert.equal(memoryHash(), memoryBefore, "memory is never written");
   });
 
-  it("refuses golf answers that are not in the user's words, and stores nothing", async () => {
+  it("refuses golf answers that are not in the user's words: no version is stored, and the shown plan is held while it asks", async () => {
     await run(["propose", "--send"]);
-    const before = planFile();
     const invented = await revise(1, { golf: { replyText: "Same as usual I guess", addRounds: [{ day: "wednesday", holes: 18 }] } });
     assert.equal(invented.status, "clarify");
     assert.deepEqual(invented.problems, ["Wednesday is not in the user's words.", "18 holes is not in the user's words."]);
-    assert.equal(invented.telegramText, "Which days are you playing next week, and roughly 9 or 18 holes?");
-    assert.equal(planFile(), before, "nothing was stored");
+    assert.equal(
+      invented.telegramText,
+      "Which days are you playing next week, and roughly 9 or 18 holes?\n\nUntil you answer, your plan is on hold and nothing is created. Say Keep the plan to leave it as it was, or Skip this week.",
+    );
+    assert.deepEqual([plan().currentVersion, plan().versions.length], [1, 1], "no version was stored");
+    assert.deepEqual([plan().revisionHold.pendingInputs, plan().revisionHold.understood], [null, []], "nothing invented is kept");
     const added = await revise(1, { golf: { replyText: "Add another round", addRounds: [{ day: "friday" }] } });
     assert.equal(added.status, "clarify");
-    assert.equal(planFile(), before);
+    assert.deepEqual([plan().currentVersion, plan().revisionHold.question], [1, "Which days are you playing next week, and roughly 9 or 18 holes?"]);
   });
 
   it("ignores golf answers from the scheduled job, and drops its own golf question", async () => {
@@ -243,7 +246,7 @@ describe("weekly plan golf week", () => {
     assert.doesNotMatch(JSON.stringify(versionEntry(plan(), 2).plan.operations).toLowerCase(), /salmon|lax/);
   });
 
-  it("honours no golf, and asks before a seventh golf day", async () => {
+  it("honours no golf, and golf every day when the user asks for it", async () => {
     await run(["propose", "--send"]);
     const none = await revise(1, { golf: { replyText: "No golf next week, I'm travelling", activeDays: 0 } });
     const v2 = versionEntry(plan(), 2).plan;
@@ -253,8 +256,16 @@ describe("weekly plan golf week", () => {
     // The user's own lesson stays: existing tasks are never touched.
     assert.match(none.telegramText, /\nThu — Golf lesson with Anna \(in Todoist\)\n/);
     const seven = await revise(2, { golf: { replyText: "Seven golf days please", activeDays: 7 } });
-    assert.equal(seven.status, "clarify");
-    assert.match(seven.telegramText, /I keep at least one golf-free day each week/);
+    assert.equal(seven.version, 3);
+    const v3 = versionEntry(plan(), 3).plan;
+    assert.deepEqual([v3.golf.activeDays, v3.golf.restDays], [7, 0]);
+    assert.match(seven.telegramText, /\nChanges: Golf days 0 → 7\n/);
+    assert.match(seven.telegramText, /\nGolf · 7 golf days\n/);
+    assert.match(seven.telegramText, /\nNote: Golf every day, as you asked: practice stays moderate, and .+ light\.\n/);
+    assert.doesNotMatch(seven.telegramText, /golf-free|rest day/i);
+    // The lesson already in Todoist is one of the seven days and stays as it is.
+    assert.match(seven.telegramText, /\nThu — Golf lesson with Anna \(in Todoist\)\n/);
+    assert.equal(golfOps(v3).length, 6);
   });
 
   it("understands Finnish golf answers", async () => {
@@ -292,12 +303,13 @@ describe("weekly plan golf week", () => {
     assert.ok(golfOps(versionEntry(plan(), 3).plan).some((operation) => operation.payload.content === "Golf practice — Inspel"));
 
     // Consonant gradation changes the start of the word: the base form is refused, the user's own form is not.
-    const before = planFile();
     const gradated = await revise(3, { golf: { replyText: "Keskity rautoihin.", focus: ["Raudat"] } });
     assert.equal(gradated.status, "clarify");
     assert.deepEqual(gradated.problems, ['"Raudat" is not in the user\'s words.']);
-    assert.equal(planFile(), before, "nothing was stored");
+    assert.deepEqual([plan().currentVersion, Boolean(plan().revisionHold)], [3, true], "no version was stored; the plan waits");
     const own = await revise(3, { golf: { replyText: "Keskity rautoihin.", focus: ["Rautoihin"] } });
+    assert.equal(own.version, 4);
+    assert.equal(plan().revisionHold, null, "the change is shown, so the hold ends");
     assert.equal(own.version, 4);
     assert.ok(versionEntry(plan(), 4).plan.golf.days.some((day) => day.focusIndex === 0 && day.kind === "range"), "irons are long-game practice");
   });

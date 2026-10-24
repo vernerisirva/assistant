@@ -470,9 +470,9 @@ describe("weekly plan food through the CLI", () => {
     assert.equal(opsOf(v2, "shopping")[0].payload.content, "Viikon ruokaostokset");
   });
 
-  it("asks for what a supplied recipe is missing and stores nothing", async () => {
+  it("asks for what a supplied recipe is missing, stores no version, and holds the shown plan meanwhile", async () => {
     await run(["propose", "--send"]);
-    const before = planFile();
+    const before = plan();
     const result = await run([
       "revise",
       "--expect-version",
@@ -486,7 +486,12 @@ describe("weekly plan food through the CLI", () => {
       "The cooking steps are missing: send the method as numbered steps.",
     ]);
     assert.match(result.telegramText, /^To plan “Mormors köttfärssås” I need:\n- How much krossade tomater/);
-    assert.equal(planFile(), before, "nothing was stored");
+    assert.match(result.telegramText, /\n\nUntil you answer, your plan is on hold and nothing is created\./);
+    const after = plan();
+    assert.deepEqual([after.currentVersion, after.versions.length, after.reviewDeadline], [1, 1, before.reviewDeadline], "no version was stored");
+    assert.deepEqual(after.revisionHold.understood, []);
+    assert.equal(after.revisionHold.pendingInputs, null, "an incomplete recipe is never kept as a change");
+    assert.match(after.revisionHold.question, /^To plan “Mormors köttfärssås” I need:/);
   });
 
   it("asks the same way when the recipe comes with the golf answer", async () => {
@@ -495,6 +500,10 @@ describe("weekly plan food through the CLI", () => {
     assert.equal(result.status, "clarify");
     assert.equal(plan().status, "pending");
     assert.equal(plan().currentVersion, 1);
+    // The golf answer is clear, so it waits with the question instead of being asked again.
+    assert.deepEqual(result.understood, ["Golf: + 18 holes Wed", "Golf: + 18 holes Sat", "Golf: focus wedges 50–100 m, putting inside 2 m"]);
+    assert.match(result.telegramText, /^Got it: Golf: \+ 18 holes Wed · Golf: \+ 18 holes Sat · Golf: focus wedges 50–100 m, putting inside 2 m\.\n\nTo plan “Gryta” I need:/);
+    assert.equal(plan().revisionHold.pendingInputs.golf.rounds.length, 2);
   });
 
   it("runs the whole week end to end: plan, answer, inspect, revise a meal, deterministic apply, no duplicates", async () => {

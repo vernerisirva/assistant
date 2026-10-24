@@ -16,7 +16,11 @@
  *   scheduled proposal could not deliver is sent again by the apply check.
  * - pending: shown; applies after the review deadline or on explicit OK. A
  *   plan built without reading Todoist is held for an explicit OK when the
- *   week turns out to have tasks it did not account for (`applyHold`).
+ *   week turns out to have tasks it did not account for (`applyHold`). A
+ *   change the user asked for holds it too (`revisionHold`), from the moment
+ *   the change arrives until it is shown as a new version, the user keeps the
+ *   plan as shown, or cancels it: it never applies on its own meanwhile, and
+ *   an OK is not taken as acceptance while the change is open.
  * - applying: task creation in progress; a crash leaves this state and the
  *   next check resumes it without redoing finished operations.
  * - applied: every operation was created, already existed, or had a date in
@@ -57,6 +61,9 @@ export const FINAL_STATUSES = Object.freeze(["applied", "applied_with_errors", "
 const DONE_OUTCOMES = new Set(["created", "already_exists", "skipped_past_date", "failed"]);
 const LOCK_STALE_MS = 15 * 60_000;
 const LOCK_HEARTBEAT_MS = 60_000;
+const LOCK_POLL_MS = 250;
+/** An open change is reported once at the deadline it held up, when it has been open at least this long. */
+const REVISION_HOLD_REPORT_AFTER_MS = 60 * 60_000;
 /** Minutes before each retry of an undelivered plan: 15, 30, 60, then every 2 hours. */
 const DELIVERY_RETRY_MINUTES = Object.freeze([15, 30, 60, 120]);
 /** A scheduled draft that no send ever touched is left alone this long, so a running proposal finishes first. */
@@ -70,7 +77,9 @@ export function createWeeklyPlanStore({
   stateDir,
   lockStaleMs = LOCK_STALE_MS,
   lockHeartbeatMs = LOCK_HEARTBEAT_MS,
+  lockPollMs = LOCK_POLL_MS,
   clock = () => Date.now(),
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   isProcessAlive = processIsAlive,
 } = {}) {
   if (!stateDir) throw new Error("A state directory is required for the weekly plan store.");
@@ -129,26 +138,33 @@ export function createWeeklyPlanStore({
    * plan twice at once. The holder refreshes the lock while it works, so a slow
    * Todoist call never makes a live lock look abandoned. A lock is taken over
    * only when it is old and its owning process is gone, and a holder removes
-   * the lock only if it still carries its own token.
+   * the lock only if it still carries its own token. A chat command may wait
+   * up to `waitMs` for the holder (an apply in progress) instead of failing.
    */
-  async function withPlanLock(planId, fn) {
+  async function withPlanLock(planId, fn, { waitMs = 0 } = {}) {
     mkdirSync(locksDir, { recursive: true });
     const lockPath = join(locksDir, `${requirePlanId(planId)}.lock`);
     const token = randomBytes(8).toString("hex");
     let descriptor;
-    try {
-      descriptor = openSync(lockPath, "wx", 0o600);
-    } catch (error) {
-      if (error.code !== "EEXIST") throw error;
-      const held = readLock(lockPath);
-      const abandoned = held && clock() - held.mtimeMs >= lockStaleMs && !isProcessAlive(held.pid);
-      if (!abandoned) {
-        const busy = new Error(`Weekly plan ${planId} is being updated right now.`);
-        busy.code = "PLAN_LOCKED";
-        throw busy;
+    for (let waited = 0; descriptor === undefined; ) {
+      try {
+        descriptor = openSync(lockPath, "wx", 0o600);
+      } catch (error) {
+        if (error.code !== "EEXIST") throw error;
+        const held = readLock(lockPath);
+        if (!held) continue;
+        if (clock() - held.mtimeMs >= lockStaleMs && !isProcessAlive(held.pid)) {
+          if (readLock(lockPath)?.token === held.token) rmSync(lockPath, { force: true });
+          continue;
+        }
+        if (waited >= waitMs) {
+          const busy = new Error(`Weekly plan ${planId} is being updated right now.`);
+          busy.code = "PLAN_LOCKED";
+          throw busy;
+        }
+        await sleep(lockPollMs);
+        waited += lockPollMs;
       }
-      if (readLock(lockPath)?.token === held.token) rmSync(lockPath, { force: true });
-      descriptor = openSync(lockPath, "wx", 0o600);
     }
     writeFileSync(descriptor, JSON.stringify({ pid: process.pid, token, at: new Date(clock()).toISOString() }));
     const heartbeat = setInterval(() => {
@@ -169,11 +185,15 @@ export function createWeeklyPlanStore({
     }
   }
 
-  async function mutatePlan(planId, mutate) {
-    return withPlanLock(planId, async () => {
-      const next = await mutate(readPlan(planId));
-      return next ? writePlan(next) : readPlan(planId);
-    });
+  async function mutatePlan(planId, mutate, lockOptions) {
+    return withPlanLock(
+      planId,
+      async () => {
+        const next = await mutate(readPlan(planId));
+        return next ? writePlan(next) : readPlan(planId);
+      },
+      lockOptions,
+    );
   }
 
   return { root, plansDir, readPlan, writePlan, listPlans, listPlansWithIssues, withPlanLock, mutatePlan };
@@ -358,6 +378,7 @@ export function markPlanDisplayed(
     reviewDeadline: computeReviewDeadline(at, { hours: reviewWindowHours, roundMinutes }),
     applyDeferrals: null,
     applyHold: null,
+    revisionHold: null,
     delivery: null,
     history: [...document.history, { at, event: "displayed", version, channel, ...(messageId ? { messageId } : {}) }],
   };
@@ -417,6 +438,82 @@ export function recordApplyHold(document, { unaccounted, now }) {
   };
 }
 
+/**
+ * The user asked to change the shown version. This is written before the
+ * change is worked out, so whatever happens next (a question, a failed step,
+ * a crash or a restart) the version they asked to change cannot apply on its
+ * own until the change is shown as a new version, kept or cancelled.
+ */
+export function holdForRevision(document, { now, fromVersion }) {
+  if (document.status !== "pending") throw new Error(`Weekly plan ${document.planId} is ${document.status}, not a shown plan.`);
+  const at = toIso(now);
+  return {
+    ...document,
+    updatedAt: at,
+    revisionHold: {
+      requestedAt: at,
+      fromVersion: fromVersion ?? document.currentVersion,
+      question: null,
+      askedAt: null,
+      understood: [],
+      pendingInputs: null,
+      reportedAt: null,
+    },
+    history: [...document.history, { at, event: "revision-requested", version: document.currentVersion }],
+  };
+}
+
+/**
+ * The change needs the user's answer. The hold keeps the question and what
+ * the user's words already made clear (`pendingInputs`, summarized in
+ * `understood`), so the answer completes the change without the user
+ * repeating it. The shown version stays held.
+ */
+export function recordRevisionQuestion(document, { question, understood, pendingInputs, now }) {
+  const at = toIso(now);
+  const hold = document.revisionHold ?? { requestedAt: at, fromVersion: document.currentVersion, reportedAt: null };
+  return {
+    ...document,
+    updatedAt: at,
+    revisionHold: { ...hold, question, askedAt: at, understood, pendingInputs },
+    history: [...document.history, { at, event: "revision-question", version: document.currentVersion }],
+  };
+}
+
+/** The change was shown as a new version, changed nothing, or the user kept the plan as shown. */
+export function releaseRevisionHold(document, { now, outcome }) {
+  if (!document.revisionHold) return document;
+  const at = toIso(now);
+  return {
+    ...document,
+    updatedAt: at,
+    revisionHold: null,
+    history: [...document.history, { at, event: "revision-hold-released", version: document.currentVersion, outcome }],
+  };
+}
+
+/**
+ * The apply check says once that an open change kept the shown version from
+ * applying: after the deadline it held up, and only when the change has been
+ * open for a while, so an answer that is on its way doesn't get a second
+ * message. It never resumes the old version on its own.
+ */
+export function isRevisionHoldReportDue(document, now) {
+  const hold = document.revisionHold;
+  if (document.status !== "pending" || !hold || hold.reportedAt || !document.reviewDeadline) return false;
+  return Date.parse(document.reviewDeadline) <= toMs(now) && toMs(now) - Date.parse(hold.askedAt ?? hold.requestedAt) >= REVISION_HOLD_REPORT_AFTER_MS;
+}
+
+export function recordRevisionHoldReported(document, { now }) {
+  const at = toIso(now);
+  return {
+    ...document,
+    updatedAt: at,
+    revisionHold: { ...document.revisionHold, reportedAt: at },
+    history: [...document.history, { at, event: "revision-hold-reported", version: document.currentVersion }],
+  };
+}
+
 export function addPlanRevision(document, { expectedVersion, inputs, plan, changeSummary, note, now }) {
   if (!["draft", "pending"].includes(document.status)) {
     throw new Error(`Weekly plan ${document.planId} is ${document.status} and can no longer be changed.`);
@@ -455,6 +552,7 @@ export function cancelPlan(document, { now, reason = null }) {
     updatedAt: at,
     cancelledAt: at,
     reviewDeadline: null,
+    ...(document.revisionHold ? { revisionHold: null } : {}),
     history: [...document.history, { at, event: "cancelled", version: document.currentVersion, ...(reason ? { reason } : {}) }],
   };
 }
@@ -462,13 +560,14 @@ export function cancelPlan(document, { now, reason = null }) {
 /**
  * The deadline path applies only a pending plan whose latest version was
  * shown and whose full review window has passed, and never one that waits for
- * an explicit OK.
+ * an explicit OK or holds for a change the user asked for.
  */
 export function isPlanDue(document, now) {
   return (
     document.status === "pending" &&
     document.displayedVersion === document.currentVersion &&
     document.applyHold?.version !== document.currentVersion &&
+    !document.revisionHold &&
     Boolean(document.reviewDeadline) &&
     Date.parse(document.reviewDeadline) <= toMs(now)
   );
@@ -482,6 +581,9 @@ export function beginApply(document, { trigger, now }) {
   }
   if (document.status !== "pending" || document.displayedVersion !== document.currentVersion) {
     throw new Error(`Weekly plan ${document.planId} is not ready to apply.`);
+  }
+  if (document.revisionHold) {
+    throw new Error(`Weekly plan ${document.planId} has a change the user asked for that isn't finished; it will not be applied.`);
   }
   assertUnchangedSinceDisplay(document, document.currentVersion);
   return {
@@ -598,6 +700,9 @@ export function summarizeWeeklyPlans(documents, { now = new Date(), currentWeekS
       : {}),
     ...(document.applyHold && document.applyHold.version === document.currentVersion && document.status === "pending"
       ? { waitingForOk: true, unaccountedTasks: document.applyHold.unaccounted }
+      : {}),
+    ...(document.revisionHold && document.status === "pending"
+      ? { changeOnHold: { requestedAt: document.revisionHold.requestedAt, question: document.revisionHold.question ?? null } }
       : {}),
     ...(document.status === "awaiting_input"
       ? { golfQuestionsAskedAt: document.awaiting?.askedAt ?? null, golfMissing: golfInputStatus(document.awaiting.golf).missing }

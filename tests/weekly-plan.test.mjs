@@ -5,6 +5,7 @@ import {
   TARGET_KEYS,
   WEEKLY_PLAN_AUTHORIZATION,
   addDays,
+  applyClearWeeklyPlanChanges,
   applyWeeklyPlanChanges,
   buildInitialPlanInputs,
   buildWeeklyPlan,
@@ -412,6 +413,54 @@ describe("weekly plan modifications", () => {
     assert.throws(() => revise(planFor(), { note: "just a note" }), /at least one change/);
     assert.throws(() => revise(planFor(), { makeItBetter: true }), /Unknown field/);
   });
+
+  it('"Gym on Tuesday and Thursday" puts the sessions exactly there, beside golf, whatever the planner chose', () => {
+    const before = planFor({}, { golf: GOLF_ANSWER });
+    assert.notDeepEqual(datesOf(before.plan, "gym"), ["2026-09-29", "2026-10-01"]);
+    const after = revise(before, { activityDays: { gym: ["tuesday", "thursday"] } });
+    assert.deepEqual(after.summary, ["Gym Tue, Thu"]);
+    assert.deepEqual(datesOf(after.plan, "gym"), ["2026-09-29", "2026-10-01"]);
+    assert.equal(after.plan.targets.gym, 2);
+    assert.ok(after.plan.golf.days.filter((day) => ["2026-09-29", "2026-10-01"].includes(day.date)).every((day) => day.role !== "rest"), "golf stays on those days too");
+    // Three named days are three sessions; the rest of the week keeps its places.
+    const three = revise(before, { activityDays: { gym: ["monday", "wednesday", "friday"] } });
+    assert.deepEqual([three.plan.targets.gym, datesOf(three.plan, "gym")], [3, ["2026-09-28", "2026-09-30", "2026-10-02"]]);
+    assert.deepEqual(datesOf(three.plan, "mealPrep"), datesOf(before.plan, "mealPrep"));
+    assert.throws(() => revise(before, { activityDays: { golf: ["monday"] } }), /Golf is planned as a golf week/);
+    assert.throws(() => revise(before, { activityDays: { gym: [] } }), /needs at least one day/);
+  });
+
+  it("counts a session already in Todoist on another day when gym days are named", () => {
+    const before = planFor({ existingTasks: [{ title: "Gym with Ola", date: "2026-10-03" }] });
+    const after = revise(before, { activityDays: { gym: ["tuesday", "thursday"] } });
+    assert.equal(after.plan.targets.gym, 3, "two named days plus Saturday's own session");
+    assert.deepEqual(datesOf(after.plan, "gym"), ["2026-09-29", "2026-10-01"]);
+    assert.deepEqual(opsOf(after.plan, "gym").map((operation) => operation.date), ["2026-09-29", "2026-10-01"]);
+  });
+});
+
+describe("weekly plan changes with an unclear part", () => {
+  it("applies what the user said and returns the rest, each with its question, never guessing", () => {
+    const before = planFor({}, { golf: GOLF_ANSWER });
+    const result = applyClearWeeklyPlanChanges(before.inputs, before.plan, {
+      targets: { gym: 3 },
+      golf: { replyText: "18 holes Sunday too", addRounds: [{ day: "sunday", holes: 18 }, { day: "friday", holes: 9 }], activeDays: 7 },
+    }, { config, food });
+    assert.deepEqual(result.summary, ["Gym 2 → 3", "Golf: + 18 holes Sun"]);
+    assert.deepEqual(
+      result.refused.map((problem) => problem.reason).sort(),
+      ["9 holes is not in the user's words.", "Friday is not in the user's words.", "The user did not ask for golf every day."].sort(),
+    );
+    assert.ok(result.refused.every((problem) => problem.question));
+    assert.equal(result.inputs.golf.activeDays, 6);
+    assert.deepEqual(result.inputs.golf.rounds.map((round) => round.date), ["2026-09-30", "2026-10-03", "2026-10-04"]);
+
+    // Nothing clear: the inputs stay as they were.
+    const nothing = applyClearWeeklyPlanChanges(before.inputs, before.plan, { golf: { replyText: "Something else", addRounds: [{ day: "monday" }] } }, { config, food });
+    assert.deepEqual([nothing.inputs, nothing.summary, nothing.refused.length], [before.inputs, [], 1]);
+    // Other errors still stop the change.
+    assert.throws(() => applyClearWeeklyPlanChanges(before.inputs, before.plan, { moves: [{ activity: "gym", from: "sunday", to: "monday" }] }, { config, food }), /no planned gym on Sunday/);
+  });
 });
 
 describe("weekly plan acceptance", () => {
@@ -502,6 +551,8 @@ describe("weekly plan authorization", () => {
     assert.deepEqual(entry.allowedOperationKinds, [...WEEKLY_PLAN_AUTHORIZATION.allowedOperationKinds]);
     assert.deepEqual(entry.allowedTaskFields, [...WEEKLY_PLAN_AUTHORIZATION.allowedPayloadFields]);
     assert.equal(entry.reviewWindowHours, WEEKLY_PLAN_AUTHORIZATION.reviewWindowHours);
+    // A change the user asked for holds the shown version until it is shown, kept or cancelled.
+    assert.ok(entry.autoApplyRequires.includes("no-unfinished-change-requested-by-user"));
     for (const forbidden of [
       "delete-todoist-task",
       "complete-todoist-task",
