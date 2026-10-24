@@ -468,6 +468,7 @@
       "autoApplyRequires": [
         "proposal-displayed-to-user",
         "full-review-window-elapsed-after-latest-revision",
+        "no-unfinished-change-requested-by-user",
         "not-cancelled",
         "exact-stored-displayed-version",
         "own-todoist-tasks-only",

@@ -6,7 +6,9 @@
  *             complete at once, with labelled defaults for golf answers not given
  *   answer    golf answers for a plan stored before they became optional
  *             (awaiting_input): builds and shows the plan, defaults for the rest
- *   revise    store a new version from structured changes and restart the review window
+ *   revise    store a new version from structured changes and restart the review window;
+ *             holds the shown version first, and keeps it held while a question is open
+ *   keep      the user keeps the shown version and drops the change they asked for
  *   accept    apply the displayed version now after an explicit OK
  *   cancel    cancel a draft or pending plan; nothing is created
  *   show      print the current version
@@ -30,7 +32,9 @@ import {
   DEFAULT_APPLY_CHECK_MINUTES,
   DEFAULT_REVIEW_WINDOW_HOURS,
   WEEKLY_PLAN_TIMEZONE,
+  applyClearWeeklyPlanChanges,
   applyWeeklyPlanChanges,
+  assertRevisable,
   buildInitialPlanInputs,
   buildWeeklyPlan,
   computeReviewDeadline,
@@ -38,6 +42,8 @@ import {
   formatApplySummary,
   formatLocalDateTime,
   formatPlanMessage,
+  formatRevisionHold,
+  formatRevisionQuestion,
   formatWeekLabel,
   isWeeklyPlanAcceptance,
   isoWeekId,
@@ -63,12 +69,17 @@ import {
   createPlanDocument,
   createWeeklyPlanStore,
   deliveryErrorText,
+  holdForRevision,
   isDeliveryRetryDue,
   isPlanDue,
+  isRevisionHoldReportDue,
   markPlanDisplayed,
   newPlanId,
   recordDeliveryFailure,
   recordGolfAnswer,
+  recordRevisionHoldReported,
+  recordRevisionQuestion,
+  releaseRevisionHold,
   summarizeWeeklyPlans,
   versionEntry,
 } from "./lib/weekly-plan-store.mjs";
@@ -81,7 +92,9 @@ import { DEFAULT_RECIPE_LANGUAGE, RecipeInputError, formatRecipeClarification, l
 const execFileAsync = promisify(execFile);
 const currentFile = fileURLToPath(import.meta.url);
 const projectRoot = resolve(dirname(currentFile), "..");
-const COMMANDS = ["propose", "answer", "revise", "accept", "cancel", "show", "status", "apply-due", "install", "guide", "help"];
+const COMMANDS = ["propose", "answer", "revise", "keep", "accept", "cancel", "show", "status", "apply-due", "install", "guide", "help"];
+/** How long a chat command waits for a check that is applying the same plan. */
+const CHAT_LOCK_WAIT_MS = 60_000;
 export const WEEKLY_PLAN_GUIDE_PATH = "agents/personal/guides/weekly-plan.md";
 const TODOIST_UNREADABLE_NOTE =
   "I couldn't retrieve your Todoist tasks, so I can't safely rule out duplicates. I'll check again before creating anything, and ask you first if that week already has tasks this plan didn't account for.";
@@ -146,6 +159,9 @@ export function parseWeeklyPlanArgs(argv) {
   if (command === "accept" && (options.version === undefined || options.replyText === undefined)) {
     throw new Error("accept requires --version (the displayed version) and --reply-text (the user's exact reply).");
   }
+  if (command === "keep" && options.version === undefined) {
+    throw new Error("keep requires --version, the version the user was looking at.");
+  }
   if (command === "answer" && !options.inputJson && !options.inputJsonStdin) {
     throw new Error('answer requires --input-json or --input-json-stdin with {"golf": {"replyText": "...", ...}}.');
   }
@@ -176,6 +192,8 @@ export async function runWeeklyPlanCli(argv, overrides = {}) {
       return answer(parsed.options, context);
     case "revise":
       return revise(parsed.options, context);
+    case "keep":
+      return keep(parsed.options, context);
     case "accept":
       return accept(parsed.options, context);
     case "cancel":
@@ -211,6 +229,7 @@ function createContext({
   random,
   sleep,
   retryDelaysMs,
+  lockWaitMs = CHAT_LOCK_WAIT_MS,
   nodePath = process.execPath,
 } = {}) {
   const resolvedStateDir = stateDir ?? resolveOpenClawStateDir(env, root);
@@ -258,6 +277,7 @@ function createContext({
     random,
     sleep,
     retryDelaysMs,
+    lockWaitMs,
     nodePath,
     settings,
     schedules: loadedSchedules,
@@ -606,6 +626,7 @@ async function supersedeEarlierWeeks(store, weekStart, context) {
     if (plan.weekEnd >= today) return null;
     if (plan.status === "draft") return "Never shown before its week ended.";
     if (plan.status === "pending" && plan.applyHold?.version === plan.currentVersion) return "No OK before its week ended.";
+    if (plan.status === "pending" && plan.revisionHold) return "The change asked for wasn't finished before its week ended.";
     return null;
   };
   for (const plan of store.listPlans()) {
@@ -682,38 +703,79 @@ async function display(planId, options, context) {
   });
 }
 
+/**
+ * A change to the shown plan. It is recorded on the plan first and on its own
+ * (`revisionHold`), before anything that can take time or fail, so the version
+ * the user asked to change cannot apply on its own while the change is worked
+ * out, asked about, or stopped by an error, a crash or a restart; the apply
+ * check reads that from the plan file, not from the conversation.
+ *
+ * Then everything the user's words make clear is applied. A value they don't
+ * support, an incomplete recipe, or a question of the agent's own (`ask`)
+ * becomes the one question to ask; what was clear waits on the plan with it,
+ * so the answer completes the change without the user repeating it. A
+ * complete change is shown as a new version: that restarts the 12-hour window
+ * and ends the hold. A change that alters nothing ends it too and keeps the
+ * deadline. A plan that was applied first is reported as such, never revised.
+ */
 async function revise(options, context) {
-  const changes = await readJsonOption(options.changesJson, options.changesJsonStdin, context.stdin, "changes");
-  if (!changes) throw new Error("revise needs --changes-json or --changes-json-stdin.");
-  const planId = resolveOpenPlanId(options.planId, context.store, ["draft", "pending"]);
+  const raw = await readJsonOption(options.changesJson, options.changesJsonStdin, context.stdin, "changes");
+  if (!raw) throw new Error("revise needs --changes-json or --changes-json-stdin.");
+  if (typeof raw !== "object" || Array.isArray(raw)) throw new Error("The changes must be a JSON object.");
+  const { ask, ...changes } = raw;
+  const asked = ask === undefined ? null : requireQuestion(ask);
+  const store = context.store;
+  const planId = resolveRevisablePlanId(options.planId, context);
   const { config, food } = context.planning();
   const { timezone, reviewWindowHours, roundMinutes } = context.settings();
-  let unchanged = false;
+  const lock = { waitMs: context.lockWaitMs };
 
-  let document;
-  try {
-    document = await context.store.mutatePlan(planId, async (current) => {
-      const entry = versionEntry(current, current.currentVersion);
+  const held = await store.mutatePlan(
+    planId,
+    async (current) => {
+      if (current.status !== "pending" || current.revisionHold) return null;
+      // A plan that can never be changed has no change to wait for.
+      assertRevisable(versionEntry(current, current.currentVersion).inputs);
+      return holdForRevision(current, { now: context.now(), fromVersion: options.expectVersion });
+    },
+    lock,
+  );
+  if (!["draft", "pending"].includes(held.status)) return notRevisable(held, timezone);
+
+  let outcome = null;
+  const document = await store.mutatePlan(
+    planId,
+    async (current) => {
+      if (!["draft", "pending"].includes(current.status)) {
+        outcome = { closed: true };
+        return null;
+      }
       if (options.expectVersion !== current.currentVersion) {
         throw new Error(
           `The user was looking at v${options.expectVersion}, but the current version is v${current.currentVersion}. Show the current version first.`,
         );
       }
-      const today = localDateInTimeZone(context.now(), timezone);
+      const entry = versionEntry(current, current.currentVersion);
+      const hold = current.revisionHold ?? null;
+      const now = context.now();
+      const today = localDateInTimeZone(now, timezone);
       // A golf reply in chat may word the golf tasks with the user's saved
-      // routines (read only) when it replaces the defaults.
+      // routines (read only) when it replaces the defaults, and is read
+      // together with the question it answers.
       const routines = changes.golf ? readSavedGolfRoutines(context.memoryPath) : null;
       const golfContext = routines
         ? {
             today,
-            previousWeek: previousGolfWeek(context.store.listPlans(), current.weekStart),
+            previousWeek: previousGolfWeek(store.listPlans(), current.weekStart),
             normalWeekText: routines.normalWeek,
             saved: routines.saved,
+            question: hold?.question ?? null,
           }
         : { today };
-      // A plan made while Todoist could not be read counts its tasks now if it can.
-      let previousInputs = entry.inputs;
+      // What an earlier message of this change already made clear, else the shown version.
+      let previousInputs = hold?.pendingInputs ?? entry.inputs;
       const checked = [];
+      // A plan made while Todoist could not be read counts its tasks now if it can.
       if (previousInputs.existingUnchecked) {
         const read = await readTodoistTasks(context);
         if (!read.error) {
@@ -725,43 +787,66 @@ async function revise(options, context) {
           checked.push(found > 0 ? `Counted ${found} task${found === 1 ? "" : "s"} already in Todoist` : "Todoist checked: nothing to count");
         }
       }
-      const changed = applyWeeklyPlanChanges(previousInputs, entry.plan, changes, { config, food, golfContext });
-      const { inputs, note } = changed;
-      const summary = [...changed.summary, ...checked];
-      const plan = buildWeeklyPlan(inputs, { config, food, today });
+      const previousPlan = hold?.pendingInputs ? buildWeeklyPlan(previousInputs, { config, food, today }) : entry.plan;
+      const applied = applyClearWeeklyPlanChanges(previousInputs, previousPlan, changes, { config, food, golfContext });
+      const understood = [...(hold?.understood ?? []), ...applied.summary, ...checked];
+      const question =
+        asked ?? (applied.recipe ? formatRecipeClarification(applied.recipe) : applied.refused.length > 0 ? formatGolfClarification(applied.refused) : null);
+      if (question) {
+        outcome = { question, understood, problems: [...applied.refused.map((problem) => problem.reason), ...(applied.recipe?.problems ?? [])] };
+        // A draft never applies on its own, so nothing about it is held or stored.
+        if (current.status !== "pending") return null;
+        const clear = applied.summary.length > 0 || checked.length > 0;
+        return recordRevisionQuestion(current, { question, understood, pendingInputs: clear ? applied.inputs : hold?.pendingInputs ?? null, now });
+      }
+      const plan = buildWeeklyPlan(applied.inputs, { config, food, today });
       await resolveConfiguredTarget(plan, config, context);
       if (digestPlan(plan) === entry.digest) {
-        unchanged = true;
-        return null;
+        outcome = { unchanged: true };
+        return hold ? releaseRevisionHold(current, { now, outcome: "no-change" }) : null;
       }
-      const now = context.now();
+      outcome = { changed: true };
       const revised = addPlanRevision(current, {
         expectedVersion: options.expectVersion,
-        inputs,
+        inputs: applied.inputs,
         plan,
-        changeSummary: summary,
-        note,
+        changeSummary: understood,
+        note: applied.note,
         now,
       });
       // The revised plan is the chat reply, so it is displayed now and its
-      // review window starts over.
-      return markPlanDisplayed(revised, {
+      // review window starts over; that ends the hold.
+      return markPlanDisplayed(releaseRevisionHold(revised, { now, outcome: "revised" }), {
         version: revised.currentVersion,
         displayedAt: now,
         channel: "chat-reply",
         reviewWindowHours,
         roundMinutes,
       });
-    });
-  } catch (error) {
-    if (error instanceof GolfInputError) return clarification(planId, error.problems);
-    if (error instanceof RecipeInputError) return recipeClarification(planId, error);
-    throw error;
-  }
+    },
+    lock,
+  );
 
   const version = document.currentVersion;
-  if (unchanged) {
-    const held = document.applyHold?.version === version;
+  if (outcome.closed) return notRevisable(document, timezone);
+  if (outcome.question) {
+    const stored = document.status === "pending";
+    return {
+      status: "clarify",
+      planId,
+      version,
+      changed: false,
+      held: stored,
+      understood: outcome.understood,
+      problems: outcome.problems,
+      telegramText: stored ? formatRevisionQuestion({ question: outcome.question, understood: outcome.understood }) : outcome.question,
+      message: stored
+        ? `The change isn't finished, so v${version} is on hold: it won't apply on its own until the change is shown, kept or cancelled. What the user's words made clear is kept (understood); values they didn't give were left out (problems). Ask the user telegramText. When they answer, run revise --expect-version ${version} with only what the answer says; the kept part is added. If they want the plan as it was, run keep --version ${version}. If the question is only there because you added something the user didn't say, run revise --expect-version ${version} --changes-json '{}' to show the change without it.`
+        : "Nothing was stored. Use only what the user said: leave out values they did not give and run the command again, or ask them telegramText.",
+    };
+  }
+  if (outcome.unchanged) {
+    const waiting = document.applyHold?.version === version;
     return {
       status: document.status,
       planId,
@@ -769,10 +854,10 @@ async function revise(options, context) {
       changed: false,
       reviewDeadline: document.reviewDeadline,
       telegramText: `That doesn't change the plan (still v${version}).${
-        held
+        waiting
           ? " It's waiting for your OK before anything is created."
           : document.reviewDeadline
-            ? ` I'll create the tasks at ${formatLocalDateTime(document.reviewDeadline, timezone)} unless you change or cancel it.`
+            ? ` I'll create the tasks at ${formatLocalDateTime(applyTime(document, context), timezone)} unless you change or cancel it.`
             : ""
       }`,
     };
@@ -792,6 +877,88 @@ async function revise(options, context) {
       today: localDateInTimeZone(context.now(), timezone),
     }),
   };
+}
+
+/**
+ * The user keeps the shown version as it is (`Keep the plan`, `Forget the
+ * change`): the change they asked for is dropped, and the plan applies at its
+ * deadline, or at the next check if that has passed.
+ */
+async function keep(options, context) {
+  const planId = resolveOpenPlanId(options.planId, context.store, ["pending"]);
+  const { timezone } = context.settings();
+  let dropped = false;
+  const document = await context.store.mutatePlan(
+    planId,
+    async (current) => {
+      if (current.status !== "pending") throw new Error(`The weekly plan for ${formatWeekLabel(current.weekStart)} is ${current.status}.`);
+      if (options.version !== current.currentVersion || current.displayedVersion !== current.currentVersion) {
+        throw new Error(`The user was looking at v${options.version}, but the shown version is v${current.displayedVersion ?? "none"}. Show the current version first.`);
+      }
+      if (!current.revisionHold) return null;
+      dropped = true;
+      return releaseRevisionHold(current, { now: context.now(), outcome: "kept" });
+    },
+    { waitMs: context.lockWaitMs },
+  );
+  const version = document.currentVersion;
+  const count = versionEntry(document, version).plan.operations.length;
+  const when = formatLocalDateTime(applyTime(document, context), timezone);
+  const start = dropped ? `OK, I've dropped that change and kept the plan as shown (v${version}).` : `Nothing was waiting to change, so the plan stays as shown (v${version}).`;
+  return {
+    status: document.status,
+    planId,
+    version,
+    kept: dropped,
+    reviewDeadline: document.reviewDeadline,
+    telegramText:
+      document.applyHold?.version === version
+        ? `${start} It's waiting for your OK before anything is created.`
+        : count === 0
+          ? `${start} There's nothing to add to Todoist; I'll close it at ${when}.`
+          : `${start} I'll create its ${count} Todoist task${count === 1 ? "" : "s"} at ${when} unless you change or cancel it.`,
+  };
+}
+
+/** When a pending plan's tasks are created: its deadline, or the next check once that has passed. */
+function applyTime(document, context) {
+  const now = context.now().getTime();
+  if (Date.parse(document.reviewDeadline) > now) return document.reviewDeadline;
+  const step = context.settings().roundMinutes * 60_000;
+  return new Date(Math.ceil((now + 1) / step) * step).toISOString();
+}
+
+/**
+ * The change came after the plan stopped being open: it is being applied, was
+ * applied, or was cancelled. Nothing is rolled back or pretended away.
+ */
+function notRevisable(document, timezone) {
+  const week = formatWeekLabel(document.weekStart);
+  const base = { status: document.status, planId: document.planId, version: document.currentVersion, changed: false, telegramText: null };
+  if (document.status === "applying") {
+    return { ...base, message: `The plan for ${week} is being applied right now, before this change could be made. Tell the user, check status in a minute, then follow the guide's "After A Plan Was Applied" section.` };
+  }
+  if (document.status === "cancelled") {
+    return { ...base, message: `The plan for ${week} was cancelled, so there is nothing to change. Ask whether they want a new plan for that week.` };
+  }
+  const counts = document.apply ? countCreated(document) : null;
+  return {
+    ...base,
+    appliedAt: document.apply?.finishedAt ?? null,
+    appliedVersion: document.apply?.version ?? null,
+    message: `v${document.apply?.version ?? document.currentVersion} of the plan for ${week} was ${document.status === "failed" ? "not applied (it failed)" : `applied at ${formatLocalDateTime(document.apply?.finishedAt ?? document.updatedAt, timezone)}${counts === null ? "" : ` (${counts} task${counts === 1 ? "" : "s"} created)`}`} before this change could be made, so revise can't change it and nothing was undone. Say so plainly, then follow the guide's "After A Plan Was Applied" section.`,
+  };
+}
+
+function countCreated(document) {
+  return Object.values(document.apply?.outcomes ?? {}).filter((outcome) => outcome.status === "created").length;
+}
+
+function requireQuestion(value) {
+  if (typeof value !== "string" || value.trim() === "") throw new Error("ask must be the one question to ask the user, as text.");
+  const text = value.replace(/\s+/g, " ").trim();
+  if (text.length > 300) throw new Error("ask must be at most 300 characters.");
+  return text;
 }
 
 async function accept(options, context) {
@@ -815,8 +982,19 @@ async function accept(options, context) {
     ...(context.sleep ? { sleep: context.sleep } : {}),
     ...(context.retryDelaysMs ? { retryDelaysMs: context.retryDelaysMs } : {}),
     timezone: context.settings().timezone,
+    lockWaitMs: context.lockWaitMs,
   });
   const week = formatWeekLabel(result.document.weekStart);
+  if (result.reason === "change-open") {
+    const hold = result.document.revisionHold;
+    return {
+      status: "not_accepted",
+      planId,
+      applied: false,
+      telegramText: null,
+      message: `The user asked to change v${result.document.currentVersion} at ${formatLocalDateTime(hold.requestedAt, context.settings().timezone)} and that change isn't finished, so this reply is not taken as acceptance${hold.question ? `: it most likely answers your question (${hold.question.replace(/\s+/g, " ")}), so finish the change with revise` : ""}. Nothing was created. If they clearly want the plan as shown without their change, run keep --version ${result.document.currentVersion}; after that an OK applies it.`,
+    };
+  }
   return {
     status: result.document.status,
     planId,
@@ -834,8 +1012,10 @@ async function accept(options, context) {
 
 async function cancel(options, context) {
   const planId = resolveOpenPlanId(options.planId, context.store, ["awaiting_input", "draft", "pending"]);
-  const document = await context.store.mutatePlan(planId, async (current) =>
-    cancelPlan(current, { now: context.now(), reason: options.reason ?? null }),
+  const document = await context.store.mutatePlan(
+    planId,
+    async (current) => cancelPlan(current, { now: context.now(), reason: options.reason ?? null }),
+    { waitMs: context.lockWaitMs },
   );
   return {
     status: document.status,
@@ -884,11 +1064,14 @@ async function show(options, context) {
   }
   const { timezone } = context.settings();
   const deadline = document.reviewDeadline ?? computeReviewDeadline(context.now().toISOString(), reviewOptions(context));
+  const changeOpen = document.status === "pending" && Boolean(document.revisionHold);
   const header =
     document.status === "pending"
-      ? document.applyHold?.version === version
-        ? "Waiting for your OK: I couldn't read Todoist when I made this plan, and that week has tasks it didn't account for, so nothing is created automatically."
-        : null
+      ? changeOpen
+        ? `On hold: you asked for a change at ${formatLocalDateTime(document.revisionHold.requestedAt, timezone)} that isn't finished${document.revisionHold.question ? ` (I asked: ${document.revisionHold.question})` : ""}, so nothing is created on its own.`
+        : document.applyHold?.version === version
+          ? "Waiting for your OK: I couldn't read Todoist when I made this plan, and that week has tasks it didn't account for, so nothing is created automatically."
+          : null
       : `Status: ${document.status}${document.apply ? ` (v${document.apply.version})` : ""}.`;
   const text = formatPlanMessage(document, {
     version,
@@ -896,6 +1079,7 @@ async function show(options, context) {
     changeSummary: versionEntry(document, version).changeSummary,
     timezone,
     today: localDateInTimeZone(context.now(), timezone),
+    held: changeOpen,
   });
   return {
     status: document.status,
@@ -958,7 +1142,11 @@ function describeStatus(summary, timezone) {
           : `Weekly plan for ${week} is a draft (v${plan.currentVersion}); it was not shown yet and will not apply.`,
       );
     } else if (plan.status === "applying") lines.push(`Weekly plan for ${week} (v${plan.currentVersion}) is being applied now.`);
-    else if (plan.waitingForOk) {
+    else if (plan.changeOnHold) {
+      lines.push(
+        `Weekly plan for ${week} (v${plan.currentVersion}) is on hold: you asked for a change at ${formatLocalDateTime(plan.changeOnHold.requestedAt, timezone)} that isn't finished${plan.changeOnHold.question ? ` (I asked: ${plan.changeOnHold.question.replace(/\s+/g, " ")})` : ""}. Nothing is created on its own until you finish the change, keep the plan as shown, or skip the week.`,
+      );
+    } else if (plan.waitingForOk) {
       lines.push(
         `Weekly plan for ${week} (v${plan.currentVersion}) is waiting for your OK: I couldn't read Todoist when I made it, and that week has tasks it didn't account for. Nothing is created until you reply OK, change it or skip it.`,
       );
@@ -1029,6 +1217,22 @@ async function applyDue(options, context) {
       if (error.code === "PLAN_LOCKED") continue;
       failures += 1;
       summaries.push(`Weekly plan ${document.weekId} could not be applied: ${error.message}`);
+    }
+  }
+  // A change the user asked for that was never finished kept a shown plan
+  // from applying. That is said once, so silence never looks like a created
+  // plan; the old version never resumes on its own.
+  for (const document of store.listPlans()) {
+    if (!isRevisionHoldReportDue(document, now)) continue;
+    try {
+      const reported = await store.mutatePlan(document.planId, async (current) =>
+        isRevisionHoldReportDue(current, now) ? recordRevisionHoldReported(current, { now }) : null,
+      );
+      if (reported.revisionHold?.reportedAt === now.toISOString()) summaries.push(formatRevisionHold(reported, { timezone: context.settings().timezone }));
+    } catch (error) {
+      if (error.code === "PLAN_LOCKED") continue;
+      failures += 1;
+      summaries.push(`Weekly plan ${document.weekId} is on hold for a change, and that couldn't be recorded: ${error.message}`);
     }
   }
   return { text: summaries.length > 0 ? summaries.join("\n\n") : "NO_REPLY", failures };
@@ -1106,6 +1310,26 @@ async function resolveConfiguredTarget(plan, config, context) {
     target.project_id ??= resolved.projectId;
   }
   for (const operation of plan.operations) Object.assign(operation.payload, target);
+}
+
+/**
+ * The plan a change is for: the open one, or, when none is open, this or next
+ * week's plan that was applied (or is being applied) before the change came,
+ * so the reply can say so instead of "no pending plan".
+ */
+function resolveRevisablePlanId(planId, context) {
+  if (planId) return planId;
+  const store = context.store;
+  try {
+    return resolveOpenPlanId(null, store, ["draft", "pending"]);
+  } catch (error) {
+    const plans = store.listPlans();
+    if (plans.some((plan) => ["awaiting_input", "draft", "pending"].includes(plan.status))) throw error;
+    const today = localDateInTimeZone(context.now(), context.settings().timezone);
+    const closed = plans.filter((plan) => plan.weekEnd >= today && ["applying", "applied", "applied_with_errors", "failed"].includes(plan.status)).at(-1);
+    if (!closed) throw error;
+    return closed.planId;
+  }
 }
 
 function resolveOpenPlanId(planId, store, statuses) {

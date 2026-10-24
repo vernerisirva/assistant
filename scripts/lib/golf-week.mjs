@@ -14,14 +14,18 @@
  * as defaults: no playing days means practice days, never invented rounds, and
  * no focus means a balanced mix for competitive play.
  *
- * Everything after that is plain code. Rounds, lessons and golf tasks already
- * in Todoist are anchors; practice fills the other days up to six golf days,
- * and at least one day stays golf-free. Six golf days are not six hard days: a
- * practice day is full, moderate or light depending on what surrounds it,
- * several full rounds shrink the practice around them, and the day before a
- * competition is light preparation. The plan says what to practise, never how
- * to swing: a technical priority appears only in the user's (or their
- * coach's) words.
+ * Everything after that is plain code. Rounds, lessons, the practice days the
+ * user names and golf tasks already in Todoist are anchors; practice fills the
+ * other days up to six golf days with one golf-free day. That is a default,
+ * not a rule: when the user wants golf every day (seven days, every day, no
+ * rest day) or names golf on all seven days, the week has seven. Golf days are
+ * not hard days: a practice day is full, moderate or light depending on what
+ * surrounds it, several full rounds shrink the practice around them, a week
+ * without a golf-free day keeps practice moderate and light next to a full
+ * round, and the day before a competition is light preparation. A round the
+ * user only might play is noted on its day, never planned as a round. The plan
+ * says what to practise, never how to swing: a technical priority appears only
+ * in the user's (or their coach's) words.
  */
 import { listMemoryEntries } from "./memory.mjs";
 import { listPlaybooks } from "./playbooks.mjs";
@@ -35,7 +39,10 @@ import {
   weekdayName,
 } from "./weekly-plan-dates.mjs";
 
-export const MAX_GOLF_DAYS = 6;
+/** Golf days in a week the user said nothing about: six, and one golf-free day. */
+export const DEFAULT_GOLF_DAYS = 6;
+/** Golf every day, when the user wants it. */
+export const MAX_GOLF_DAYS = 7;
 export const GOLF_AVOIDABLE = Object.freeze(["range", "on-course"]);
 export const GOLF_ROLES_WITH_TASKS = Object.freeze(["practice", "round", "competition", "lesson"]);
 
@@ -100,12 +107,13 @@ export function golfFocusKind(text) {
 // Day names and abbreviations take only a short ending, so "sun" never
 // matches "sunny". A Swedish day name also starts a compound through the
 // genitive s: "onsdagskvällen", "lördagsmorgon". A Finnish day name takes its
-// case endings ("keskiviikkona", "lauantain"); the two-letter Finnish
-// abbreviations are left out because "to" and "la" are ordinary words.
+// case endings ("keskiviikkona", "keskiviikosta", "lauantain"); the two-letter
+// Finnish abbreviations count only inside a range ("ma–pe"), because "to" and
+// "la" are ordinary words.
 const DAY_WORDS = Object.freeze([
   { words: ["monday", "mon", "mån"], swedish: ["måndag", "mandag"], finnish: "maanantai" },
   { words: ["tuesday", "tue", "tues", "tis"], swedish: ["tisdag"], finnish: "tiistai" },
-  { words: ["wednesday", "wed", "weds", "ons"], swedish: ["onsdag"], finnish: "keskiviikko" },
+  { words: ["wednesday", "wed", "weds", "ons"], swedish: ["onsdag"], finnish: "keskiviik" },
   { words: ["thursday", "thu", "thur", "thurs", "tors", "tor"], swedish: ["torsdag"], finnish: "torstai" },
   { words: ["friday", "fri", "fre"], swedish: ["fredag"], finnish: "perjantai" },
   { words: ["saturday", "sat", "lör"], swedish: ["lördag", "lordag"], finnish: "lauantai" },
@@ -132,6 +140,7 @@ const NUMBER_WORDS = Object.freeze({
   4: ["four", "fyra", "neljä"],
   5: ["five", "fem", "viisi"],
   6: ["six", "sex", "kuusi"],
+  7: ["seven", "sju", "seitsemän"],
   9: ["nine", "nio", "yhdeksän"],
   15: ["fifteen", "femton", "a quarter of an hour", "kvart", "viisitoista", "vartti", "varttitunti"],
   18: ["eighteen", "arton", "full round", "full rounds", "kahdeksantoista", "täysi kierros", "täyden kierroksen"],
@@ -159,6 +168,26 @@ const SAME_PATTERN = word("same|samma|like last week|as last week|as before|som 
 const NORMAL_PATTERN = word("normal|usual|regular|typical|vanlig\\p{L}*|normaal\\p{L}*|tavalli\\p{L}*|tavanomai\\p{L}*");
 const NO_ROUNDS_PATTERN = word("no (?:full )?rounds?|not playing|won['’]?t (?:be )?play\\p{L}*|will not play|not going to play|no 18|no 9|inga rundor|ingen runda|spelar inte|inte spela|just practi[cs]e|only practi[cs]e|practi[cs]e only|en pelaa|ei kierroks\\p{L}*|ei kierrosta|ei yhtään kierrosta|vain harjoittel\\p{L}*|pelkkää harjoittelua|pelkästään harjoittel\\p{L}*");
 const NO_GOLF_PATTERN = word("no golf|not playing golf|no golfing|skip golf|skipping golf|without golf|ingen golf|inte golf|golf[- ]?free|break from golf|pause golf|ei golfia|ei golffia|en golfaa|en pelaa golfia|golfvapaa\\p{L}*|golftauko|tauko golfista|ilman golfia");
+// Golf on all seven days, said outright: the user need not repeat a number
+// when they say every day or that they don't need a rest day.
+const SEVEN_DAYS_PATTERN = word("(?:7|seven|sju|seitsemän\\p{L}*)\\s+(?:golf\\s*)?(?:days?|dagar\\p{L}*|golfdagar\\p{L}*|päiv\\p{L}*|golfpäiv\\p{L}*)");
+const EVERY_DAY_PATTERN = word("every ?day|each day|all week|the whole week|all (?:seven|7) days|varje dag|alla dagar\\p{L}*|alla (?:sju|7) dagar|hela veckan|joka päivä|jokaisena päivänä|päivittäin|koko viikon|kaikkina päivinä");
+const NO_REST_PATTERN = word(
+  [
+    "no (?:rest|recovery|golf[- ]?free) ?days?|no days? off|without (?:a |any )?(?:(?:rest|recovery|golf[- ]?free) ?days?|days? off)",
+    "(?:don['’]?t|do not|doesn['’]?t|does not|won['’]?t|will not) need (?:a |any |the )?(?:(?:rest|recovery|golf[- ]?free) ?days?|days? off)",
+    "no need for (?:a |any )?(?:rest|recovery|golf[- ]?free) ?days?|skip(?:ping)? the rest ?day",
+    "(?:ingen|inga|utan|behöver (?:ingen|inga|inte någon|inte en)) (?:vilodag|återhämtningsdag|ledig dag|lediga dagar|golffri dag|golffria dagar)\\p{L}*",
+    "(?:ei|en tarvitse|ei tarvita|ei tarvitse|emme tarvitse|ilman) (?:yhtään |mitään )?(?:lepopäiv|palautuspäiv|vapaapäiv|golfvapaa)\\p{L}*",
+    "(?:lepopäiv|palautuspäiv|vapaapäiv)\\p{L}* (?:ei|en) (?:tarvita|tarvitse)",
+  ].join("|"),
+);
+// A reply that says no never borrows the question it answers.
+const DENIAL_PATTERN = word("no|nope|nah|not|don['’]?t|do not|nej|nä|nää|inte|ei|en");
+const WEEKDAYS_PATTERN = word("weekdays|every weekday|vardagar\\p{L}*|varje vardag|arkipäivi\\p{L}*|arkisin");
+// A round the user only might play: "Maybe 9 holes on Friday". A day named
+// with one of these in the same clause is a possibility, not a round.
+const HEDGE_PATTERN = word("maybe|might|perhaps|possibl\\p{L}*|potentially|tentative\\p{L}*|not sure|unsure|kanske|eventuell\\p{L}*|möjligen|möjligtvis|inte säker|osäker\\p{L}*|ehkä|ehkäpä|kenties|mahdollisesti|saatan|saattaa|en ole varma|epävarm\\p{L}*");
 
 const STOPWORDS = new Set(
   (
@@ -195,7 +224,80 @@ function dayMentioned(date, sources, { today = null } = {}) {
   if (index >= 5) patterns.push(word("weekends?|helg(?:en)?|viikonlop\\p{L}*"));
   if (today && date === today) patterns.push(word("today|tonight|idag|i dag|ikväll|i kväll|tänään|tänä iltana"));
   if (today && date === addDays(today, 1)) patterns.push(word("tomorrow|imorgon|i morgon|imorrn|huomenna"));
-  return sources.some((source) => patterns.some((pattern) => pattern.test(source)));
+  return sources.some((source) => patterns.some((pattern) => pattern.test(source)) || coveredDays(source).has(index));
+}
+
+const FINNISH_SHORT_DAYS = Object.freeze(["ma", "ti", "ke", "to", "pe", "la", "su"]);
+const DAY_WORD_PATTERNS = DAY_WORDS.map(
+  (day) => new RegExp(`^(?:(?:${day.words.join("|")})s?|(?:${day.swedish.join("|")})(?:s\\p{L}*|en|ens|ar|arna)?|${day.finnish}\\p{L}*)$`, "iu"),
+);
+const RANGE_SEPARATOR = /^\s*(?:[-–—]|to|till|until|through|thru|tom|asti)\s*$/iu;
+
+/** The weekday (0 = Monday) one word names, or -1; a two-letter Finnish abbreviation only with `short`. */
+function dayOfWord(text, { short = false } = {}) {
+  const index = DAY_WORD_PATTERNS.findIndex((pattern) => pattern.test(text));
+  if (index >= 0 || !short) return index;
+  return FINNISH_SHORT_DAYS.indexOf(text.toLowerCase());
+}
+
+/**
+ * Weekdays a text covers without naming each one: a range ("mon-friday",
+ * "Monday to Friday", "mån–fre", "maanantaista perjantaihin", "ma–pe"),
+ * weekdays, or every day.
+ */
+function coveredDays(text) {
+  const source = String(text ?? "");
+  const covered = new Set();
+  if (EVERY_DAY_PATTERN.test(source)) return new Set([0, 1, 2, 3, 4, 5, 6]);
+  if (WEEKDAYS_PATTERN.test(source)) [0, 1, 2, 3, 4].forEach((index) => covered.add(index));
+  const words = [...source.matchAll(/\p{L}+/gu)];
+  for (let first = 0; first < words.length; first += 1) {
+    const from = dayOfWord(words[first][0], { short: true });
+    if (from < 0) continue;
+    for (const second of [first + 1, first + 2]) {
+      if (second >= words.length) break;
+      const to = dayOfWord(words[second][0], { short: true });
+      if (to < 0) continue;
+      const between = source.slice(words[first].index + words[first][0].length, words[second].index);
+      const abbreviated = dayOfWord(words[first][0]) < 0 || dayOfWord(words[second][0]) < 0;
+      const dash = /^\s*[-–—]\s*$/u.test(between);
+      // Finnish says a range with cases alone: "maanantaista perjantaihin".
+      const finnish = second === first + 1 && /^\s+$/u.test(between) && /st[aä]$/iu.test(words[first][0]) && !abbreviated;
+      if (abbreviated ? !dash : !RANGE_SEPARATOR.test(between) && !finnish) continue;
+      for (let step = 0, index = from; step < 7; step += 1, index = (index + 1) % 7) {
+        covered.add(index);
+        if (index === to) break;
+      }
+      break;
+    }
+  }
+  return covered;
+}
+
+/** Days named in a clause that also hedges ("Maybe 9 holes on Friday, 18 on Saturday" hedges only Friday). */
+function hedgedDates(weekStart, text, { today = null } = {}) {
+  const hedged = new Set();
+  for (const clause of String(text ?? "").split(/[.!?;\n]+|,|\s(?:but|men|mutta)\s/iu)) {
+    if (!HEDGE_PATTERN.test(clause)) continue;
+    for (const date of weekDates(weekStart)) {
+      if (dayMentioned(date, [clause], { today })) hedged.add(date);
+    }
+  }
+  return hedged;
+}
+
+/** "Mon–Fri" for three or more days in a row, otherwise "Mon, Wed". */
+function dayList(dates) {
+  const sorted = [...dates].sort();
+  const parts = [];
+  for (let start = 0; start < sorted.length; ) {
+    let end = start;
+    while (end + 1 < sorted.length && sorted[end + 1] === addDays(sorted[end], 1)) end += 1;
+    if (end - start >= 2) parts.push(`${shortWeekday(sorted[start])}–${shortWeekday(sorted[end])}`);
+    else for (let index = start; index <= end; index += 1) parts.push(shortWeekday(sorted[index]));
+    start = end + 1;
+  }
+  return parts.join(", ");
 }
 
 function numberMentioned(value, sources) {
@@ -227,7 +329,7 @@ function sharesWords(value, sources) {
 
 /** The golf part before the user has said anything about the week: the planner's defaults. */
 export function emptyGolfInputs(config) {
-  const activeDays = config?.golf?.activeDays ?? MAX_GOLF_DAYS;
+  const activeDays = config?.golf?.activeDays ?? DEFAULT_GOLF_DAYS;
   if (!Number.isInteger(activeDays) || activeDays < 0 || activeDays > MAX_GOLF_DAYS) {
     throw new Error(`config golf.activeDays must be a whole number from 0 to ${MAX_GOLF_DAYS}.`);
   }
@@ -263,7 +365,11 @@ export function golfInputStatus(golf) {
   return { complete: missing.length === 0, missing };
 }
 
-/** A golf answer or change that cannot be traced to the user's words. Nothing is stored. */
+/**
+ * A golf answer or change with values that cannot be traced to the user's
+ * words. Each problem says what to leave out (`drop`, see
+ * withoutRefusedGolfChanges) and the question to ask instead.
+ */
 export class GolfInputError extends Error {
   constructor(problems) {
     super(problems.map((problem) => problem.reason).join(" "));
@@ -286,6 +392,7 @@ const GOLF_CHANGE_KEYS = Object.freeze([
   "restDay",
   "unavailableDays",
   "availableDays",
+  "practiceDays",
   "minutes",
   "avoid",
   "allow",
@@ -295,10 +402,12 @@ const GOLF_CHANGE_KEYS = Object.freeze([
 
 /**
  * Applies one golf answer or change. `replyText` is the user's exact message,
- * and every new playing day, hole count, competition, lesson, focus area,
- * technical priority and time limit must be found in it (or, for "use my
- * normal golf week", in the saved normal week). Ungrounded values come back as
- * problems with the question to ask instead; the caller stores nothing then.
+ * and every new playing day, hole count, competition, lesson, practice day,
+ * focus area, technical priority and time limit must be found in it (or, for
+ * "use my normal golf week", in the saved normal week). Ungrounded values come
+ * back as problems, each with the question to ask and what to leave out
+ * (`drop`, see withoutRefusedGolfChanges), so the clear part of an answer can
+ * still be planned while the rest is asked.
  *
  * In a plan that was already built (`context.plan`), today's practice sessions
  * and rest day are kept where they are first, so a change moves only what it
@@ -306,66 +415,86 @@ const GOLF_CHANGE_KEYS = Object.freeze([
  * the user gives replace defaults that nobody chose, so the practice around
  * them is planned afresh; only sessions the user moved stay put.
  *
- * @returns {{ golf, summary: string[], problems: { field, reason, question }[] }}
+ * Six golf days are the default, not a limit: seven come from the user, said
+ * outright (seven days, every day, no rest day) or by naming golf on every
+ * day. A round on a day the user hedges ("Maybe 9 holes on Friday") is only a
+ * possibility, whatever the mapping says. A reply to the question the plan
+ * asked about this change (`context.question`) is read together with it, so
+ * "Yes" or "18" can answer it, unless the reply says no.
+ *
+ * @returns {{ golf, summary: string[], problems: { field, reason, question, drop }[] }}
  */
 export function applyGolfChanges(previous, rawChanges, context) {
   const changes = requireObject(rawChanges, "golf");
   rejectUnknownKeys(changes, GOLF_CHANGE_KEYS, "golf");
   const replyText = requireReplyText(changes.replyText);
-  const { weekStart, today = null, previousWeek = null, normalWeekText = null, plan = null, saved } = context;
+  const { weekStart, today = null, previousWeek = null, normalWeekText = null, plan = null, saved, question = null } = context;
   const golf = structuredClone(previous);
   const before = { roundsKnown: golf.roundsKnown, focusMode: golf.focus?.mode ?? null };
   if (plan) keepCurrentWeek(golf, plan);
   const summary = [];
   const problems = [];
-  const sources = [replyText];
+  const answered = question && !DENIAL_PATTERN.test(replyText) ? [String(question)] : [];
+  const said = [replyText, ...answered].join("\n");
+  const sources = [replyText, ...answered];
   const resolve = (ref) => resolvePlanDay(ref, weekStart);
-  const flag = (field, reason, question = null) => problems.push({ field, reason, question });
+  const flag = (field, reason, question, drop) => problems.push({ field, reason, question, drop });
   const mentioned = (date) => dayMentioned(date, sources, { today });
   const name = (date) => weekdayName(date);
+  const hedged = hedgedDates(weekStart, replyText, { today });
 
   if (changes.from !== undefined) {
     if (changes.from !== "normal-week") throw new Error(`Unknown golf answer source: ${changes.from}. Use "normal-week".`);
-    if (!NORMAL_PATTERN.test(replyText)) {
-      flag("from", "The user did not refer to their normal golf week.", GOLF_QUESTIONS.rounds);
+    if (!NORMAL_PATTERN.test(said)) {
+      flag("from", "The user did not refer to their normal golf week.", GOLF_QUESTIONS.rounds, { key: "from" });
     } else if (!normalWeekText) {
-      flag("from", "No normal golf week is saved.", `I don't have your normal golf week saved. ${GOLF_QUESTIONS.rounds}`);
+      flag("from", "No normal golf week is saved.", `I don't have your normal golf week saved. ${GOLF_QUESTIONS.rounds}`, { key: "from" });
     } else {
       sources.push(normalWeekText);
     }
   }
 
+  // Seven golf days need the user's say-so: said outright, or golf named on
+  // every day, which is checked once all of this answer's days are in.
+  let activeDaysSet = false;
+  let sevenFromNamedDays = false;
   if (changes.activeDays !== undefined) {
     const count = Number(changes.activeDays);
-    if (!Number.isInteger(count) || count < 0) throw new Error(`activeDays must be a whole number from 0 to ${MAX_GOLF_DAYS}.`);
-    if (count > MAX_GOLF_DAYS) {
-      flag("activeDays", "Seven golf days would leave no golf-free day.", "I keep at least one golf-free day each week. Shall I plan six golf days?");
-    } else if (count === 0 ? !NO_GOLF_PATTERN.test(replyText) : !numberMentioned(count, sources)) {
-      flag("activeDays", count === 0 ? "The user did not say no golf." : `The user did not ask for ${count} golf days.`);
+    if (!Number.isInteger(count) || count < 0 || count > MAX_GOLF_DAYS) throw new Error(`activeDays must be a whole number from 0 to ${MAX_GOLF_DAYS}.`);
+    if (count === 0 && !NO_GOLF_PATTERN.test(said)) {
+      flag("activeDays", "The user did not say no golf.", "No golf at all next week?", { key: "activeDays" });
+    } else if (count > 0 && count < MAX_GOLF_DAYS && !numberMentioned(count, sources)) {
+      flag("activeDays", `The user did not ask for ${count} golf days.`, "How many golf days do you want next week?", { key: "activeDays" });
     } else {
+      sevenFromNamedDays =
+        count === MAX_GOLF_DAYS && !numberMentioned(count, sources) && ![SEVEN_DAYS_PATTERN, EVERY_DAY_PATTERN, NO_REST_PATTERN].some((pattern) => pattern.test(said));
       if (count === 0) {
         golf.rounds = [];
         golf.lessons = [];
         golf.pins = [];
+        setOptional(golf, "tentativeRounds", []);
+        setOptional(golf, "practiceDays", []);
         golf.roundsKnown = true;
         summary.push("No golf this week");
       } else if (count !== golf.activeDays) {
         summary.push(`Golf days ${golf.activeDays} → ${count}`);
       }
+      if (count === MAX_GOLF_DAYS) golf.restDays = [];
       golf.activeDays = count;
       golf.activeDaysExplicit = true;
+      activeDaysSet = true;
     }
   }
 
   // Only what the answer adds needs the user's words: "Saturday is now a
   // competition" keeps Saturday's known hole count without repeating it.
-  const groundRound = (round, before = null) => {
-    if (!mentioned(round.date)) flag("rounds", `${name(round.date)} is not in the user's words.`, GOLF_QUESTIONS.rounds);
+  const groundRound = (round, before, where) => {
+    if (!mentioned(round.date)) flag("rounds", `${name(round.date)} is not in the user's words.`, GOLF_QUESTIONS.rounds, where);
     if (round.holes !== null && round.holes !== before?.holes && !numberMentioned(round.holes, sources)) {
-      flag("holes", `${round.holes} holes is not in the user's words.`, `Roughly 9 or 18 holes on ${name(round.date)}?`);
+      flag("holes", `${round.holes} holes is not in the user's words.`, `Roughly 9 or 18 holes on ${name(round.date)}?`, { ...where, field: "holes" });
     }
     if (round.competition && !before?.competition && !COMPETITION_PATTERN.test(sources.join("\n"))) {
-      flag("competition", `A competition on ${name(round.date)} is not in the user's words.`);
+      flag("competition", `A competition on ${name(round.date)} is not in the user's words.`, `Is ${name(round.date)}'s round a competition?`, { ...where, field: "competition" });
     }
   };
   const merged = (raw, before) => ({
@@ -373,13 +502,27 @@ export function applyGolfChanges(previous, rawChanges, context) {
     holes: raw.holes === undefined ? before?.holes ?? null : raw.holes,
     competition: raw.competition === undefined ? before?.competition ?? false : raw.competition,
   });
+  const isTentative = (given) => given.tentative === true || hedged.has(given.date);
+  const tentativeOn = (date) => (golf.tentativeRounds ?? []).find((round) => round.date === date) ?? null;
+  // A possible round is noted on its day; only a round the user will play is a round.
+  const placeRound = (round, tentative) => {
+    golf.rounds = golf.rounds.filter((existing) => existing.date !== round.date);
+    const possible = (golf.tentativeRounds ?? []).filter((existing) => existing.date !== round.date);
+    if (tentative) {
+      setOptional(golf, "tentativeRounds", sortByDate([...possible, round]));
+      return;
+    }
+    setOptional(golf, "tentativeRounds", possible);
+    golf.rounds = sortByDate([...golf.rounds, round]);
+    golf.restDays = golf.restDays.filter((date) => date !== round.date);
+  };
 
   if (changes.rounds !== undefined) {
     if (changes.rounds === "same-as-last-week") {
-      if (!SAME_PATTERN.test(replyText)) {
-        flag("rounds", "The user did not ask for last week's playing days.", GOLF_QUESTIONS.rounds);
+      if (!SAME_PATTERN.test(said)) {
+        flag("rounds", "The user did not ask for last week's playing days.", GOLF_QUESTIONS.rounds, { key: "rounds" });
       } else if (!previousWeek?.golf?.roundsKnown) {
-        flag("rounds", "Last week's playing days are not saved.", `I don't have last week's playing days. ${GOLF_QUESTIONS.rounds}`);
+        flag("rounds", "Last week's playing days are not saved.", `I don't have last week's playing days. ${GOLF_QUESTIONS.rounds}`, { key: "rounds" });
       } else {
         // Same days and holes; a competition belongs to its own week.
         golf.rounds = previousWeek.golf.rounds.map((round) => ({
@@ -387,51 +530,56 @@ export function applyGolfChanges(previous, rawChanges, context) {
           holes: round.holes,
           competition: false,
         }));
+        setOptional(golf, "tentativeRounds", []);
         golf.roundsKnown = true;
         summary.push("Golf: same playing days as last week");
       }
     } else {
-      const rounds = requireList(changes.rounds, "rounds", 7).map((raw) => merged(normalizeRound(raw, resolve), null));
-      if (rounds.length === 0 && !NO_ROUNDS_PATTERN.test(replyText) && !NO_GOLF_PATTERN.test(replyText)) {
-        flag("rounds", "The user did not say they are not playing.", GOLF_QUESTIONS.rounds);
+      const given = requireList(changes.rounds, "rounds", 7).map((raw) => normalizeRound(raw, resolve));
+      const rounds = given.map((round) => merged(round, null));
+      if (rounds.length === 0 && !NO_ROUNDS_PATTERN.test(said) && !NO_GOLF_PATTERN.test(said)) {
+        flag("rounds", "The user did not say they are not playing.", GOLF_QUESTIONS.rounds, { key: "rounds" });
       }
-      rounds.forEach((round) => groundRound(round));
-      golf.rounds = sortByDate(uniqueByDate(rounds));
+      rounds.forEach((round, index) => groundRound(round, null, { key: "rounds", index }));
+      golf.rounds = [];
+      setOptional(golf, "tentativeRounds", []);
+      const latest = new Map(given.map((round, index) => [round.date, index]));
+      for (const index of latest.values()) placeRound(rounds[index], isTentative(given[index]));
       golf.roundsKnown = true;
-      summary.push(rounds.length === 0 ? "Golf: no rounds" : `Golf: ${rounds.map(describeRound).join(", ")}`);
+      summary.push(rounds.length === 0 ? "Golf: no rounds" : `Golf: ${rounds.map((round, index) => describeRound(round, isTentative(given[index]))).join(", ")}`);
     }
   }
-  for (const raw of requireList(changes.addRounds ?? [], "addRounds", 7)) {
+  for (const [index, raw] of requireList(changes.addRounds ?? [], "addRounds", 7).entries()) {
     const given = normalizeRound(raw, resolve);
-    const before = golf.rounds.find((existing) => existing.date === given.date) ?? null;
+    const before = golf.rounds.find((existing) => existing.date === given.date) ?? tentativeOn(given.date);
     const round = merged(given, before);
-    groundRound(round, before);
-    golf.rounds = sortByDate([...golf.rounds.filter((existing) => existing.date !== round.date), round]);
-    golf.restDays = golf.restDays.filter((date) => date !== round.date);
+    groundRound(round, before, { key: "addRounds", index });
+    placeRound(round, isTentative(given));
     golf.roundsKnown = true;
-    summary.push(`Golf: + ${describeRound(round)}`);
+    summary.push(`Golf: + ${describeRound(round, isTentative(given))}`);
   }
   for (const ref of requireList(changes.removeRounds ?? [], "removeRounds", 7)) {
     const date = resolve(ref);
-    if (!golf.rounds.some((round) => round.date === date)) throw new Error(`There is no round on ${name(date)} to remove.`);
+    if (!golf.rounds.some((round) => round.date === date) && !tentativeOn(date)) throw new Error(`There is no round on ${name(date)} to remove.`);
     golf.rounds = golf.rounds.filter((round) => round.date !== date);
+    setOptional(golf, "tentativeRounds", (golf.tentativeRounds ?? []).filter((round) => round.date !== date));
     golf.roundsKnown = true;
     summary.push(`Golf: no round ${shortWeekday(date)}`);
   }
 
-  const groundLesson = (lesson) => {
-    if (!mentioned(lesson.date)) flag("lessons", `${name(lesson.date)} is not in the user's words.`, `Which day is the lesson?`);
-    if (!LESSON_PATTERN.test(sources.join("\n"))) flag("lessons", "A lesson is not in the user's words.");
+  const groundLesson = (lesson, where) => {
+    if (!mentioned(lesson.date)) flag("lessons", `${name(lesson.date)} is not in the user's words.`, `Which day is the lesson?`, where);
+    if (!LESSON_PATTERN.test(sources.join("\n"))) flag("lessons", "A lesson is not in the user's words.", `Do you have a lesson on ${name(lesson.date)}?`, where);
   };
   if (changes.lessons !== undefined) {
     const lessons = requireList(changes.lessons, "lessons", 7).map((raw) => normalizeLesson(raw, resolve));
-    lessons.forEach(groundLesson);
+    lessons.forEach((lesson, index) => groundLesson(lesson, { key: "lessons", index }));
     golf.lessons = sortByDate(uniqueByDate(lessons));
     summary.push(lessons.length === 0 ? "Golf: no lessons" : `Golf: lesson ${lessons.map((lesson) => shortWeekday(lesson.date)).join(", ")}`);
   }
-  for (const raw of requireList(changes.addLessons ?? [], "addLessons", 7)) {
+  for (const [index, raw] of requireList(changes.addLessons ?? [], "addLessons", 7).entries()) {
     const lesson = normalizeLesson(raw, resolve);
-    groundLesson(lesson);
+    groundLesson(lesson, { key: "addLessons", index });
     golf.lessons = sortByDate([...golf.lessons.filter((existing) => existing.date !== lesson.date), lesson]);
     golf.restDays = golf.restDays.filter((date) => date !== lesson.date);
     summary.push(`Golf: + lesson ${shortWeekday(lesson.date)}`);
@@ -442,16 +590,32 @@ export function applyGolfChanges(previous, rawChanges, context) {
     summary.push(`Golf: no lesson ${shortWeekday(date)}`);
   }
 
+  // The days the user names for practice are golf days, never the golf-free
+  // one; a golf-free or unavailable day named in the same answer still wins.
+  if (changes.practiceDays !== undefined) {
+    const named = [];
+    for (const [index, ref] of requireList(changes.practiceDays, "practiceDays", 7).entries()) {
+      const date = resolve(ref);
+      if (mentioned(date)) named.push(date);
+      else flag("practiceDays", `${name(date)} is not in the user's words.`, "Which days do you want to practise?", { key: "practiceDays", index });
+    }
+    const days = [...new Set(named)].sort();
+    setOptional(golf, "practiceDays", days);
+    golf.restDays = golf.restDays.filter((date) => !days.includes(date));
+    golf.unavailableDays = golf.unavailableDays.filter((date) => !days.includes(date));
+    summary.push(days.length > 0 ? `Golf: practice ${dayList(days)}` : "Golf: no set practice days");
+  }
+
   if (changes.focus !== undefined) {
     if (changes.focus === "balance") {
-      if (!BALANCE_PATTERN.test(replyText)) flag("focus", "The user did not ask you to choose the practice balance.", GOLF_QUESTIONS.focus);
+      if (!BALANCE_PATTERN.test(said)) flag("focus", "The user did not ask you to choose the practice balance.", GOLF_QUESTIONS.focus, { key: "focus" });
       golf.focus = { mode: "balance", areas: [] };
       summary.push("Golf: balanced practice");
     } else if (changes.focus === "same-as-last-week") {
-      if (!SAME_PATTERN.test(replyText)) {
-        flag("focus", "The user did not ask for last week's focus.", GOLF_QUESTIONS.focus);
+      if (!SAME_PATTERN.test(said)) {
+        flag("focus", "The user did not ask for last week's focus.", GOLF_QUESTIONS.focus, { key: "focus" });
       } else if (!previousWeek?.golf?.focus) {
-        flag("focus", "Last week's focus is not saved.", `I don't have last week's focus. ${GOLF_QUESTIONS.focus}`);
+        flag("focus", "Last week's focus is not saved.", `I don't have last week's focus. ${GOLF_QUESTIONS.focus}`, { key: "focus" });
       } else {
         golf.focus = structuredClone(previousWeek.golf.focus);
         summary.push("Golf: same focus as last week");
@@ -462,7 +626,7 @@ export function applyGolfChanges(previous, rawChanges, context) {
       const known = new Set((golf.focus?.areas ?? []).map((area) => area.toLowerCase()));
       for (const area of areas) {
         if (!known.has(area.toLowerCase()) && !sharesWords(area, sources)) {
-          flag("focus", `"${area}" is not in the user's words.`, GOLF_QUESTIONS.focus);
+          flag("focus", `"${area}" is not in the user's words.`, GOLF_QUESTIONS.focus, { key: "focus" });
         }
       }
       golf.focus = { mode: "areas", areas: uniqueText(areas) };
@@ -480,7 +644,7 @@ export function applyGolfChanges(previous, rawChanges, context) {
     } else {
       const priority = normalizeShortText(changes.technicalPriority, "technicalPriority", 80);
       if (priority.toLowerCase() !== String(golf.technicalPriority ?? "").toLowerCase() && !sharesWords(priority, sources)) {
-        flag("technicalPriority", `"${priority}" is not in the user's words.`);
+        flag("technicalPriority", `"${priority}" is not in the user's words.`, "What does your coach want you to work on?", { key: "technicalPriority" });
       }
       golf.technicalPriority = priority;
       summary.push(`Golf: technical priority ${lowerFirst(priority)}`);
@@ -489,20 +653,27 @@ export function applyGolfChanges(previous, rawChanges, context) {
 
   if (changes.restDay !== undefined) {
     const date = resolve(changes.restDay);
-    if (!mentioned(date)) flag("restDay", `${name(date)} is not in the user's words.`, "Which day should be golf-free?");
+    if (!mentioned(date)) flag("restDay", `${name(date)} is not in the user's words.`, "Which day should be golf-free?", { key: "restDay" });
     if (golf.rounds.some((round) => round.date === date) || golf.lessons.some((lesson) => lesson.date === date)) {
-      flag("restDay", `The user plays or has a lesson on ${name(date)}.`, `You're playing on ${name(date)}. Which day should be golf-free?`);
+      flag("restDay", `The user plays or has a lesson on ${name(date)}.`, `You're playing on ${name(date)}. Which day should be golf-free?`, { key: "restDay" });
     }
     golf.restDays = [date];
     golf.pins = golf.pins.filter((pin) => pin.date !== date);
+    setOptional(golf, "practiceDays", (golf.practiceDays ?? []).filter((day) => day !== date));
+    // Naming a golf-free day ends a week of golf every day.
+    if (golf.activeDays >= MAX_GOLF_DAYS) {
+      summary.push(`Golf days ${golf.activeDays} → ${DEFAULT_GOLF_DAYS}`);
+      golf.activeDays = DEFAULT_GOLF_DAYS;
+    }
     summary.push(`Golf: rest day ${shortWeekday(date)}`);
   }
 
-  for (const ref of requireList(changes.unavailableDays ?? [], "unavailableDays", 7)) {
+  for (const [index, ref] of requireList(changes.unavailableDays ?? [], "unavailableDays", 7).entries()) {
     const date = resolve(ref);
-    if (!mentioned(date)) flag("unavailableDays", `${name(date)} is not in the user's words.`);
+    if (!mentioned(date)) flag("unavailableDays", `${name(date)} is not in the user's words.`, "Which days can't you play golf?", { key: "unavailableDays", index });
     if (!golf.unavailableDays.includes(date)) golf.unavailableDays = [...golf.unavailableDays, date].sort();
     golf.pins = golf.pins.filter((pin) => pin.date !== date);
+    setOptional(golf, "practiceDays", (golf.practiceDays ?? []).filter((day) => day !== date));
     summary.push(`Golf: no golf ${shortWeekday(date)}`);
   }
   for (const ref of requireList(changes.availableDays ?? [], "availableDays", 7)) {
@@ -521,8 +692,9 @@ export function applyGolfChanges(previous, rawChanges, context) {
       }
       const minutes = Number(value);
       if (!Number.isInteger(minutes) || minutes < 10 || minutes > 240) throw new Error("minutes must be whole minutes from 10 to 240.");
-      if (!mentioned(date)) flag("minutes", `${name(date)} is not in the user's words.`);
-      if (!numberMentioned(minutes, sources)) flag("minutes", `${minutes} minutes is not in the user's words.`);
+      const question = `How much time do you have for golf on ${name(date)}?`;
+      if (!mentioned(date)) flag("minutes", `${name(date)} is not in the user's words.`, question, { key: "minutes", day: ref });
+      if (!numberMentioned(minutes, sources)) flag("minutes", `${minutes} minutes is not in the user's words.`, question, { key: "minutes", day: ref });
       golf.minutes = { ...golf.minutes, [date]: minutes };
       summary.push(`Golf: ${shortWeekday(date)} ${minutes} min`);
     }
@@ -540,13 +712,6 @@ export function applyGolfChanges(previous, rawChanges, context) {
     summary.push(kind === "range" ? "Golf: range sessions allowed" : "Golf: on-course practice allowed");
   }
 
-  // Never a seven-day golf week, even from named rounds and lessons: ask
-  // which day stays golf-free instead of dropping one the user named.
-  const golfDates = new Set([...golf.rounds, ...golf.lessons].map((entry) => entry.date));
-  if (golfDates.size >= 7) {
-    flag("rounds", "That would be golf on all seven days.", "That's golf every day next week. Which day should be golf-free?");
-  }
-
   // The first playing days or focus replace defaults nobody chose: the
   // practice and the golf-free day are planned around them afresh, worded
   // with the saved routines the chat reply may read (`context.saved`).
@@ -556,18 +721,71 @@ export function applyGolfChanges(previous, rawChanges, context) {
     if (saved !== undefined) golf.saved = saved;
   }
 
-  for (const raw of requireList(changes.moves ?? [], "moves", 7)) {
+  for (const [index, raw] of requireList(changes.moves ?? [], "moves", 7).entries()) {
     if (!plan) throw new Error("Golf sessions can be moved once the plan has been built and shown.");
     requireObject(raw, "golf move");
     rejectUnknownKeys(raw, ["from", "to"], "golf move");
     const from = resolve(raw.from);
     const to = resolve(raw.to);
     if (from === to) continue;
-    if (!mentioned(to)) flag("moves", `${name(to)} is not in the user's words.`);
+    if (!mentioned(to)) flag("moves", `${name(to)} is not in the user's words.`, "Which day should it move to?", { key: "moves", index });
     summary.push(moveGolfDay(golf, plan, from, to));
   }
 
+  // Golf named on every day of the week is the user's own seven-day week, and
+  // more named days than the week had raise its count: the newer words win.
+  const named = new Set([...golf.rounds, ...golf.lessons].map((entry) => entry.date).concat(golf.practiceDays ?? []));
+  if (golf.activeDays > 0 && named.size > golf.activeDays) {
+    if (activeDaysSet && !sevenFromNamedDays) {
+      flag("activeDays", `The user named golf on ${named.size} days but asked for ${golf.activeDays}.`, `You've named golf on ${named.size} days. How many golf days do you want?`, { key: "activeDays" });
+    } else {
+      summary.push(named.size >= MAX_GOLF_DAYS ? "Golf: every day, no golf-free day" : `Golf days ${golf.activeDays} → ${named.size}`);
+      golf.activeDays = named.size;
+      golf.activeDaysExplicit = true;
+      if (named.size >= MAX_GOLF_DAYS) golf.restDays = [];
+    }
+  }
+  if (sevenFromNamedDays && named.size < MAX_GOLF_DAYS) {
+    flag("activeDays", "The user did not ask for golf every day.", "Golf on all seven days next week, with no golf-free day?", { key: "activeDays" });
+  }
+
   return { golf, summary, problems };
+}
+
+/**
+ * The golf change without the values its problems refused (each problem's
+ * `drop`), so what the user did say can be planned while the rest is asked.
+ * A list that names all playing days or lessons is left out whole when one
+ * entry is refused, since what is left would say there are no others. Null
+ * when nothing is left.
+ */
+export function withoutRefusedGolfChanges(rawChanges, problems) {
+  const changes = structuredClone(rawChanges);
+  const entries = new Map();
+  for (const { drop } of problems) {
+    if (!drop || changes[drop.key] === undefined) continue;
+    const { key, index, field, day } = drop;
+    if (day !== undefined) {
+      delete changes[key][day];
+    } else if (index === undefined) {
+      delete changes[key];
+    } else if (field) {
+      if (changes[key][index] && typeof changes[key][index] === "object") delete changes[key][index][field];
+    } else {
+      if (!entries.has(key)) entries.set(key, new Set());
+      entries.get(key).add(index);
+    }
+  }
+  for (const [key, indexes] of entries) {
+    if (!Array.isArray(changes[key])) continue;
+    if (key === "rounds" || key === "lessons") delete changes[key];
+    else changes[key] = changes[key].filter((_, index) => !indexes.has(index));
+  }
+  for (const [key, value] of Object.entries(changes)) {
+    const emptied = Array.isArray(value) ? value.length === 0 && rawChanges[key]?.length > 0 : key === "minutes" && Object.keys(value).length === 0 && Object.keys(rawChanges.minutes).length > 0;
+    if (emptied) delete changes[key];
+  }
+  return Object.keys(changes).some((key) => key !== "replyText") ? changes : null;
 }
 
 /**
@@ -622,26 +840,31 @@ function moveGolfDay(golf, plan, from, to) {
   }
 
   // A practice session swaps with whatever is on the target day; moving it
-  // onto the golf-free day makes its old day the golf-free one.
+  // onto the golf-free day makes its old day the golf-free one, and a named
+  // practice day moves with it.
   golf.pins = golf.pins.filter((pin) => pin.date !== from && pin.date !== to);
   golf.pins.push({ date: to, kind: source.kind, focusIndex: source.focusIndex ?? null, explicit: true });
   if (target?.role === "practice") golf.pins.push({ date: from, kind: target.kind, focusIndex: target.focusIndex ?? null, explicit: true });
-  if (target?.role === "rest") golf.restDays = [from];
+  if (target?.role === "rest") {
+    golf.restDays = [from];
+    setOptional(golf, "practiceDays", (golf.practiceDays ?? []).map((date) => (date === from ? to : date)).sort());
+  }
   golf.pins.sort((a, b) => a.date.localeCompare(b.date));
   return `Golf: ${lowerFirst(source.label)} ${shortWeekday(from)} → ${shortWeekday(to)}`;
 }
 
-/** `holes` and `competition` stay undefined when the answer does not mention them. */
+/** `holes`, `competition` and `tentative` stay undefined when the answer does not mention them. */
 function normalizeRound(raw, resolve) {
   const value = requireObject(raw, "round");
-  rejectUnknownKeys(value, ["day", "holes", "competition"], "round");
+  rejectUnknownKeys(value, ["day", "holes", "competition", "tentative"], "round");
   let holes;
   if (value.holes !== undefined && value.holes !== null) {
     holes = Number(value.holes);
     if (!Number.isInteger(holes) || holes < 1 || holes > 36) throw new Error("Round holes must be a whole number from 1 to 36.");
   }
   if (value.competition !== undefined && typeof value.competition !== "boolean") throw new Error("Round competition must be true or false.");
-  return { date: resolve(value.day), holes, competition: value.competition };
+  if (value.tentative !== undefined && typeof value.tentative !== "boolean") throw new Error("Round tentative must be true or false.");
+  return { date: resolve(value.day), holes, competition: value.competition, tentative: value.tentative };
 }
 
 function normalizeLesson(raw, resolve) {
@@ -650,10 +873,16 @@ function normalizeLesson(raw, resolve) {
   return { date: resolve(value.day), note: value.note ? normalizeShortText(value.note, "lesson note", 80) : null };
 }
 
-function describeRound(round) {
+function describeRound(round, tentative = false) {
   const day = shortWeekday(round.date);
-  if (round.competition) return `${day} competition${round.holes ? ` (${round.holes} holes)` : ""}`;
-  return round.holes ? `${round.holes} holes ${day}` : `round ${day}`;
+  const text = round.competition ? `${day} competition${round.holes ? ` (${round.holes} holes)` : ""}` : round.holes ? `${round.holes} holes ${day}` : `round ${day}`;
+  return tentative ? `maybe ${text}` : text;
+}
+
+/** Optional golf lists stay out of the stored inputs while empty, so plans that never used them keep their shape. */
+function setOptional(golf, key, list) {
+  if (list.length > 0) golf[key] = list;
+  else delete golf[key];
 }
 
 // ---------------------------------------------------------------------------
@@ -726,20 +955,28 @@ export function deriveGolfWeek({ golf, weekStart, existing = [], dayLoads = {}, 
   };
   const anchors = dates.filter((date) => days.get(date).role);
   const candidates = dates.filter((date) => !days.get(date).role && !offReason(date));
+  // Practice days the user named are golf days, never the golf-free one.
+  const namedPractice = candidates.filter((date) => (golf.practiceDays ?? []).includes(date));
   // Days that have passed are not caught up: what is left of the week keeps a
-  // golf-free day instead of packing the missed golf days into it.
+  // golf-free day instead of packing the missed golf days into it, unless the
+  // user wants golf every day.
   const remaining = dates.filter((date) => !passed(date)).length;
   const wanted = noGolf ? 0 : golf.activeDays;
-  const target = remaining < dates.length ? Math.min(wanted, Math.max(0, remaining - 1)) : wanted;
+  const everyDayWanted = wanted >= MAX_GOLF_DAYS;
+  const target = remaining < dates.length ? Math.min(wanted, Math.max(0, remaining - (everyDayWanted ? 0 : 1))) : wanted;
   if (target < wanted) {
-    notes.push(`The week has already started, so the ${remaining} days left get ${target} golf day${target === 1 ? "" : "s"} and keep a golf-free day; missed golf days aren't caught up.`);
+    notes.push(
+      everyDayWanted
+        ? `The week has already started, so golf is planned on the ${remaining} days left; missed golf days aren't caught up.`
+        : `The week has already started, so the ${remaining} days left get ${target} golf day${target === 1 ? "" : "s"} and keep a golf-free day; missed golf days aren't caught up.`,
+    );
   }
-  let need = Math.max(0, target - anchors.length);
+  let need = Math.max(0, target - anchors.length, namedPractice.length);
   if (need > candidates.length) {
     notes.push(`Only room for ${anchors.length + candidates.length} golf days this week.`);
     need = candidates.length;
   }
-  if (anchors.length >= 7) notes.push("There's no golf-free day this week.");
+  if (anchors.length >= 7 && !everyDayWanted) notes.push("There's no golf-free day this week.");
 
   const isHigh = (day) => {
     if (!day) return false;
@@ -769,7 +1006,10 @@ export function deriveGolfWeek({ golf, weekStart, existing = [], dayLoads = {}, 
   };
   const restCount = candidates.length - need;
   const chosenRest = new Set(
-    [...candidates].sort((a, b) => restScore(a) - restScore(b) || b.localeCompare(a)).slice(0, restCount),
+    candidates
+      .filter((date) => !namedPractice.includes(date))
+      .sort((a, b) => restScore(a) - restScore(b) || b.localeCompare(a))
+      .slice(0, restCount),
   );
   for (const date of dates) {
     const day = days.get(date);
@@ -780,9 +1020,11 @@ export function deriveGolfWeek({ golf, weekStart, existing = [], dayLoads = {}, 
     else day.role = "practice";
   }
 
-  // How much each practice day can take.
+  // How much each practice day can take. Without a golf-free day left in the
+  // week, practice stays moderate, and light next to a full round.
   const fullRounds = dates.filter((date) => isHigh(days.get(date))).length;
   const practiceDates = dates.filter((date) => days.get(date).role === "practice");
+  const everyDay = practiceDates.length > 0 && dates.every((date) => passed(date) || !["rest", "off"].includes(days.get(date).role));
   for (const date of practiceDates) {
     const day = days.get(date);
     if (isCompetition(at(date, 1))) {
@@ -801,7 +1043,29 @@ export function deriveGolfWeek({ golf, weekStart, existing = [], dayLoads = {}, 
     if (isCompetition(at(date, 2))) lower("moderate");
     if (fullRounds >= 3) lower("light");
     else if (fullRounds === 2) lower("moderate");
+    if (everyDay) lower(isHigh(at(date, -1)) || isHigh(at(date, 1)) ? "light" : "moderate");
     day.intensity = cap;
+  }
+  // ...and at least every third golf day in a row is a light one.
+  if (everyDay) {
+    let streak = 0;
+    for (const date of dates.filter((candidate) => !passed(candidate))) {
+      const day = days.get(date);
+      if (day.role === "practice" && ["light", "prep"].includes(day.intensity)) {
+        streak = 0;
+      } else if (++streak >= 3 && day.role === "practice") {
+        day.intensity = "light";
+        streak = 0;
+      }
+    }
+  }
+  if (everyDay && everyDayWanted) {
+    const light = practiceDates.filter((date) => days.get(date).intensity === "light");
+    notes.push(
+      light.length > 0
+        ? `Golf every day, as you asked: practice stays moderate, and ${dayList(light).replace(/, ([^,]+)$/, " and $1")} ${light.length === 1 ? "is" : "are"} light.`
+        : "Golf every day, as you asked: practice stays moderate.",
+    );
   }
 
   // Which session goes where: the user's moves first, then the pool.
@@ -889,6 +1153,21 @@ export function deriveGolfWeek({ golf, weekStart, existing = [], dayLoads = {}, 
     }
   }
 
+  // A round the user only might play is noted on its day, which keeps what the
+  // plan has there: one golf task at most, and never an invented booking.
+  for (const round of golf.tentativeRounds ?? []) {
+    const day = days.get(round.date);
+    if (!day || !["practice", "rest"].includes(day.role)) continue;
+    day.possibleRound = { holes: round.holes ?? null, ...(round.competition ? { competition: true } : {}) };
+    const weekday = weekdayName(round.date);
+    const what = round.competition ? "competition" : round.holes ? `${round.holes}-hole round` : "round";
+    notes.push(
+      day.role === "practice"
+        ? `${weekday}'s ${what} is only a possibility, so ${weekday} keeps its practice. If it's on, tell me and I'll make ${weekday} the round.`
+        : `${weekday}'s ${what} is only a possibility, so ${weekday} stays golf-free. If it's on, tell me and I'll add it.`,
+    );
+  }
+
   const list = dates.map((date) => publicDay(days.get(date)));
   // What the week assumed because the user hasn't said it; absent when they
   // have, so a plan built from complete answers keeps its earlier shape.
@@ -921,6 +1200,7 @@ function publicDay(day) {
         ...(day.holes !== undefined ? { holes: day.holes } : {}),
         ...(day.limitMinutes !== undefined ? { limitMinutes: day.limitMinutes } : {}),
         pressure: day.pressure,
+        ...(day.possibleRound ? { possibleRound: day.possibleRound } : {}),
       };
     case "round":
     case "competition":
@@ -943,7 +1223,7 @@ function publicDay(day) {
     case "off":
       return { ...base, reason: day.reason };
     default:
-      return base;
+      return day.possibleRound ? { ...base, possibleRound: day.possibleRound } : base;
   }
 }
 
@@ -1021,6 +1301,7 @@ export function golfTask(day, week, settings) {
       lines.push("", `Session · ${day.minutes} min`, ...sessionBlocks(day, kindSettings).map(([text, minutes]) => `- ${text}: ${minutes} min`));
       if (day.limitMinutes) lines.push(`Only ${day.limitMinutes} min that day: do the blocks in order and stop there.`);
     }
+    if (day.possibleRound) lines.push("", "Possible round", `If the ${possibleRoundName(day.possibleRound)} is on, play it instead of this session.`);
     if (day.kind === "range") lines.push("", "Technical priority", week.technicalPriority ?? "Your current one from your lesson or coach.");
     lines.push("", "Mental focus", mental);
     if (day.kind === "comp-prep") {
@@ -1066,6 +1347,11 @@ export function golfTask(day, week, settings) {
   }
 
   throw new Error(`A ${day.role} day has no golf task.`);
+}
+
+function possibleRoundName(round) {
+  if (round.competition) return "competition";
+  return round.holes ? `${round.holes}-hole round` : "round";
 }
 
 function focusLine(day, week) {
@@ -1131,7 +1417,9 @@ export function describeGolfInput(golf) {
     if (round.competition) parts.push(`competition ${day}${round.holes ? ` (${round.holes} holes)` : ""}`);
     else parts.push(round.holes ? `${round.holes} holes ${day}` : `round ${day}`);
   }
+  for (const round of golf.tentativeRounds ?? []) parts.push(describeRound(round, true));
   for (const lesson of golf.lessons) parts.push(`lesson ${shortWeekday(lesson.date)}`);
+  if (golf.practiceDays?.length > 0) parts.push(`practice ${dayList(golf.practiceDays)}`);
   if (golf.focus?.mode === "areas") parts.push(`focus: ${golf.focus.areas.map(lowerFirst).join(", ")}`);
   if (golf.focus?.mode === "balance") parts.push("balanced practice");
   if (golf.technicalPriority) parts.push(`technical priority: ${lowerFirst(golf.technicalPriority)}`);
@@ -1140,7 +1428,7 @@ export function describeGolfInput(golf) {
   for (const [date, minutes] of Object.entries(golf.minutes).sort()) parts.push(`${shortWeekday(date)} ${minutes} min`);
   if (golf.avoid.includes("range")) parts.push("no range");
   if (golf.avoid.includes("on-course")) parts.push("no on-course practice");
-  if (golf.activeDaysExplicit && golf.activeDays !== MAX_GOLF_DAYS) parts.push(`${golf.activeDays} golf days`);
+  if (golf.activeDaysExplicit && golf.activeDays !== DEFAULT_GOLF_DAYS) parts.push(`${golf.activeDays} golf days`);
   return parts.join(" · ");
 }
 
@@ -1181,11 +1469,12 @@ function golfDayLine(day) {
 
 function golfDayText(day) {
   const name = shortWeekday(day.date);
+  const possible = day.possibleRound ? ` · possible ${day.possibleRound.competition ? "competition" : day.possibleRound.holes ? `${day.possibleRound.holes} holes` : "round"}` : "";
   switch (day.role) {
     case "practice": {
       const size = day.holes ? `${day.holes} holes` : `${day.limitMinutes ?? day.minutes} min`;
       const test = day.pressure && day.kind !== "scoring" ? " · pressure test" : "";
-      return `${name} — ${day.label} · ${size}${test}`;
+      return `${name} — ${day.label} · ${size}${test}${possible}`;
     }
     case "round":
       return `${name} — ${day.holes ? `${day.holes} holes` : "Round"} · process: ${day.objective.short}${day.lesson ? " · lesson" : ""}`;
@@ -1198,7 +1487,7 @@ function golfDayText(day) {
     case "off":
       return `${name} — No golf${OFF_REASONS[day.reason] ?? ""}`;
     default:
-      return `${name} — Rest`;
+      return `${name} — Rest${possible}`;
   }
 }
 
