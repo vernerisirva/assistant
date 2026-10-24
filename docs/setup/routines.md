@@ -71,7 +71,7 @@ Look at the coming week and what is still open from this one for:
 - decision: A meaningful decision the user has not made yet.
 - change: A new outside development, such as an email, a Calendar change or published news, that changes an existing plan.
 - deadline: A deadline that needs a choice, not just doing a task already planned in Todoist.
-- approval: An approval or essential missing information the user still owes.
+- approval: An approval or essential missing information the user still owes, such as a weekly plan held for an OK. A weekly plan in its review window is not one: it applies by itself.
 - conflict: A real scheduling conflict or an unforeseen blocker.
 - failure: A connection Hilla relies on that stopped working and needs the user to fix it, such as an expired sign-in.
 - not-news: Leave out what is already planned in Todoist or the weekly plan, exercise lists, start times, tips, motivation, recaps, generic priorities, and alerts already sent.

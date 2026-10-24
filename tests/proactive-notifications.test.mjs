@@ -366,6 +366,8 @@ describe("proactive notifications: a scheduled run", () => {
     );
 
     assert.match(run.brief.telegramPrompt, /- failure: A connection Hilla relies on that stopped working and needs the user to fix it, such as an expired sign-in; not a source that was merely unavailable this time\./);
+    // The first live check reported Saturday's plan, still in its review window, as an approval owed.
+    assert.match(run.brief.telegramPrompt, /- approval: An approval or essential missing information the user still owes, such as a weekly plan held for an OK; npm run --silent pending lists what Hilla is waiting for\. A weekly plan in its review window is not one: it applies by itself, and its own message already told the user\./);
     assert.equal(
       run.finalAnswer,
       "What changed: Todoist refuses Hilla's token since Thursday.\nWhy it matters: Saturday's weekly plan can't see or create tasks until it is renewed.\nDecision needed: Create a new Todoist token and update it in Hilla's settings.\nSource: Todoist API, 401 Unauthorized",

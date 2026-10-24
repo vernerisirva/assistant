@@ -308,7 +308,10 @@ function attentionSections() {
     section("decision", "A meaningful decision the user has not made yet."),
     section("change", "A new outside development, such as an email, a Calendar change or published news, that changes an existing plan."),
     section("deadline", "A deadline that needs a choice, not just doing a task already planned in Todoist."),
-    section("approval", "An approval or essential missing information the user still owes; npm run --silent pending lists what Hilla is waiting for."),
+    section(
+      "approval",
+      "An approval or essential missing information the user still owes, such as a weekly plan held for an OK; npm run --silent pending lists what Hilla is waiting for. A weekly plan in its review window is not one: it applies by itself, and its own message already told the user.",
+    ),
     section("conflict", "A real scheduling conflict or an unforeseen blocker."),
     section("failure", "A connection Hilla relies on that stopped working and needs the user to fix it, such as an expired sign-in; not a source that was merely unavailable this time."),
     section(
