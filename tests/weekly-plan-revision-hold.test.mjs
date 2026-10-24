@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runWeeklyPlanCli } from "../scripts/weekly-plan.mjs";
@@ -452,6 +452,24 @@ describe("weekly plan: a change the user asks for holds the shown version", () =
     assert.equal(old.status, "cancelled");
     assert.equal(old.history.at(-1).reason, "The change asked for wasn't finished before its week ended.");
     assert.equal(todoist.calls.addTask.length, 0);
+  });
+
+  it("waits for a held lock only as long as asked, and treats an unreadable lock like any other", async () => {
+    await showSaturdayPlan();
+    const lock = join(stateDir, "weekly-plan/locks", `${PLAN_ID}.lock`);
+    // A process that died between creating the lock and writing its owner.
+    writeFileSync(lock, "");
+    let slept = 0;
+    const store = createWeeklyPlanStore({ stateDir, lockPollMs: 250, sleep: async (ms) => (slept += ms) });
+    await assert.rejects(store.mutatePlan(PLAN_ID, async () => null, { waitMs: 1_000 }), { code: "PLAN_LOCKED" });
+    assert.equal(slept, 1_000, "it polled for the wait it was given, then stopped");
+    await assert.rejects(store.mutatePlan(PLAN_ID, async () => null), { code: "PLAN_LOCKED" });
+    assert.equal(slept, 1_000, "without a wait it doesn't poll at all");
+    // Once it is old and no live process owns it, it is taken over.
+    const old = new Date(Date.now() - 16 * 60_000);
+    utimesSync(lock, old, old);
+    assert.equal((await store.mutatePlan(PLAN_ID, async () => null)).planId, PLAN_ID);
+    assert.equal(existsSync(lock), false);
   });
 
   it("enforces the hold in the store itself", () => {
