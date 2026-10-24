@@ -434,8 +434,10 @@ describe("agent configuration", () => {
     assert.match(guide, /If `revise` reports an error, the change is still open and the plan stays on hold/);
     // After a plan was applied: honest, reuse what fits, one approval for the whole proposal, no new authorization.
     assert.match(guide, /## After A Plan Was Applied\n\n- A change or golf answer after the plan was applied cannot go through `revise`: its tasks already exist, and nothing is undone\./);
-    assert.match(guide, /Keep every task that already fits, never create the week again, and never add a duplicate\./);
-    assert.match(guide, /Each change follows the normal Todoist rules, not this routine's authorization/);
+    assert.match(guide, /it keeps every task that already fits, proposes exactly what to add, change \(title, details or date\) or remove, never creates the week again, adds nothing for an activity that day already has, and leaves tasks the user changed, completed, removed or made themselves as they are, saying so\. It changes nothing in Todoist\./);
+    assert.match(guide, /Only an explicit approval of that proposal \(`Approve`, `Yes`, `OK`\) carries it out: `npm run --silent weekly-plan -- reconcile-apply --plan-id ID --proposal-id rN --reply-text "EXACT_REPLY"`/);
+    assert.match(guide, /If Todoist changed in between, it changes nothing and says so/);
+    assert.match(guide, /This is the normal Todoist approval, not this routine's standing authorization: never edit, move or delete the plan's tasks any other way\./);
     // The everyday replies to a pending plan, each with where it goes.
     for (const reply of ["Gym three days instead", "Play 18 holes Saturday", "No salmon", "Make recipes in Finnish", "Move the rest day to Friday", "Looks good", "Skip this week"]) {
       assert.ok(guide.includes(`\`${reply}\``), reply);
