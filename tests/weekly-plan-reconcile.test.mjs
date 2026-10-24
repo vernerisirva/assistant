@@ -168,6 +168,9 @@ describe("weekly plan: a change after the plan was applied", () => {
     assert.match(proposal.telegramText, /^Weekly plan · 26 Oct–1 Nov: changes for your approval\nYour change: Gym Tue, Thu · Golf: \+ maybe 9 holes Fri/);
     assert.match(proposal.telegramText, /\n\nAdd:\n• Sun 1 Nov — Golf — 18-hole round\n/);
     assert.match(proposal.telegramText, /\n• Tue 27 Oct — Gym – Helkropp A, måndag → Gym – Helkropp A, tisdag \(title, date, from Mon\)\n/);
+    // New details are named in one line each, never pasted whole.
+    assert.match(proposal.telegramText, /\n• Mon 26 Oct — Golf practice — Wedges \(details\), now Session · 45 min\n/);
+    assert.match(proposal.telegramText, /\n• Sat 31 Oct — Golf practice — On-course practice → Golf — 18-hole round \(title, details\)\n/);
     assert.match(proposal.telegramText, /\nUnchanged: \d+ tasks already fit\.\n/);
     assert.match(proposal.telegramText, /\nAgent: Personal\nAction: Add 1 task, change \d+ in Todoist for the weekly plan of 26 Oct–1 Nov\nExpected effect: those tasks match your change; nothing else in Todoist changes\.\nRisk: changed tasks get the new title, details or date\.\nReply Approve to make exactly these changes, or No to leave the tasks as they are\.$/);
 

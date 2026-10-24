@@ -266,7 +266,7 @@ export function formatReconciliationProposal(document, record) {
   const lines = [`Weekly plan · ${week}: ${record.changes.length === 0 ? "nothing to change in Todoist" : "changes for your approval"}`];
   if (record.summary.length > 0) lines.push(`Your change: ${record.summary.join(" · ")}`);
   const of = (action) => record.changes.filter((change) => change.action === action);
-  if (of("create").length > 0) lines.push("", "Add:", ...of("create").map((change) => line(change.date, change.payload.content)));
+  if (of("create").length > 0) lines.push("", "Add:", ...of("create").map((change) => line(change.date, withGist(change.payload.content, change.payload.description))));
   if (of("update").length > 0) {
     lines.push(
       "",
@@ -274,7 +274,8 @@ export function formatReconciliationProposal(document, record) {
       ...of("update").map((change) => {
         const fields = [change.after.content !== change.before.content ? "title" : null, change.after.description !== change.before.description ? "details" : null, change.after.due !== change.before.due ? `date, from ${shortWeekday(change.before.due)}` : null].filter(Boolean);
         const title = change.after.content === change.before.content ? change.before.content : `${change.before.content} → ${change.after.content}`;
-        return line(change.date, `${title} (${fields.join(", ")})`);
+        const details = change.after.description !== change.before.description ? gist(change.after.description) : null;
+        return line(change.date, `${title} (${fields.join(", ")})${details ? `, now ${details}` : ""}`);
       }),
     );
   }
@@ -294,6 +295,21 @@ export function formatReconciliationProposal(document, record) {
     "Reply Approve to make exactly these changes, or No to leave the tasks as they are.",
   );
   return lines.join("\n");
+}
+
+/**
+ * The line of a task's details that says what it is now ("Session · 45 min",
+ * "Helkropp A – ben, press, drag och bål · cirka 50 minuter"), so an approval
+ * names the new content without pasting whole session plans into Telegram.
+ */
+function gist(description) {
+  const line = String(description ?? "").split("\n").map((text) => text.trim()).find((text) => text.includes(" · "));
+  return line ? (line.length > 80 ? `${line.slice(0, 77)}…` : line) : null;
+}
+
+function withGist(content, description) {
+  const details = gist(description);
+  return details ? `${content}: ${details}` : content;
 }
 
 const LEFT_ALONE = Object.freeze({
