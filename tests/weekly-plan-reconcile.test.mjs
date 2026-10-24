@@ -228,6 +228,12 @@ describe("weekly plan: a change after the plan was applied", () => {
     await reconcile(CHANGE);
     const record = plan().reconciliations[0];
     assert.ok(record.changes.some((change) => change.action === "create" && change.opId === `golf:${DAY.wed}`));
+    // Asking for that day by name brings it back, even when the session itself is unchanged.
+    const wednesday = await reconcile({ golf: { replyText: "I want golf practice on Wednesday after all", practiceDays: ["wednesday"] } });
+    const named = plan().reconciliations.find((entry) => entry.id === wednesday.proposalId);
+    assert.deepEqual(named.changes.map((change) => [change.action, change.opId]), [["create", `golf:${DAY.wed}`]]);
+    assert.match(wednesday.telegramText, /\n\nAdd:\n• Wed 28 Oct — Golf practice — /);
+    assert.match(wednesday.telegramText, /\nRisk: only new tasks are added; nothing already in Todoist changes\.\n/);
     // A change about something else leaves the removed session removed.
     const unrelated = await reconcile({ targets: { stretch: 4 } });
     const second = plan().reconciliations.find((entry) => entry.id === unrelated.proposalId);
