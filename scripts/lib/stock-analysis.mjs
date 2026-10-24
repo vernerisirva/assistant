@@ -615,10 +615,15 @@ function formatValue(metric, value) {
   return `${metric.currency} ${formatNumber(value)}${SCALE_SUFFIX[metric.scale]}`;
 }
 
+/** The basis worth saying: adjusted or organic, unless the figure's name already says it. Reported and other add nothing for the reader. */
+function basisTag(metric) {
+  if (metric.basis !== "adjusted" && metric.basis !== "organic") return "";
+  return new RegExp(`\\b${metric.basis}\\b`, "i").test(metric.name) ? "" : ` (${metric.basis})`;
+}
+
 /** "Net sales, Q3 2026: SEK 1 234.5m (Q3 2025: SEK 1 100m), +12.2%" or "Operating margin, Q3 2026: 12% (Q3 2025: 16%), −4.0 percentage points". */
 export function metricLine(metric) {
-  const basis = metric.basis === "reported" ? "" : ` (${metric.basis})`;
-  const base = `${metric.name}${basis}, ${metric.current.period}: ${formatValue(metric, metric.current.value)}`;
+  const base = `${metric.name}${basisTag(metric)}, ${metric.current.period}: ${formatValue(metric, metric.current.value)}`;
   if (!metric.prior) return base;
   const prior = ` (${metric.prior.period}: ${formatValue(metric, metric.prior.value)})`;
   const comparison = metric.comparison ?? compareMetric(metric);

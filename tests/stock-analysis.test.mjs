@@ -166,6 +166,17 @@ describe("analysis: units, signs and bases", () => {
     assert.deepEqual(compareMetric({ unit: "percent", current: { period: "Q3 2026", value: 12.4 }, prior: { period: "Q3 2025", value: 15.9 } }).change, -3.5);
   });
 
+  it("names the basis only when it tells the reader something the figure's name doesn't", () => {
+    const line = (overrides) => metricLine({ ...metric(), prior: null, ...overrides });
+    assert.equal(line({ name: "Adjusted net asset value", basis: "adjusted" }), "Adjusted net asset value, Q3 2026: SEK 1 234.5m");
+    assert.equal(line({ name: "Operating profit", basis: "adjusted" }), "Operating profit (adjusted), Q3 2026: SEK 1 234.5m");
+    const percent = { unit: "percent", currency: null, scale: null };
+    assert.equal(line({ ...percent, name: "Mölnlycke organic sales growth", basis: "organic", current: { period: "Q3 2026", value: 5 } }), "Mölnlycke organic sales growth, Q3 2026: 5%");
+    assert.equal(line({ ...percent, name: "Sales growth", basis: "organic", current: { period: "Q3 2026", value: 7 } }), "Sales growth (organic), Q3 2026: 7%");
+    assert.equal(line({ ...percent, name: "Total shareholder return", basis: "other", current: { period: "January–September 2026", value: 24 } }), "Total shareholder return, January–September 2026: 24%", "never “(other)”");
+    assert.equal(line({ name: "Disorganized inventory", basis: "organic" }), "Disorganized inventory (organic), Q3 2026: SEK 1 234.5m", "a whole word, not part of one");
+  });
+
   it("says when a figure is adjusted, and refuses a figure without its basis", () => {
     const result = validate(submission({ metrics: [metric({ id: "adjusted_margin", name: "Operating margin", unit: "percent", basis: "adjusted", currency: undefined, scale: undefined, current: { period: "Q3 2026", value: 12.4 }, prior: { period: "Q3 2025", value: 15.9 } })] }));
     assert.match(metricLine(result.analysis.metrics[0]), /^Operating margin \(adjusted\), Q3 2026: 12.4%/);

@@ -527,7 +527,7 @@ function ownershipLine(record) {
 }
 
 const SUGGESTIONS = {
-  report: { thesis: "Review the report before deciding whether your thesis needs revising.", plain: "Read the report's outlook section and management's comments on the figures." },
+  report: { thesis: "Review the report before deciding whether your thesis needs revising.", plain: "Read the report's outlook section and management's comments on the figures.", noOutlook: "Read management's comments on the figures." },
   profit_warning: "Read the company's explanation and compare it with the outlook in its last report.",
   guidance_upgrade: "Read what changed and compare it with the outlook in the last report.",
   guidance_change: "Read what changed and compare it with the outlook in the last report.",
@@ -543,11 +543,19 @@ const SUGGESTIONS = {
   report_date_changed: "Note the new date; a postponement can be worth a closer look when the report arrives.",
 };
 
-function suggestion(record, event) {
+function suggestion(record, event, analysis = null) {
   const entry = SUGGESTIONS[event.type];
   if (!entry) return "Read the official release.";
   if (typeof entry === "string") return entry;
-  return record.thesis ? entry.thesis : entry.plain;
+  if (record.thesis) return entry.thesis;
+  // A release without an outlook: don't send the reader looking for one.
+  return analysis?.guidance?.status === "none_given" ? entry.noOutlook : entry.plain;
+}
+
+/** The outlook in the release's own words, quoted; a release without one is said so in Hilla's words, never quoted. */
+function outlookLine(guidance) {
+  if (guidance.status === "none_given") return "Outlook: none given in the release.";
+  return `Outlook: ${GUIDANCE_TEXT[guidance.status]}${guidance.text ? `. “${guidance.text}”` : "."}`;
 }
 
 function documentLines(event, analysis) {
@@ -570,7 +578,7 @@ export function renderAnalysisAlert({ record, event, lifecycle, level, timezone 
   if (analysis.metrics.length > 0) {
     lines.push("", "Key figures (as reported unless marked):", ...analysis.metrics.slice(0, 8).map((metric) => `- ${metricLine(metric)}`));
   }
-  if (analysis.guidance) lines.push(`${analysis.metrics.length > 0 ? "" : "\n"}Outlook: ${GUIDANCE_TEXT[analysis.guidance.status]}${analysis.guidance.text ? `. “${analysis.guidance.text}”` : "."}`);
+  if (analysis.guidance) lines.push(`${analysis.metrics.length > 0 ? "" : "\n"}${outlookLine(analysis.guidance)}`);
   if (analysis.keyPoints.length > 0) lines.push("", "What stands out:", ...analysis.keyPoints.map((point) => `- ${point}`));
   if (analysis.importance?.reason) lines.push("", `Why it matters: ${analysis.importance.reason}`);
   if (analysis.deadlines.length > 0) lines.push("", "Deadlines stated in the release:", ...analysis.deadlines.map((deadline) => `- ${deadline.label}: ${shortDate(deadline.date)} ${deadline.date.slice(0, 4)}`));
@@ -580,7 +588,7 @@ export function renderAnalysisAlert({ record, event, lifecycle, level, timezone 
     lines.push("", `Your thesis: ${THESIS_TEXT[analysis.thesisImpact.outcome]}. ${analysis.thesisImpact.reason}`, "Your saved thesis stays as it is unless you change it.");
   }
   if (analysis.review.length > 0) lines.push("", "Worth reviewing:", ...analysis.review.map((item, index) => `${index + 1}. ${item}`));
-  lines.push("", `Next step: ${suggestion(record, event)}`);
+  lines.push("", `Next step: ${suggestion(record, event, analysis)}`);
   if (analysis.limitations.length > 0) lines.push(`Not covered: ${analysis.limitations.join(" ")}`);
   lines.push("", "Sources:", ...documentLines(event, analysis));
   return lines.join("\n");
