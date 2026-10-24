@@ -118,7 +118,7 @@ describe("routine job specs", () => {
       assert.match(job.message, new RegExp(`^Scheduled assistant routine: ${job.routineId}\\.`));
 
       const skipCommandIndex = job.message.indexOf("npm run --silent routines:skips -- --json");
-      const routineCommandIndex = job.message.indexOf(`npm run routine -- ${job.routineId}`);
+      const routineCommandIndex = job.message.indexOf(`npm run --silent routine -- ${job.routineId} --scheduled`);
       const noReplyIndex = job.message.indexOf(`If ${job.routineId} is skippedToday`);
       const contextGatheringIndex = job.message.indexOf("Gather or summarize live Calendar");
       const skipStoreIndex = job.message.search(/skip store/i);
@@ -136,8 +136,20 @@ describe("routine job specs", () => {
       assert.ok(skipStoreIndex < routineCommandIndex);
       assert.ok(skipStoreIndex < contextGatheringIndex);
       assert.match(job.message, /No side effects without approval/i);
-      assert.match(job.message, /feedback/i);
-      assert.match(job.message, /ask before storing/i);
+      // The message the job sends is the helper's notice: NO_REPLY unless something needs the user.
+      assert.match(job.message, /Nobody asked for this message: the user follows Todoist directly, so a task, workout or meal already planned there is no reason to write\./);
+      assert.ok(
+        job.message.includes(
+          `Pass your findings to npm run --silent routine -- ${job.routineId} --scheduled --findings-json-stdin <<'JSON' ... JSON and return its text exactly as your final answer; with nothing to report that text is NO_REPLY.`,
+        ),
+        job.routineId,
+      );
+      // A broken helper is a failure the user hears about, never a silent run.
+      assert.ok(
+        job.message.includes(`if it still fails, your final answer is one short line saying the ${job.routineId} routine could not run and why.`),
+        job.routineId,
+      );
+      assert.doesNotMatch(job.message, /feedback|timing, tone|detail level|Telegram check-in/i);
       assert.match(job.message, /Do not call Telegram\/message tools/i);
       assert.match(job.message, /cron delivery will send/i);
       assert.doesNotMatch(job.message, /Send Verneri/i);
