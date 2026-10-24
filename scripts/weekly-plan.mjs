@@ -94,6 +94,7 @@ import {
   createReconciliationTodoistGateway,
   formatReconciliationProposal,
   isReconcilable,
+  namedOperations,
   planReconciliation,
   reconciliationBase,
 } from "./lib/weekly-plan-reconcile.mjs";
@@ -1310,7 +1311,8 @@ async function reconcile(options, context) {
   if (read.error) throw new Error(`I couldn't read Todoist, so I can't compare the plan's tasks: ${read.error.message}. Nothing was changed.`);
   const open = new Set(read.tasks.map((task) => String(task.id)));
   const closed = await closedTaskStates(todoist, Object.values(base.expected).map((entry) => entry.taskId).filter((taskId) => !open.has(taskId)));
-  const planned = planReconciliation({ expected: base.expected, target: target.operations, openTasks: read.tasks, closed, today });
+  const named = namedOperations(changes, document.weekStart);
+  const planned = planReconciliation({ expected: base.expected, target: target.operations, openTasks: read.tasks, closed, named, today });
   const record = createReconciliationRecord(document, { base, summary: changed.summary, targetInputs: changed.inputs, targetOperations: target.operations, planned, now });
   if (record.changes.length === 0) {
     return { status: "unchanged", planId, proposalId: null, changes: 0, telegramText: formatReconciliationProposal(document, record) };

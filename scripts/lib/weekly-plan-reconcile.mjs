@@ -34,7 +34,7 @@ import { findTodoistDuplicates } from "./todoist-duplicates.mjs";
 import { localDateInTimeZone } from "./routine-skips.mjs";
 import { readOpenTasksWithRetry } from "./weekly-plan-apply.mjs";
 import { WEEKLY_PLAN_TIMEZONE, classifyExistingTask, formatWeekLabel, operationRequestId } from "./weekly-plan.mjs";
-import { MONTHS, shortWeekday } from "./weekly-plan-dates.mjs";
+import { MONTHS, resolvePlanDay, shortWeekday } from "./weekly-plan-dates.mjs";
 import { versionEntry } from "./weekly-plan-store.mjs";
 
 const RECONCILABLE_STATUSES = Object.freeze(["applied", "applied_with_errors"]);
@@ -89,10 +89,12 @@ export function reconciliationBase(document) {
  * @param target the operations of the week the user wants
  * @param openTasks the user's open Todoist tasks, read just now
  * @param closed for expected tasks that are no longer open: "done", "gone" or "unknown"
+ * @param named the operations the change names by day (namedOperations): a task
+ *   the user removed comes back for these, or when the change alters it
  * @param today nothing before this local date is added, changed or removed
  * @returns `{ changes, kept, leftAlone }`
  */
-export function planReconciliation({ expected, target, openTasks, closed = new Map(), today }) {
+export function planReconciliation({ expected, target, openTasks, closed = new Map(), named = new Set(), today }) {
   const open = new Map(openTasks.filter((task) => task && task.id !== undefined).map((task) => [String(task.id), task]));
   const targetIds = new Set(target.map((operation) => operation.opId));
   const changes = [];
@@ -133,7 +135,7 @@ export function planReconciliation({ expected, target, openTasks, closed = new M
         continue;
       }
       // Removed in Todoist: it comes back only when this change is about it.
-      if (fits(before, operation.payload)) {
+      if (fits(before, operation.payload) && !named.has(operation.opId)) {
         note({ ...operation, title: before.content }, "removed");
         continue;
       }
@@ -217,6 +219,29 @@ function update(operation, taskId, task, fromOpId = null) {
   };
 }
 
+/**
+ * The plan operations a change names by day: "practice on Wednesday", a round
+ * or lesson, a move's new day, "gym on Tuesday and Thursday".
+ */
+export function namedOperations(changes, weekStart) {
+  const named = new Set();
+  const add = (activity, ref) => {
+    try {
+      named.add(`${activity}:${resolvePlanDay(ref && typeof ref === "object" ? ref.day : ref, weekStart)}`);
+    } catch {
+      // The change was validated before; a day that doesn't resolve names nothing.
+    }
+  };
+  const golf = changes?.golf ?? {};
+  for (const key of ["practiceDays", "addRounds", "rounds", "addLessons", "lessons"]) {
+    if (Array.isArray(golf[key])) golf[key].forEach((entry) => add("golf", entry));
+  }
+  for (const move of golf.moves ?? []) add("golf", move?.to);
+  for (const [activity, refs] of Object.entries(changes?.activityDays ?? {})) (refs ?? []).forEach((ref) => add(activity, ref));
+  for (const move of changes?.moves ?? []) if (move?.activity) add(move.activity, move.to);
+  return named;
+}
+
 /** A stored proposal: what changes, from what, and what stays. */
 export function createReconciliationRecord(document, { base, summary, targetInputs, targetOperations, planned, now }) {
   const ids = (document.reconciliations ?? []).length + 1;
@@ -286,12 +311,16 @@ export function formatReconciliationProposal(document, record) {
   if (record.kept.length > 0) lines.push("", `Unchanged: ${record.kept.length} task${record.kept.length === 1 ? "" : "s"} already fit${record.kept.length === 1 ? "s" : ""}.`);
   if (record.changes.length === 0) return lines.join("\n");
   const removals = of("delete").length;
+  const risks = [
+    of("update").length > 0 ? "changed tasks get the new title, details or date" : null,
+    removals > 0 ? `${removals === 1 ? "the removed task is" : "removed tasks are"} deleted` : null,
+  ].filter(Boolean);
   lines.push(
     "",
     "Agent: Personal",
     `Action: ${describeCounts(record.changes)} in Todoist for the weekly plan of ${week}`,
     "Expected effect: those tasks match your change; nothing else in Todoist changes.",
-    `Risk: changed tasks get the new title, details or date${removals > 0 ? `, and ${removals === 1 ? "the removed task is" : "removed tasks are"} deleted` : ""}.`,
+    `Risk: ${risks.length > 0 ? risks.join(", and ") : "only new tasks are added; nothing already in Todoist changes"}.`,
     "Reply Approve to make exactly these changes, or No to leave the tasks as they are.",
   );
   return lines.join("\n");
