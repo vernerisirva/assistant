@@ -128,6 +128,20 @@
     ],
     "unreadableSourceIs": "reported-as-unchecked"
   },
+  "weeklyPlanReconciliation": {
+    "appliesTo": "the-applied-weekly-plans-own-tasks-for-its-week",
+    "writesRequire": "explicit-approval-of-the-exact-stored-proposal",
+    "allowedChanges": ["create-task", "change-title-description-or-date", "delete-task"],
+    "refusesStaleApproval": true,
+    "leavesAlone": [
+      "tasks-changed-since-the-plan-made-them",
+      "completed-tasks",
+      "tasks-the-user-removed-unless-the-change-is-about-them",
+      "tasks-the-plan-did-not-make"
+    ],
+    "neverRecreatesTheWeek": true,
+    "partOfStandingAuthorization": false
+  },
   "travelResearch": {
     "skill": "travel-deals",
     "readOnly": true,

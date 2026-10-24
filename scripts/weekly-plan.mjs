@@ -9,6 +9,9 @@
  *   revise    store a new version from structured changes and restart the review window;
  *             holds the shown version first, and keeps it held while a question is open
  *   keep      the user keeps the shown version and drops the change they asked for
+ *   reconcile        after the plan was applied: propose the exact Todoist changes a new
+ *                    change needs (add, change, remove), stored for approval; changes nothing
+ *   reconcile-apply  make exactly a stored proposal's changes after the user's explicit approval
  *   accept    apply the displayed version now after an explicit OK
  *   cancel    cancel a draft or pending plan; nothing is created
  *   show      print the current version
@@ -84,6 +87,16 @@ import {
   versionEntry,
 } from "./lib/weekly-plan-store.mjs";
 import { applyWeeklyPlan, createWeeklyPlanTodoistGateway, readOpenTasksWithRetry } from "./lib/weekly-plan-apply.mjs";
+import {
+  addReconciliation,
+  applyReconciliation,
+  createReconciliationRecord,
+  createReconciliationTodoistGateway,
+  formatReconciliationProposal,
+  isReconcilable,
+  planReconciliation,
+  reconciliationBase,
+} from "./lib/weekly-plan-reconcile.mjs";
 import { buildWeeklyPlanCronCommands, buildWeeklyPlanCronJobs, weeklyPlanJobStatus } from "./lib/weekly-plan-cron.mjs";
 import { localDateInTimeZone } from "./lib/routine-skips.mjs";
 import { listMemoryEntries } from "./lib/memory.mjs";
@@ -92,7 +105,7 @@ import { DEFAULT_RECIPE_LANGUAGE, RecipeInputError, formatRecipeClarification, l
 const execFileAsync = promisify(execFile);
 const currentFile = fileURLToPath(import.meta.url);
 const projectRoot = resolve(dirname(currentFile), "..");
-const COMMANDS = ["propose", "answer", "revise", "keep", "accept", "cancel", "show", "status", "apply-due", "install", "guide", "help"];
+const COMMANDS = ["propose", "answer", "revise", "keep", "accept", "cancel", "show", "status", "apply-due", "reconcile", "reconcile-apply", "install", "guide", "help"];
 /** How long a chat command waits for a check that is applying the same plan. */
 const CHAT_LOCK_WAIT_MS = 60_000;
 export const WEEKLY_PLAN_GUIDE_PATH = "agents/personal/guides/weekly-plan.md";
@@ -112,6 +125,7 @@ export function parseWeeklyPlanArgs(argv) {
     "--version": "version",
     "--reply-text": "replyText",
     "--reason": "reason",
+    "--proposal-id": "proposalId",
     "--input-json": "inputJson",
     "--changes-json": "changesJson",
     "--now": "now",
@@ -162,6 +176,9 @@ export function parseWeeklyPlanArgs(argv) {
   if (command === "keep" && options.version === undefined) {
     throw new Error("keep requires --version, the version the user was looking at.");
   }
+  if (command === "reconcile-apply" && (options.proposalId === undefined || options.replyText === undefined)) {
+    throw new Error("reconcile-apply requires --proposal-id (from reconcile) and --reply-text (the user's exact reply).");
+  }
   if (command === "answer" && !options.inputJson && !options.inputJsonStdin) {
     throw new Error('answer requires --input-json or --input-json-stdin with {"golf": {"replyText": "...", ...}}.');
   }
@@ -204,6 +221,10 @@ export async function runWeeklyPlanCli(argv, overrides = {}) {
       return status(parsed.options, context);
     case "apply-due":
       return applyDue(parsed.options, context);
+    case "reconcile":
+      return reconcile(parsed.options, context);
+    case "reconcile-apply":
+      return reconcileApply(parsed.options, context);
     case "install":
       return install(parsed.options, context);
     case "guide":
@@ -1236,6 +1257,145 @@ async function applyDue(options, context) {
     }
   }
   return { text: summaries.length > 0 ? summaries.join("\n\n") : "NO_REPLY", failures };
+}
+
+/**
+ * A change after the plan was applied. Its tasks exist, so nothing is
+ * revised or undone: the week the user now wants is built with the same
+ * planner from the applied version and their change (grounded in their words),
+ * compared with the plan's tasks as Todoist holds them now, and the exact
+ * changes are stored as one proposal for the user's approval. Nothing in
+ * Todoist changes here.
+ */
+async function reconcile(options, context) {
+  const changes = await readJsonOption(options.changesJson, options.changesJsonStdin, context.stdin, "changes");
+  if (!changes || typeof changes !== "object" || Array.isArray(changes)) {
+    throw new Error("reconcile needs --changes-json or --changes-json-stdin with a JSON object.");
+  }
+  const store = context.store;
+  const { config, food } = context.planning();
+  const { timezone } = context.settings();
+  const now = context.now();
+  const today = localDateInTimeZone(now, timezone);
+  const planId = options.planId ?? resolveAppliedPlanId(store, today);
+  const document = store.readPlan(planId);
+  if (!isReconcilable(document)) {
+    throw new Error(
+      ["draft", "pending"].includes(document.status)
+        ? "That plan hasn't been applied yet; change it with revise."
+        : `The weekly plan for ${formatWeekLabel(document.weekStart)} is ${document.status}, so its tasks can't be reconciled.`,
+    );
+  }
+  const base = reconciliationBase(document);
+  const routines = changes.golf ? readSavedGolfRoutines(context.memoryPath) : null;
+  const golfContext = routines
+    ? { today, previousWeek: previousGolfWeek(store.listPlans(), document.weekStart), normalWeekText: routines.normalWeek, saved: routines.saved }
+    : { today };
+  let changed;
+  try {
+    changed = applyWeeklyPlanChanges(base.inputs, base.plan ?? buildWeeklyPlan(base.inputs, { config, food, today }), changes, { config, food, golfContext });
+  } catch (error) {
+    if (error instanceof GolfInputError) return clarification(planId, error.problems);
+    if (error instanceof RecipeInputError) return recipeClarification(planId, error);
+    throw error;
+  }
+  const target = buildWeeklyPlan(changed.inputs, { config, food, today });
+  await resolveConfiguredTarget(target, config, context);
+
+  const todoist = createReconciliationTodoistGateway(context.todoist());
+  const read = await readOpenTasksWithRetry(todoist, {
+    ...(context.sleep ? { sleep: context.sleep } : {}),
+    ...(context.retryDelaysMs ? { retryDelaysMs: context.retryDelaysMs } : {}),
+  });
+  if (read.error) throw new Error(`I couldn't read Todoist, so I can't compare the plan's tasks: ${read.error.message}. Nothing was changed.`);
+  const open = new Set(read.tasks.map((task) => String(task.id)));
+  const closed = await closedTaskStates(todoist, Object.values(base.expected).map((entry) => entry.taskId).filter((taskId) => !open.has(taskId)));
+  const planned = planReconciliation({ expected: base.expected, target: target.operations, openTasks: read.tasks, closed, today });
+  const record = createReconciliationRecord(document, { base, summary: changed.summary, targetInputs: changed.inputs, targetOperations: target.operations, planned, now });
+  if (record.changes.length === 0) {
+    return { status: "unchanged", planId, proposalId: null, changes: 0, telegramText: formatReconciliationProposal(document, record) };
+  }
+  let proposal = record;
+  const stored = await store.mutatePlan(
+    planId,
+    async (current) => {
+      if (!isReconcilable(current) || reconciliationBase(current).from !== base.from) {
+        throw new Error("The plan's tasks changed while I compared them. Nothing was changed; ask again.");
+      }
+      proposal = { ...record, id: `r${(current.reconciliations ?? []).length + 1}` };
+      return addReconciliation(current, proposal);
+    },
+    { waitMs: context.lockWaitMs },
+  );
+  return {
+    status: "proposed",
+    planId,
+    proposalId: proposal.id,
+    changes: proposal.changes.length,
+    telegramText: formatReconciliationProposal(stored, proposal),
+    message: `Reply with telegramText exactly. Only an explicit approval of it (Approve, Yes, OK) is carried out, with reconcile-apply --plan-id ${planId} --proposal-id ${proposal.id} --reply-text "EXACT_REPLY"; anything else changes nothing.`,
+  };
+}
+
+/** Makes exactly a stored proposal's changes, after the user's explicit approval of it. */
+async function reconcileApply(options, context) {
+  const store = context.store;
+  const planId = options.planId ?? resolveProposalPlanId(store, options.proposalId);
+  const result = await applyReconciliation({
+    store,
+    planId,
+    proposalId: options.proposalId,
+    replyText: options.replyText,
+    todoist: createReconciliationTodoistGateway(context.todoist()),
+    now: context.now,
+    ...(context.sleep ? { sleep: context.sleep } : {}),
+    ...(context.retryDelaysMs ? { retryDelaysMs: context.retryDelaysMs } : {}),
+    timezone: context.settings().timezone,
+    lockWaitMs: context.lockWaitMs,
+  });
+  if (result.status === "not_approved") {
+    return {
+      status: "not_approved",
+      planId,
+      telegramText: null,
+      message: "The reply is not an explicit approval, so nothing was changed. If they said no, reply that the tasks stay as they are.",
+    };
+  }
+  return { status: result.status, planId, proposalId: options.proposalId, telegramText: result.telegramText };
+}
+
+/** Whether a plan task that is no longer open was completed ("done") or removed ("gone"); "unknown" when Todoist doesn't say. */
+async function closedTaskStates(todoist, taskIds) {
+  const states = new Map();
+  for (const taskId of taskIds) {
+    try {
+      const task = await todoist.getTask(taskId);
+      states.set(taskId, task?.checked || task?.is_completed || task?.completed_at ? "done" : task?.is_deleted ? "gone" : "unknown");
+    } catch (error) {
+      states.set(taskId, /request failed: 404\b/.test(String(error?.message)) ? "gone" : "unknown");
+    }
+  }
+  return states;
+}
+
+/** This or next week's applied plan: the one a change after the apply is about. */
+function resolveAppliedPlanId(store, today) {
+  const current = store.listPlans().filter((plan) => plan.weekEnd >= today);
+  const plans = current.filter(isReconcilable);
+  if (plans.length === 1) return plans[0].planId;
+  if (plans.length > 1) throw new Error(`Several applied weekly plans are current (${plans.map((plan) => plan.planId).join(", ")}); pass --plan-id.`);
+  if (current.some((plan) => ["draft", "pending"].includes(plan.status))) throw new Error("That plan hasn't been applied yet; change it with revise.");
+  throw new Error("There is no applied weekly plan for this or next week.");
+}
+
+/** The plan a proposal belongs to: the one where it is open, else the only one that has it (so a repeat says what became of it). */
+function resolveProposalPlanId(store, proposalId) {
+  const plans = store.listPlans().filter((plan) => (plan.reconciliations ?? []).some((record) => record.id === proposalId));
+  const open = plans.filter((plan) => plan.reconciliations.some((record) => record.id === proposalId && ["proposed", "applying"].includes(record.status)));
+  if (open.length === 1) return open[0].planId;
+  if (open.length > 1 || plans.length > 1) throw new Error(`Several weekly plans have a proposal ${proposalId}; pass --plan-id.`);
+  if (plans.length === 1) return plans[0].planId;
+  throw new Error(`There is no open proposal ${proposalId}. Ask again and I'll compare the tasks afresh.`);
 }
 
 async function install(options, context) {
