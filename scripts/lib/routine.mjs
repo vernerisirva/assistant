@@ -8,8 +8,6 @@
  * `buildRoutineNotice`. That text is what the job sends: the findings in one
  * fixed shape, or NO_REPLY, which the Gateway's cron delivery never posts.
  */
-import { localDateInTimeZone } from "./routine-skips.mjs";
-
 const titleByRoutine = {
   "morning-brief": "Morning Brief",
   "midday-check-in": "Midday Check-In",
@@ -139,11 +137,11 @@ export function buildRoutineNotice(routineId, findings, { schedules, now = new D
     throw new Error('Findings must be a JSON object like {"items": []}.');
   }
 
-  const today = localDateInTimeZone(now, schedules.timezone);
+  const localNow = localMinute(now, schedules.timezone);
   const included = [];
   const dropped = [];
   findings.items.forEach((raw, index) => {
-    const { item, problems } = checkNoticeItem(raw, today);
+    const { item, problems } = checkNoticeItem(raw, localNow);
     if (problems.length === 0 && included.length >= NOTICE_LIMITS.items) {
       problems.push(`more than ${NOTICE_LIMITS.items} items; send only the most important`);
     }
@@ -159,7 +157,25 @@ export function buildRoutineNotice(routineId, findings, { schedules, now = new D
   };
 }
 
-function checkNoticeItem(raw, today) {
+// "YYYY-MM-DD HH:mm" on the user's clock, which orders like the deadlines it is compared with.
+function localMinute(now, timezone) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(now)
+      .map((part) => [part.type, part.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
+}
+
+function checkNoticeItem(raw, localNow) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { item: null, problems: ["not an object"] };
 
   const text = (field) => (typeof raw[field] === "string" ? raw[field].replace(/\s+/g, " ").trim() : "");
@@ -187,7 +203,7 @@ function checkNoticeItem(raw, today) {
   if (raw.deadline !== undefined && raw.deadline !== null && raw.deadline !== "") {
     const deadline = parseDeadline(raw.deadline);
     if (!deadline) problems.push("deadline must be YYYY-MM-DD or YYYY-MM-DD HH:mm");
-    else if (deadline.day < today) problems.push("the deadline has passed");
+    else if (deadline.day < localNow.slice(0, 10) || (deadline.time && `${deadline.day} ${deadline.time}` <= localNow)) problems.push("the deadline has passed");
     else item.deadline = deadline;
   } else if (item.kind === "deadline") {
     problems.push("a deadline needs its verified date");

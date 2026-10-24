@@ -305,6 +305,15 @@ describe("scheduled routine notice", () => {
     );
   });
 
+  it("drops a deadline that passed earlier today, on the user's clock", () => {
+    // 17:00 UTC on 25 Oct 2026 is 18:00 in Stockholm, the day summer time ends.
+    for (const deadline of ["2026-10-25 09:00", "2026-10-25 18:00"]) {
+      assert.deepEqual(notice([{ ...decision, deadline }]).dropped, [{ index: 0, problems: ["the deadline has passed"] }], deadline);
+    }
+    assert.equal(notice([{ ...decision, deadline: "2026-10-25 19:00" }]).text.split("\n")[3], "Deadline: Sun 25 Oct 2026, 19:00");
+    assert.equal(notice([{ ...decision, deadline: "2026-10-25" }]).included, 1, "a deadline later today without a time still counts");
+  });
+
   it("sends at most three findings and keeps each one to its lines", () => {
     const result = notice([1, 2, 3, 4].map((n) => ({ ...decision, whatChanged: `Offer ${n}\n\narrived from Golfresor.`, deadline: null })));
     assert.equal(result.included, 3);
