@@ -62,24 +62,44 @@ Weekly review:
 npm run routine -- weekly-review
 ```
 
-Example weekly review output shape:
+The weekly review is a decision check, not a recap. Example output shape:
 
 ```text
 Weekly Review (personal)
 
-Cover:
-- week-recap: Summarize 1-2 important things that happened this week.
-- unfinished-tasks: List 1-2 unfinished Todoist/admin threads.
-- calendar-pressure: Flag 1-2 upcoming Calendar pressure points.
-- health-routines: Summarize workouts, golf, sleep, food, and groceries.
-- important-decisions: Name 1-2 decisions to make.
-- top-3-priorities: Choose the top 3 priorities for next week.
-- stop-or-simplify: Choose one thing to stop, simplify, defer, or make easier.
+Look at the coming week and what is still open from this one for:
+- decision: A meaningful decision the user has not made yet.
+- change: A new outside development, such as an email, a Calendar change or published news, that changes an existing plan.
+- deadline: A deadline that needs a choice, not just doing a task already planned in Todoist.
+- approval: An approval or essential missing information the user still owes.
+- conflict: A real scheduling conflict or an unforeseen blocker.
+- not-news: Leave out what is already planned in Todoist or the weekly plan, exercise lists, start times, tips, motivation, recaps, generic priorities, and alerts already sent.
 
 Weekly review rules:
+- At most 3 items, each as What changed, Why it matters and Decision needed, with a Deadline or Source when known. If nothing qualifies, say so in one line.
 - Proposed actions only: Todoist or Calendar changes require confirmation.
 - Do not modify Todoist, Calendar, Gmail, memory, or routines from the weekly review.
 ```
+
+### Scheduled runs write only when something needs the user
+
+The user follows Todoist directly, so a scheduled routine never repeats what is planned there. Its job runs the helper with `--scheduled`:
+
+```bash
+npm run --silent routine -- weekly-review --scheduled
+```
+
+That template, for any routine, looks only for the five kinds above (a decision, a change, a deadline that needs a choice, an approval or missing information, a conflict), in the routine's own window: today, the rest of today, this evening, tomorrow, or the coming week. The agent hands what it found to the notice and returns the notice's `text` as the job's final answer:
+
+```bash
+npm run --silent routine -- weekly-review --scheduled --findings-json-stdin <<'JSON'
+{"items": [{"kind": "decision", "whatChanged": "…", "whyItMatters": "…", "decision": "…", "deadline": "2026-10-29", "source": "Gmail, 25 Oct"}]}
+JSON
+```
+
+The notice writes each finding as `What changed`, `Why it matters` and `Decision needed`, then `Deadline` and `Source` when given, at most three findings. It drops, with the reason, a finding of another kind, one missing a part, a change without its source, a deadline item without a date, a deadline that is malformed or has passed, an exercise prescription such as `3 × 8`, and a question about Hilla's own messages. With nothing left the text is exactly `NO_REPLY`, which the Gateway's cron delivery never posts; the run history records such a run as `not-delivered`.
+
+A routine the user asks for in chat is still the full briefing: `npm run routine -- workout-window` gives a complete session, and a weekly review asked for says in one line when nothing needs a decision.
 
 ### Where scheduled jobs live
 
@@ -105,7 +125,7 @@ The install is an upsert by exact job name, `Assistant routine: <id>`:
 - an existing routine is edited in place, and only in the fields that differ from `config/schedules.json`;
 - a routine that already matches is left alone, so a second install changes nothing.
 
-Jobs with other names are never touched. If two live jobs share a routine's name, the install stops before changing anything. Afterwards it lists the jobs again and reports any routine that still differs and any other job that changed. By default, midday check-in, workout-window, and weekly review are enabled; morning brief and evening review are installed disabled to keep automatic daily messages quieter.
+Jobs with other names are never touched. If two live jobs share a routine's name, the install stops before changing anything. Afterwards it lists the jobs again and reports any routine that still differs and any other job that changed. By default only the Sunday weekly review is enabled. The morning brief, midday check-in, workout window and evening review are installed disabled, because the user follows the planned day in Todoist; each one still answers on request. An install switches a disabled routine off again, so turning one back on for good means changing `config/schedules.json`.
 
 Review scheduled routine status:
 
@@ -245,7 +265,24 @@ The assistant may summarize, draft, recommend, and check in. Side effects still 
 
 The assistant may run quiet-ops status and audit commands for questions like "what automatic messages are scheduled?" or "audit notification noise." Disabling, enabling, changing a time, or rescheduling a reminder is a side effect: the assistant must show the exact job id or exact job name and wait for Telegram approval before running the command.
 
-Scheduled check-ins should include a small feedback invitation about timing, tone, or detail level. If that feedback suggests a stable preference, the assistant must ask before storing it as memory.
+Scheduled messages never ask about their own timing, tone or detail level; the user can ask for a change at any time. If the user's feedback looks like a stable preference, the assistant asks before storing it as memory.
+
+## Unasked Messages
+
+Todoist holds the planned work and its details, and the user follows it directly. Telegram is Hilla's attention and decision channel. A message the user did not ask for needs at least one of:
+
+1. new material information;
+2. a concrete decision the user has to make;
+3. an approaching deadline the existing plan does not cover;
+4. an approval, or essential missing information;
+5. an unexpected failure that needs attention;
+6. a scheduled planning proposal or a reminder the user asked for.
+
+A task already planned in Todoist is not a reason. Hilla does not send "today is gym day", a session's exercises, a start time, water or kit tips, meal-prep nudges, motivation or productivity tips, or recaps; without a reason the answer is exactly `NO_REPLY`. New information about something that also has a task is still news: when a report the user plans to read changes the picture, the alert says what changed, not what the task says.
+
+An unasked message reads `What changed`, `Why it matters`, `Decision needed`, then `Deadline` only when it is relevant and verified and `Source` for outside information, with no advice, encouragement or closing question. The Saturday weekly plan is the exception: it shows the exact stored plan, because what was shown is what applies. Stock and renewal alerts keep their own wording and their own once-only tracking.
+
+The agent-facing copy of this policy is the `Unasked messages` section of `agents/personal/SOUL.md`, which OpenClaw puts in the personal agent's system prompt; the personal standing orders hold a one-line rule. Questions the user asks (what is in Todoist today, show my workout, remind me to train tonight, help me plan my day) are answered normally.
 
 ## Memory Boundary
 

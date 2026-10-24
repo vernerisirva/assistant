@@ -480,13 +480,41 @@ describe("agent configuration", () => {
     assert.match(line, /use its output as a Telegram briefing template, gathering live calendar, Gmail, Todoist, health, and memory context as needed/);
   });
 
-  it("teaches the personal agent scheduled routine feedback boundaries", () => {
+  it("keeps unasked messages to what needs the user, with no feedback questions", () => {
     const personalAgent = agents.find((agent) => agent.id === "personal");
     const prompt = readFileSync(`${personalAgent.promptDir}/AGENTS.md`, "utf8");
+    const soul = readFileSync(`${personalAgent.promptDir}/SOUL.md`, "utf8");
 
     assert.match(prompt, /scheduled routine/i);
-    assert.match(prompt, /timing, tone, or detail/i);
+    assert.match(
+      prompt,
+      /- Unasked messages follow SOUL\.md: a reminder the user set always goes, a planned Todoist task is not news, and without news, a decision, an approval or a failure reply exactly NO_REPLY\. Never ask about timing, tone or detail\.\n/,
+    );
+    assert.doesNotMatch(prompt, /may ask brief feedback/i);
     assert.match(prompt, /do not silently remember/i);
+
+    // OpenClaw puts SOUL.md in the system prompt, outside the project-doc
+    // budget, so the whole policy lives there.
+    assert.match(soul, /\n## Unasked messages\n/);
+    for (const reason of [
+      "new material information",
+      "a concrete decision the user has to make",
+      "an approaching deadline the existing plan does not cover",
+      "an approval, or essential missing information",
+      "an unexpected failure that needs attention",
+      "a planning proposal or a reminder the user asked for",
+    ]) {
+      assert.ok(soul.includes(reason), reason);
+    }
+    assert.match(soul, /A task already planned in Todoist is not a reason\./);
+    assert.match(soul, /"today is gym day", tasks or exercise lists the user already has, start times, water or kit tips, meal-prep nudges, motivation or productivity tips/);
+    assert.match(soul, /reply exactly NO_REPLY and nothing else, and never make up a decision to have something to send/);
+    assert.match(soul, /News about something that also has a task is still news: .*say what changed, not what the task says\./);
+    assert.match(soul, /What changed \(one or two sentences\), Why it matters and Decision needed/);
+    assert.match(soul, /Deadline only when it is relevant and verified, and the Source for outside information/);
+    assert.match(soul, /no closing question about timing, tone or detail: the user can ask for changes any time/);
+    assert.match(soul, /The Saturday weekly plan shows its exact stored plan, and stock and renewal alerts keep their own wording\./);
+    assert.match(soul, /When the user asks, .*answer normally and use Todoist freely\./);
     assert.match(prompt, /routines:status/);
     assert.match(prompt, /routines:disable/);
     assert.match(prompt, /routines:set-time/);

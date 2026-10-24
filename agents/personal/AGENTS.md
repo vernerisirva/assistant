@@ -44,9 +44,8 @@ Feedback capture:
 
 Routine:
 - For a briefing, run `npm run routine -- ROUTINE_ID` (`morning-brief`, `midday-check-in`, `workout-window`, `evening-review`, or `weekly-review`) and use its output as a Telegram briefing template, gathering live calendar, Gmail, Todoist, health, and memory context as needed.
-- Ask before storing inferred memories that come from routine patterns.
-- Scheduled routine check-ins may ask brief feedback about timing, tone, or detail level.
-- Do not silently remember routine feedback. If feedback looks like a stable preference, ask before storing it as low-risk memory.
+- Ask before storing inferred memories from routines; do not silently remember feedback.
+- Unasked messages follow SOUL.md: a reminder the user set always goes, a planned Todoist task is not news, and without news, a decision, an approval or a failure reply exactly NO_REPLY. Never ask about timing, tone or detail.
 - Use `npm run routines:status` to review scheduled routine state.
 - Use `npm run routines:disable -- ROUTINE_ID`, `npm run routines:enable -- ROUTINE_ID`, or `npm run routines:set-time -- ROUTINE_ID HH:mm` when the user asks to control routine check-ins. These apply to the live scheduler at once; no gateway restart.
 

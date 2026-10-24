@@ -38,6 +38,8 @@ Generated runtime files are local and private. They are ignored by git and shoul
 
 The agents run on the Codex harness. It reads `AGENTS.md` files from the repository root down to the agent workspace, so each agent gets this repo's root `AGENTS.md` followed by its own prompt. Together they share Codex's 32 KiB project-doc budget. Anything past the budget is dropped without an error, and the end of an agent prompt holds its Confirm-before-action rules. `tests/agent-boundaries.test.mjs` fails when any agent prompt plus the root guide exceeds the budget. Keep prompt additions compact, and check a new session's Codex rollout after large prompt changes.
 
+`agents/personal/SOUL.md` is outside that budget: OpenClaw puts it in the system prompt it builds (its "Agent Soul" section, in each turn's developer instructions), scheduled turns included. It holds the personal agent's voice and the policy for messages the user did not ask for.
+
 A new capability keeps its triggers and hard boundaries in the standing orders and moves the detail into `agents/personal/guides/<feature>.md`, which its helper prints when the agent runs it. The focus, playbook and weekly-plan guides work this way: the prompt says when to run `npm run --silent focus -- guide` or `npm run --silent playbook -- guide`, and tests pin both the pointer and the guide.
 
 ## Capability Registry

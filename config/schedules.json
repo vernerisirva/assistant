@@ -12,6 +12,7 @@
       "id": "midday-check-in",
       "agent": "health",
       "time": "12:30",
+      "enabled": false,
       "purpose": "Food, movement, energy, and schedule pressure check."
     },
     {
@@ -21,6 +22,7 @@
         "start": "16:00",
         "end": "19:00"
       },
+      "enabled": false,
       "purpose": "Find a realistic workout or movement moment from calendar availability."
     },
     {
@@ -36,7 +38,7 @@
     "agent": "personal",
     "day": "Sunday",
     "time": "19:00",
-    "purpose": "Review calendar, email, health friction, food planning, groceries, and one adjustment for the next week."
+    "purpose": "Sunday decision check: message only for a decision not yet made, a new development that changes a plan, a deadline that needs a choice, an approval still owed, or a real conflict; otherwise send nothing."
   },
   "weeklyPlan": {
     "id": "weekly-plan",

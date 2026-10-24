@@ -320,17 +320,22 @@ function isRoutineJob(job) {
   return typeof job?.name === "string" && job.name.startsWith(ROUTINE_JOB_PREFIX);
 }
 
+// Nobody asked for a scheduled routine's message, so its final answer is the
+// routine helper's notice for what it found: NO_REPLY unless something needs
+// the user, never a recap of what Todoist already holds.
 function buildRoutineMessage(routine) {
+  const helper = `npm run --silent routine -- ${routine.id} --scheduled`;
   return [
     `Scheduled assistant routine: ${routine.id}.`,
     `First run npm run --silent routines:skips -- --json from the assistant repo and inspect ${routine.id} for today's Europe/Stockholm date.`,
     `If ${routine.id} is skippedToday, return exactly NO_REPLY as your final answer and do no routine work.`,
     "Read the skip store result from that command before doing routine work; it is the source of truth for skippedToday.",
-    `If ${routine.id} is not skippedToday, run npm run routine -- ${routine.id} from the assistant repo and use the returned telegramPrompt as the briefing template.`,
-    "Gather or summarize live Calendar, Gmail, Todoist, health, food, and memory context where available.",
-    "Return exactly one concise Telegram check-in for Verneri as your final answer. Do not call Telegram/message tools; cron delivery will send the final answer.",
+    `If ${routine.id} is not skippedToday, run ${helper} from the assistant repo and follow its telegramPrompt.`,
+    "Gather or summarize live Calendar, Gmail, Todoist, health, food, and memory context where available, read-only.",
+    "Nobody asked for this message: the user follows Todoist directly, so a task, workout or meal already planned there is no reason to write.",
+    `Pass your findings to ${helper} --findings-json-stdin <<'JSON' ... JSON and return its text exactly as your final answer; with nothing to report that text is NO_REPLY. If the command fails, fix the JSON once, otherwise return exactly NO_REPLY.`,
+    "Do not call Telegram/message tools; cron delivery will send the final answer.",
     "No side effects without approval: do not send email, edit calendar events, change Todoist, book golf, buy anything, submit forms, or store sensitive memory without Telegram approval.",
-    "Feedback loop: include one small line asking whether the timing, tone, or detail level should change. If feedback suggests a stable preference, ask before storing it as memory; do not silently remember inferred preferences.",
   ].join("\n");
 }
 

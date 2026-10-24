@@ -34,10 +34,10 @@ npm run start:openclaw
 Planned/default routines to verify after OpenClaw automation is configured:
 
 - Morning brief at 08:00, installed disabled by default.
-- Midday check-in at 12:30.
-- Adaptive workout-window nudge between 16:00 and 19:00.
+- Midday check-in at 12:30, installed disabled by default: Todoist already holds the planned day.
+- Workout window at 17:30 (the middle of 16:00–19:00), installed disabled by default for the same reason.
 - Evening review at 21:00, installed disabled by default.
-- Weekly review on Sunday at 19:00.
+- Weekly review on Sunday at 19:00: a decision check that sends nothing unless something needs the user (see `docs/setup/routines.md`).
 
 Starting the gateway alone does not prove these routines are running automatically in the first skeleton.
 
@@ -249,6 +249,8 @@ npm run routine -- weekly-review
 ```
 
 The morning brief is a short, read-only daily plan. It covers calendar pressure, up to three must-do tasks, quick wins, one health/routine anchor, one thing to avoid, a morning/midday/afternoon plan, and any useful Todoist or Calendar suggestions. Suggestions do not change Todoist or Calendar; a separate explicit user request must follow the approval policy.
+
+A scheduled job adds `--scheduled` (`npm run --silent routine -- weekly-review --scheduled`): nobody asked for that message, so it looks only for decisions, changes, deadlines that need a choice, approvals and conflicts, and its final answer is `NO_REPLY` unless one of them needs the user. `docs/setup/routines.md` describes the notice it sends.
 
 Preview scheduled routine jobs:
 
