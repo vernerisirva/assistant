@@ -144,6 +144,11 @@ describe("routine job specs", () => {
         ),
         job.routineId,
       );
+      // A broken helper is a failure the user hears about, never a silent run.
+      assert.ok(
+        job.message.includes(`if it still fails, your final answer is one short line saying the ${job.routineId} routine could not run and why.`),
+        job.routineId,
+      );
       assert.doesNotMatch(job.message, /feedback|timing, tone|detail level|Telegram check-in/i);
       assert.match(job.message, /Do not call Telegram\/message tools/i);
       assert.match(job.message, /cron delivery will send/i);

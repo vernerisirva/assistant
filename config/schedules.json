@@ -38,7 +38,7 @@
     "agent": "personal",
     "day": "Sunday",
     "time": "19:00",
-    "purpose": "Sunday decision check: message only for a decision not yet made, a new development that changes a plan, a deadline that needs a choice, an approval still owed, or a real conflict; otherwise send nothing."
+    "purpose": "Sunday decision check: message only for a decision not yet made, a new development that changes a plan, a deadline that needs a choice, an approval still owed, a real conflict, or a connection that needs fixing; otherwise send nothing."
   },
   "weeklyPlan": {
     "id": "weekly-plan",

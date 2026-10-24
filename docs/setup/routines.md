@@ -73,6 +73,7 @@ Look at the coming week and what is still open from this one for:
 - deadline: A deadline that needs a choice, not just doing a task already planned in Todoist.
 - approval: An approval or essential missing information the user still owes.
 - conflict: A real scheduling conflict or an unforeseen blocker.
+- failure: A connection Hilla relies on that stopped working and needs the user to fix it, such as an expired sign-in.
 - not-news: Leave out what is already planned in Todoist or the weekly plan, exercise lists, start times, tips, motivation, recaps, generic priorities, and alerts already sent.
 
 Weekly review rules:
@@ -89,7 +90,7 @@ The user follows Todoist directly, so a scheduled routine never repeats what is 
 npm run --silent routine -- weekly-review --scheduled
 ```
 
-That template, for any routine, looks only for the five kinds above (a decision, a change, a deadline that needs a choice, an approval or missing information, a conflict), in the routine's own window: today, the rest of today, this evening, tomorrow, or the coming week. The agent hands what it found to the notice and returns the notice's `text` as the job's final answer:
+That template, for any routine, looks only for the six kinds above (a decision, a change, a deadline that needs a choice, an approval or missing information, a conflict, a connection that stopped working and needs the user), in the routine's own window: today, the rest of today, this evening, tomorrow, or the coming week. The agent hands what it found to the notice and returns the notice's `text` as the job's final answer:
 
 ```bash
 npm run --silent routine -- weekly-review --scheduled --findings-json-stdin <<'JSON'
@@ -97,7 +98,7 @@ npm run --silent routine -- weekly-review --scheduled --findings-json-stdin <<'J
 JSON
 ```
 
-The notice writes each finding as `What changed`, `Why it matters` and `Decision needed`, then `Deadline` and `Source` when given, at most three findings. It drops, with the reason, a finding of another kind, one missing a part, a change without its source, a deadline item without a date, a deadline that is malformed or has passed, an exercise prescription such as `3 × 8`, and a question about Hilla's own messages. With nothing left the text is exactly `NO_REPLY`, which the Gateway's cron delivery never posts; the run history records such a run as `not-delivered`.
+The notice writes each finding as `What changed`, `Why it matters` and `Decision needed`, then `Deadline` and `Source` when given, at most three findings. It drops, with the reason, a finding of another kind, one missing a part, a change without its source, a deadline item without a date, a deadline that is malformed or has passed, an exercise prescription such as `3 × 8`, and a question about Hilla's own messages. With nothing left the text is exactly `NO_REPLY`, which the Gateway's cron delivery never posts; the run history records such a run as `not-delivered`. A routine whose commands keep failing (after one fix of its JSON) is not silent: its final answer is one short line saying it could not run and why.
 
 A routine the user asks for in chat is still the full briefing: `npm run routine -- workout-window` gives a complete session, and a weekly review asked for says in one line when nothing needs a decision.
 

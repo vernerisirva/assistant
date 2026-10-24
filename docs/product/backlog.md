@@ -55,7 +55,7 @@ Priority scale:
 
 ### 5. Weekly Review Upgrade
 
-- Status: superseded on 2026-10-24. The user follows Todoist directly and asked for no recaps, so the Sunday review became a decision check that sends nothing unless a decision, a change, a deadline that needs a choice, an approval or a conflict needs them (`docs/setup/routines.md`).
+- Status: superseded on 2026-10-24. The user follows Todoist directly and asked for no recaps, so the Sunday review became a decision check that sends nothing unless a decision, a change, a deadline that needs a choice, an approval, a conflict or a broken connection needs them (`docs/setup/routines.md`).
 - Problem: Weekly review exists, but can become more useful by connecting Calendar pressure, Todoist pressure, groceries, workouts, and admin follow-ups into one concise plan.
 - User value: A useful Sunday planning message without adding more daily noise.
 - Affected agent(s): personal, admin, health.

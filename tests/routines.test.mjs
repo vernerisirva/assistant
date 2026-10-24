@@ -191,7 +191,7 @@ describe("routine briefs", () => {
     assert.equal(brief.scheduled, false);
     assert.deepEqual(
       brief.sections.map((section) => section.id),
-      ["decision", "change", "deadline", "approval", "conflict", "not-news"],
+      ["decision", "change", "deadline", "approval", "conflict", "failure", "not-news"],
     );
     assert.match(brief.telegramPrompt, /Look at the coming week and what is still open from this one for:/);
     assert.match(brief.telegramPrompt, /- deadline: A deadline that needs a choice, not just doing a task already planned in Todoist\./);
@@ -214,7 +214,7 @@ describe("routine briefs", () => {
       const brief = buildRoutineBrief(routineId, { schedules, food, memoryEntries, now: "2026-10-20T15:30:00.000Z", scheduled: true });
 
       assert.equal(brief.scheduled, true);
-      assert.deepEqual(brief.sections.map((section) => section.id), ["decision", "change", "deadline", "approval", "conflict", "not-news"], routineId);
+      assert.deepEqual(brief.sections.map((section) => section.id), ["decision", "change", "deadline", "approval", "conflict", "failure", "not-news"], routineId);
       assert.match(brief.telegramPrompt, new RegExp(`^${brief.title} \\(${brief.agent}\\), scheduled\\n`));
       assert.match(brief.telegramPrompt, /Nobody asked for this message\. The user follows Todoist directly, so write only about what needs their attention, and never make up a decision to have something to send\./);
       assert.match(brief.telegramPrompt, /News about something that also has a Todoist task is still news: say what changed, never what the task says\./);
@@ -291,7 +291,7 @@ describe("scheduled routine notice", () => {
     assert.deepEqual(
       result.dropped.map((entry) => [entry.index, entry.problems]),
       [
-        [0, ["kind must be decision, change, deadline, approval, conflict: a planned task, workout, meal or recap is not news"]],
+        [0, ["kind must be decision, change, deadline, approval, conflict, failure: a planned task, workout, meal or recap is not news"]],
         [1, ["an exercise prescription: planned sessions stay in Todoist"]],
         [2, ["a question about Hilla's own messages: the user can ask for changes any time"]],
         [3, ["a question about Hilla's own messages: the user can ask for changes any time"]],

@@ -254,7 +254,7 @@ describe("proactive notifications: a scheduled run", () => {
     assert.deepEqual(
       run.notice.dropped.map((entry) => entry.problems[0]),
       [
-        "kind must be decision, change, deadline, approval, conflict: a planned task, workout, meal or recap is not news",
+        "kind must be decision, change, deadline, approval, conflict, failure: a planned task, workout, meal or recap is not news",
         "an exercise prescription: planned sessions stay in Todoist",
         "a question about Hilla's own messages: the user can ask for changes any time",
       ],
@@ -293,7 +293,7 @@ describe("proactive notifications: a scheduled run", () => {
 
     const run = await scheduledRun(fake, "weekly-review", { items: [] }, { now: sunday });
     assert.equal(run.job.enabled, true);
-    assert.deepEqual(run.brief.sections.map((section) => section.id), ["decision", "change", "deadline", "approval", "conflict", "not-news"]);
+    assert.deepEqual(run.brief.sections.map((section) => section.id), ["decision", "change", "deadline", "approval", "conflict", "failure", "not-news"]);
     assert.doesNotMatch(run.brief.telegramPrompt, /week-recap|unfinished-tasks|health-routines|top-3-priorities|stop-or-simplify/);
     assert.equal(run.finalAnswer, "NO_REPLY");
 
@@ -344,6 +344,43 @@ describe("proactive notifications: a scheduled run", () => {
       ].join("\n"),
     );
     assert.doesNotMatch(run.finalAnswer, QUESTION_ABOUT_MESSAGES);
+  });
+
+  it("still reports a connection that stopped working and needs the user", async () => {
+    const { fake } = await installedGateway();
+    const run = await scheduledRun(
+      fake,
+      "weekly-review",
+      {
+        items: [
+          {
+            kind: "failure",
+            whatChanged: "Todoist refuses Hilla's token since Thursday.",
+            whyItMatters: "Saturday's weekly plan can't see or create tasks until it is renewed.",
+            decision: "Create a new Todoist token and update it in Hilla's settings.",
+            source: "Todoist API, 401 Unauthorized",
+          },
+        ],
+      },
+      { now: "2026-10-25T18:00:00.000Z" },
+    );
+
+    assert.match(run.brief.telegramPrompt, /- failure: A connection Hilla relies on that stopped working and needs the user to fix it, such as an expired sign-in; not a source that was merely unavailable this time\./);
+    assert.equal(
+      run.finalAnswer,
+      "What changed: Todoist refuses Hilla's token since Thursday.\nWhy it matters: Saturday's weekly plan can't see or create tasks until it is renewed.\nDecision needed: Create a new Todoist token and update it in Hilla's settings.\nSource: Todoist API, 401 Unauthorized",
+    );
+  });
+
+  it("says so in one line when a routine command keeps failing, instead of going silent", async () => {
+    const { fake } = await installedGateway();
+    const message = liveJob(fake, routineJobName("weekly-review")).payload.message;
+
+    assert.match(message, /If a routine command fails, fix the JSON once; if it still fails, your final answer is one short line saying the weekly-review routine could not run and why\./);
+    await assert.rejects(
+      runRoutineCli(["weekly-review", "--scheduled", "--findings-json-stdin"], { schedules, food, memoryEntries: [], stdin: Readable.from(['{"items": ']) }),
+      /^Error: The findings are not valid JSON/,
+    );
   });
 
   it("sends nothing on a day the user skipped, without running the routine", async () => {

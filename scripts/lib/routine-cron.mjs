@@ -333,7 +333,7 @@ function buildRoutineMessage(routine) {
     `If ${routine.id} is not skippedToday, run ${helper} from the assistant repo and follow its telegramPrompt.`,
     "Gather or summarize live Calendar, Gmail, Todoist, health, food, and memory context where available, read-only.",
     "Nobody asked for this message: the user follows Todoist directly, so a task, workout or meal already planned there is no reason to write.",
-    `Pass your findings to ${helper} --findings-json-stdin <<'JSON' ... JSON and return its text exactly as your final answer; with nothing to report that text is NO_REPLY. If the command fails, fix the JSON once, otherwise return exactly NO_REPLY.`,
+    `Pass your findings to ${helper} --findings-json-stdin <<'JSON' ... JSON and return its text exactly as your final answer; with nothing to report that text is NO_REPLY. If a routine command fails, fix the JSON once; if it still fails, your final answer is one short line saying the ${routine.id} routine could not run and why.`,
     "Do not call Telegram/message tools; cron delivery will send the final answer.",
     "No side effects without approval: do not send email, edit calendar events, change Todoist, book golf, buy anything, submit forms, or store sensitive memory without Telegram approval.",
   ].join("\n");

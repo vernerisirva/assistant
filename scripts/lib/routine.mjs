@@ -53,7 +53,7 @@ const approvalRequired = [
 ];
 
 /** What may make a scheduled routine write to the user. A plan already in Todoist is none of these. */
-export const ATTENTION_KINDS = Object.freeze(["decision", "change", "deadline", "approval", "conflict"]);
+export const ATTENTION_KINDS = Object.freeze(["decision", "change", "deadline", "approval", "conflict", "failure"]);
 
 const NOTICE_LIMITS = Object.freeze({ items: 3, whatChanged: 300, whyItMatters: 300, decision: 240, source: 200 });
 
@@ -294,6 +294,7 @@ function attentionSections() {
     section("deadline", "A deadline that needs a choice, not just doing a task already planned in Todoist."),
     section("approval", "An approval or essential missing information the user still owes; npm run --silent pending lists what Hilla is waiting for."),
     section("conflict", "A real scheduling conflict or an unforeseen blocker."),
+    section("failure", "A connection Hilla relies on that stopped working and needs the user to fix it, such as an expired sign-in; not a source that was merely unavailable this time."),
     section(
       "not-news",
       "Leave out what is already planned in Todoist or the weekly plan (tasks, workouts, stretching, meals, prep, shopping), exercise lists, start times, water or kit tips, motivation, recaps, generic priorities, and alerts the stock watch, renewal watch or weekly plan already sent.",

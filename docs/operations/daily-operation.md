@@ -250,7 +250,7 @@ npm run routine -- weekly-review
 
 The morning brief is a short, read-only daily plan. It covers calendar pressure, up to three must-do tasks, quick wins, one health/routine anchor, one thing to avoid, a morning/midday/afternoon plan, and any useful Todoist or Calendar suggestions. Suggestions do not change Todoist or Calendar; a separate explicit user request must follow the approval policy.
 
-A scheduled job adds `--scheduled` (`npm run --silent routine -- weekly-review --scheduled`): nobody asked for that message, so it looks only for decisions, changes, deadlines that need a choice, approvals and conflicts, and its final answer is `NO_REPLY` unless one of them needs the user. `docs/setup/routines.md` describes the notice it sends.
+A scheduled job adds `--scheduled` (`npm run --silent routine -- weekly-review --scheduled`): nobody asked for that message, so it looks only for decisions, changes, deadlines that need a choice, approvals, conflicts and connections that need fixing, and its final answer is `NO_REPLY` unless one of them needs the user. If its commands keep failing it says so in one line. `docs/setup/routines.md` describes the notice it sends.
 
 Preview scheduled routine jobs:
 
