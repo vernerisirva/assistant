@@ -308,6 +308,39 @@ describe("weekly plan: a change after the plan was applied", () => {
     assert.match(proposal.telegramText, /\n• Tue 27 Oct — Gym – Helkropp A, tisdag: changed in Todoist since the plan made it\n/);
   });
 
+  it("never changes or removes a task the apply found already in Todoist: it is the user's", async () => {
+    at(SHOWN);
+    await run(["propose", "--send"]);
+    const v1 = versionEntry(plan(), 1).plan;
+    const stretch = v1.operations.find((operation) => operation.activity === "stretch");
+    // The user already had this exact task before the plan applied, so the apply reused it.
+    const own = todoist.addOwn(stretch.payload.content, stretch.date);
+    todoist.edit(own.id, { description: stretch.payload.description });
+    at(DEADLINE);
+    await run(["apply-due"]);
+    assert.equal(plan().apply.outcomes[stretch.opId].status, "already_exists");
+    at(LATER);
+    // A change that drops that day's stretching would remove the plan's own session, but not the user's.
+    const others = v1.operations.filter((operation) => operation.activity === "stretch" && operation.opId !== stretch.opId).map((operation) => operation.date);
+    const proposal = await reconcile({ activityDays: { stretch: others } });
+    const record = plan().reconciliations[0];
+    assert.ok(!record.changes.some((change) => change.taskId === own.id), "the user's task is never touched");
+    assert.deepEqual(record.leftAlone.find((entry) => entry.title === stretch.payload.content)?.reason, "yours");
+    assert.match(proposal.telegramText, /: the plan didn't make it, so it stays as it is\n/);
+  });
+
+  it("refuses the whole proposal, before any change, when Todoist can't do one of its operations", async () => {
+    await applyWeek();
+    await reconcile(CHANGE);
+    const { updateTask, ...withoutUpdates } = todoist;
+    const before = todoist.mutations();
+    const refused = await run(["reconcile-apply", "--proposal-id", "r1", "--reply-text", "Approve"], { todoistClient: withoutUpdates });
+    assert.equal(refused.status, "proposed");
+    assert.match(refused.telegramText, /^Todoist can't make all of these changes from here \(updateTask is missing\), so nothing was changed\.$/);
+    assert.equal(todoist.mutations(), before, "no change was made");
+    assert.equal((await approve("r1")).status, "applied", "with the full client the same proposal still goes through");
+  });
+
   it("stops safely: no reconcile before the plan is applied, and nothing stored when the change isn't in the user's words", async () => {
     at(SHOWN);
     await run(["propose", "--send"]);
@@ -351,7 +384,7 @@ describe("weekly plan reconciliation, approval and policy", () => {
 
 describe("weekly plan reconciliation, planned", () => {
   const op = (activity, date, content, description = "") => ({ opId: `${activity}:${date}`, activity, date, payload: { content, description, due_string: date } });
-  const expect = (taskId, content, date, description = "") => ({ taskId, content, description, due: date });
+  const expect = (taskId, content, date, { description = "", owned = true } = {}) => ({ taskId, content, description, due: date, owned });
   const task = (id, content, date, description = "") => ({ id, content, description, due: { date } });
 
   it("moves an unchanged session to its new day instead of deleting and adding, and skips days that have passed", () => {

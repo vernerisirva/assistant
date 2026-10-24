@@ -46,14 +46,17 @@ const ACTION_ORDER = Object.freeze(["create", "update", "delete"]);
  * No completing, reopening, moving between projects or comments.
  */
 export function createReconciliationTodoistGateway(client) {
+  const has = (name) => typeof client?.[name] === "function";
   return Object.freeze({
     getTasks: () => client.getTasks({}),
     getTask: (taskId) => client.getTask(taskId),
-    addTask: (payload, options) => client.addTask(payload, options),
-    updateTask: (taskId, fields, options) => client.updateTask(taskId, fields, options),
-    deleteTask: (taskId) => client.deleteTask(taskId),
+    ...(has("addTask") ? { addTask: (payload, options) => client.addTask(payload, options) } : {}),
+    ...(has("updateTask") ? { updateTask: (taskId, fields, options) => client.updateTask(taskId, fields, options) } : {}),
+    ...(has("deleteTask") ? { deleteTask: (taskId) => client.deleteTask(taskId) } : {}),
   });
 }
+
+const ACTION_METHODS = Object.freeze({ create: "addTask", update: "updateTask", delete: "deleteTask" });
 
 export function isReconcilable(document) {
   return RECONCILABLE_STATUSES.includes(document.status) && Boolean(document.apply);
@@ -62,7 +65,9 @@ export function isReconcilable(document) {
 /**
  * What the plan believes the week is now: the applied version, or the last
  * reconciliation that was carried out, with the task each operation became
- * (`expected`: opId → { taskId, content, description, due }).
+ * (`expected`: opId → { taskId, content, description, due, owned }). Only a
+ * task the plan created is `owned`, and only an owned task may ever be
+ * changed or removed: one the apply found already in Todoist is the user's.
  */
 export function reconciliationBase(document) {
   const last = (document.reconciliations ?? []).filter((record) => RECONCILABLE_STATUSES.includes(record.status)).at(-1);
@@ -72,7 +77,7 @@ export function reconciliationBase(document) {
   for (const operation of entry.plan.operations) {
     const outcome = document.apply.outcomes?.[operation.opId];
     if (!outcome?.taskId || !["created", "already_exists"].includes(outcome.status)) continue;
-    expected[operation.opId] = { taskId: String(outcome.taskId), ...taskState(operation.payload) };
+    expected[operation.opId] = { taskId: String(outcome.taskId), ...taskState(operation.payload), owned: outcome.status === "created" };
   }
   return { from: null, inputs: entry.inputs, plan: entry.plan, expected };
 }
@@ -107,9 +112,14 @@ export function planReconciliation({ expected, target, openTasks, closed = new M
     const before = expected[operation.opId];
     const task = before ? open.get(before.taskId) : null;
     if (before && task) {
-      if (fits(task, operation.payload)) kept.push({ opId: operation.opId, taskId: before.taskId, date: operation.date, title: task.content });
+      if (fits(task, operation.payload)) kept.push({ opId: operation.opId, taskId: before.taskId, date: operation.date, title: task.content, ...(before.owned ? {} : { owned: false }) });
+      else if (!before.owned) note({ ...operation, title: task.content }, "yours", task);
       else if (fits(task, before)) changes.push(update(operation, before.taskId, task));
       else note({ ...operation, title: task.content }, "edited", task);
+      continue;
+    }
+    if (before && !before.owned) {
+      note({ ...operation, title: before.content }, "yours");
       continue;
     }
     if (before) {
@@ -139,6 +149,10 @@ export function planReconciliation({ expected, target, openTasks, closed = new M
     if (targetIds.has(opId) || (today && date < today)) continue;
     const task = open.get(before.taskId);
     if (!task) continue;
+    if (!before.owned) {
+      note({ opId, date, title: task.content }, "yours", task);
+      continue;
+    }
     if (!fits(task, before)) {
       note({ opId, date, title: task.content }, "edited", task);
       continue;
@@ -154,7 +168,7 @@ export function planReconciliation({ expected, target, openTasks, closed = new M
     const same = duplicate.matches.find((match) => String(match.dueDate ?? "").slice(0, 10) === operation.date || match.recurring);
     if (same) {
       claimed.add(String(same.id));
-      kept.push({ opId: operation.opId, taskId: String(same.id), date: operation.date, title: operation.payload.content });
+      kept.push({ opId: operation.opId, taskId: String(same.id), date: operation.date, title: operation.payload.content, owned: false });
       continue;
     }
     if (duplicate.unreadableEntries > 0) {
@@ -288,6 +302,7 @@ const LEFT_ALONE = Object.freeze({
   removed: "removed from Todoist, so not added back",
   unchecked: "no longer open, and I couldn't check why",
   covered: "that day already has this activity in Todoist",
+  yours: "the plan didn't make it, so it stays as it is",
   unreadable: "part of the Todoist list couldn't be read, so I can't rule out a duplicate",
 });
 
@@ -339,6 +354,10 @@ export async function applyReconciliation({
       }
       if (digestChanges(record.changes) !== record.digest) {
         throw new Error(`Proposal ${proposalId} of ${planId} changed after it was shown; nothing was changed.`);
+      }
+      const unsupported = [...new Set(record.changes.map((change) => ACTION_METHODS[change.action]))].filter((method) => typeof todoist[method] !== "function");
+      if (unsupported.length > 0) {
+        return { status: record.status, record, telegramText: `Todoist can't make all of these changes from here (${unsupported.join(", ")} is missing), so nothing was changed.` };
       }
       const read = await readOpenTasksWithRetry(todoist, { ...(sleep ? { sleep } : {}), ...(retryDelaysMs ? { retryDelaysMs } : {}) });
       if (read.error) {
@@ -461,16 +480,16 @@ function expectedAfter(record, startExpected) {
   const expected = structuredClone(startExpected);
   for (const entry of record.kept) {
     const target = record.targetOperations.find((operation) => operation.opId === entry.opId);
-    if (target) expected[entry.opId] = { taskId: entry.taskId, content: target.content, description: target.description, due: target.due };
+    if (target) expected[entry.opId] = { taskId: entry.taskId, content: target.content, description: target.description, due: target.due, owned: entry.owned !== false };
   }
   for (const change of record.changes) {
     const outcome = record.outcomes[change.id];
     if (outcome?.status !== "done") continue;
     if (change.action === "create") {
-      if (outcome.taskId) expected[change.opId] = { taskId: outcome.taskId, ...taskState(change.payload) };
+      if (outcome.taskId) expected[change.opId] = { taskId: outcome.taskId, ...taskState(change.payload), owned: true };
     } else if (change.action === "update") {
       if (change.fromOpId) delete expected[change.fromOpId];
-      expected[change.opId] = { taskId: change.taskId, ...change.after };
+      expected[change.opId] = { taskId: change.taskId, ...change.after, owned: true };
     } else {
       delete expected[change.opId];
     }
